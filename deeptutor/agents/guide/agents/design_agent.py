@@ -79,12 +79,19 @@ class DesignAgent(BaseAgent):
                 if isinstance(result, list):
                     knowledge_points = result
                 elif isinstance(result, dict):
+                    # First check if it's a wrapper object with knowledge_points array
                     knowledge_points = (
                         result.get("knowledge_points")
                         or result.get("points")
                         or result.get("data")
-                        or []
                     )
+                    # If not found, check if the dict itself is a single knowledge point
+                    if knowledge_points is None:
+                        if "knowledge_title" in result:
+                            # Single knowledge point object - wrap it in a list
+                            knowledge_points = [result]
+                        else:
+                            knowledge_points = []
                 else:
                     knowledge_points = []
 
