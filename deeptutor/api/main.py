@@ -86,6 +86,21 @@ async def lifespan(app: FastAPI):
     # Validate configuration consistency
     validate_tool_consistency()
 
+    # Initialize Exam Packs PostgreSQL (graceful if PG_HOST is unset)
+    try:
+        from deeptutor.services.exam.db import init_pg
+        pg_ready = await init_pg()
+        if pg_ready:
+            logger.info("Exam Packs PostgreSQL ready")
+            from deeptutor.services.exam.seed import seed_exam_packs
+            from deeptutor.services.exam.ingest import ingest_questions
+            await seed_exam_packs()
+            n = await ingest_questions()
+            if n:
+                logger.info(f"Ingested {n} exam questions")
+    except Exception as e:
+        logger.warning(f"Exam Packs PostgreSQL init skipped: {e}")
+
     # Initialize LLM client early so OPENAI_* env vars are available before
     # any downstream provider integrations start.
     try:
@@ -115,6 +130,13 @@ async def lifespan(app: FastAPI):
 
     # Execute on shutdown
     logger.info("Application shutdown")
+
+    # Close Exam Packs PostgreSQL
+    try:
+        from deeptutor.services.exam.db import close_pg
+        await close_pg()
+    except Exception as e:
+        logger.warning(f"Exam Packs PG shutdown error: {e}")
 
     # Stop TutorBots
     try:
@@ -201,6 +223,7 @@ from deeptutor.api.routers import (
     chat,
     co_writer,
     dashboard,
+    exams,
     guide,
     knowledge,
     memory,
@@ -235,6 +258,9 @@ app.include_router(plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"
 app.include_router(agent_config.router, prefix="/api/v1/agent-config", tags=["agent-config"])
 app.include_router(vision_solver.router, prefix="/api/v1", tags=["vision-solver"])
 app.include_router(tutorbot.router, prefix="/api/v1/tutorbot", tags=["tutorbot"])
+
+# Exam Packs, Diagnostic, Study Plan, Score Predictor, Knowledge Base
+app.include_router(exams.router, prefix="/api/v1/exams", tags=["exams"])
 
 # Unified WebSocket endpoint
 app.include_router(unified_ws.router, prefix="/api/v1", tags=["unified-ws"])

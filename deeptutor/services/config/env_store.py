@@ -28,6 +28,11 @@ ENV_KEY_ORDER = (
     "SEARCH_API_KEY",
     "SEARCH_BASE_URL",
     "SEARCH_PROXY",
+    "PG_HOST",
+    "PG_PORT",
+    "PG_USER",
+    "PG_PASSWORD",
+    "PG_DATABASE",
 )
 
 
