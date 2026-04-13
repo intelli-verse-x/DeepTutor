@@ -95,6 +95,7 @@ class StudyPlanOut(BaseModel):
     exam_type: str
     days: list[dict[str, Any]]
     generated_at: str
+    exam_format: dict[str, Any] = {}
 
 class TaskCompleteRequest(BaseModel):
     task_id: str
@@ -283,17 +284,23 @@ async def diagnostic_start(
     x_user_id: str = Header(),
     session: AsyncSession = Depends(get_session),
 ):
+    metadata = await _get_exam_metadata(session, body.exam_type)
+    exam_subjects = _extract_exam_subjects(metadata) or DIAG_SUBJECTS
+    total_q = max(DIAG_TOTAL_QUESTIONS, len(exam_subjects) * 2 + 1)
+
     ds = DiagnosticSession(
         user_id=x_user_id,
         exam_type=body.exam_type,
-        total_questions=DIAG_TOTAL_QUESTIONS,
+        total_questions=total_q,
         current_difficulty="medium",
         status="in_progress",
     )
     session.add(ds)
     await session.flush()
 
-    first_q = await _pick_diagnostic_question(session, body.exam_type, "medium", DIAG_SUBJECTS[0], set())
+    first_q = await _pick_diagnostic_question(
+        session, body.exam_type, "medium", exam_subjects[0], set(),
+    )
     if not first_q:
         raise HTTPException(404, "No diagnostic questions available for this exam type")
 
@@ -302,7 +309,9 @@ async def diagnostic_start(
         "session_id": str(ds.id),
         "question": _q_dict(first_q),
         "question_number": 1,
-        "total": DIAG_TOTAL_QUESTIONS,
+        "total": total_q,
+        "exam_subjects": exam_subjects,
+        "exam_format": metadata.get("format", {}),
     }
 
 
@@ -335,7 +344,7 @@ async def diagnostic_answer(
     session.add(da)
 
     new_number = answer_count + 2
-    if new_number > DIAG_TOTAL_QUESTIONS:
+    if new_number > ds.total_questions:
         ds.status = "completed"
         await session.commit()
         return {"status": "completed", "session_id": str(ds.id)}
@@ -350,8 +359,11 @@ async def diagnostic_answer(
         idx = max(DIFFICULTY_LEVELS.index(ds.current_difficulty) - 1, 0)
     ds.current_difficulty = DIFFICULTY_LEVELS[idx]
 
-    subj_index = (answer_count + 1) % len(DIAG_SUBJECTS)
-    next_subj = DIAG_SUBJECTS[subj_index]
+    metadata = await _get_exam_metadata(session, ds.exam_type)
+    exam_subjects = _extract_exam_subjects(metadata) or DIAG_SUBJECTS
+
+    subj_index = (answer_count + 1) % len(exam_subjects)
+    next_subj = exam_subjects[subj_index]
 
     next_q = await _pick_diagnostic_question(session, ds.exam_type, ds.current_difficulty, next_subj, answered_ids)
     if not next_q:
@@ -366,7 +378,7 @@ async def diagnostic_answer(
         "session_id": str(ds.id),
         "question": _q_dict(next_q),
         "question_number": new_number,
-        "total": DIAG_TOTAL_QUESTIONS,
+        "total": ds.total_questions,
         "current_difficulty": ds.current_difficulty,
     }
 
@@ -439,6 +451,31 @@ def _q_dict(q: ExamQuestion) -> dict[str, Any]:
     }
 
 
+async def _get_exam_metadata(session: AsyncSession, exam_type: str) -> dict[str, Any]:
+    """Fetch ExamPack metadata matching the given exam_type name."""
+    normalized = exam_type.replace("_", " ")
+    stmt = select(ExamPack).where(ExamPack.name.ilike(f"%{normalized}%")).limit(1)
+    ep = (await session.execute(stmt)).scalar_one_or_none()
+    if ep and ep.metadata_:
+        return ep.metadata_
+    return {}
+
+
+def _extract_exam_subjects(metadata: dict[str, Any]) -> list[str]:
+    """Extract subject names from exam format sections.
+
+    Sections look like ``"Physics (25 MCQ + 5 Numerical)"`` — we strip
+    the parenthetical detail and return ``["Physics", ...]``.
+    """
+    sections = metadata.get("format", {}).get("sections", [])
+    subjects: list[str] = []
+    for sec in sections:
+        name = sec.split("(")[0].strip()
+        if name:
+            subjects.append(name)
+    return subjects
+
+
 # ---------------------------------------------------------------------------
 # 3. Personalized Study Plan
 # ---------------------------------------------------------------------------
@@ -450,6 +487,9 @@ async def generate_study_plan(
     x_user_id: str = Header(),
     session: AsyncSession = Depends(get_session),
 ):
+    exam_metadata = await _get_exam_metadata(session, exam_type)
+    exam_subjects = _extract_exam_subjects(exam_metadata)
+
     weak_subjects: list[str] = []
     if diagnostic_session_id:
         ds = await session.get(DiagnosticSession, uuid.UUID(diagnostic_session_id))
@@ -470,9 +510,9 @@ async def generate_study_plan(
             ]
 
     if not weak_subjects:
-        weak_subjects = ["Mathematics", "Physics", "Chemistry"]
+        weak_subjects = exam_subjects if exam_subjects else ["Mathematics", "Physics", "Chemistry"]
 
-    days_data = _build_study_plan_days(weak_subjects, exam_type)
+    days_data = _build_study_plan_days(weak_subjects, exam_type, exam_metadata=exam_metadata or None)
 
     plan = StudyPlan(user_id=x_user_id, exam_type=exam_type, plan_data=days_data, diagnostic_session_id=uuid.UUID(diagnostic_session_id) if diagnostic_session_id else None)
     session.add(plan)
@@ -494,6 +534,7 @@ async def generate_study_plan(
         exam_type=exam_type,
         days=days_data,
         generated_at=plan.created_at.isoformat() if plan.created_at else datetime.now(timezone.utc).isoformat(),
+        exam_format=exam_metadata.get("format", {}) if exam_metadata else {},
     )
 
 
@@ -535,8 +576,12 @@ async def complete_task(
     return {"status": "ok", "task_id": str(task.id)}
 
 
-def _build_study_plan_days(weak_subjects: list[str], exam_type: str) -> list[dict[str, Any]]:
-    templates = {
+def _build_study_plan_days(
+    weak_subjects: list[str],
+    exam_type: str,
+    exam_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    fallback_templates = {
         "Mathematics": ["Review core formulas (MathBot)", "Solve 10 practice problems", "Watch concept animation", "Practice test: 15 questions"],
         "Physics": ["Theory review (SciBot)", "Solve 10 numerical problems", "Visual simulation", "Practice test: 15 questions"],
         "Chemistry": ["IUPAC / concept rules", "Practice naming / equations", "Reaction mechanisms quiz", "Practice test: 15 questions"],
@@ -544,26 +589,70 @@ def _build_study_plan_days(weak_subjects: list[str], exam_type: str) -> list[dic
         "English": ["Grammar rules review", "Reading comprehension practice", "Vocabulary building exercise"],
         "Reasoning": ["Pattern recognition drills", "Logical deduction problems", "Data interpretation practice"],
     }
-    days = []
-    for i, subj in enumerate(weak_subjects[:4]):
-        tasks = templates.get(subj, templates["Mathematics"])
+
+    fmt = (exam_metadata or {}).get("format", {})
+    sections_raw: list[str] = fmt.get("sections", [])
+    neg_marking: str = fmt.get("negative_marking", "")
+    timing: str = fmt.get("duration", "")
+    calculator: str = fmt.get("calculator", "")
+    q_types: list[str] = fmt.get("question_types", [])
+    exam_label = exam_type.upper().replace("_", " ")
+
+    section_details: dict[str, dict[str, str]] = {}
+    for sec in sections_raw:
+        name = sec.split("(")[0].strip()
+        detail = sec[sec.index("("):] if "(" in sec else ""
+        section_details[name] = {"raw": sec, "detail": detail}
+
+    days: list[dict[str, Any]] = []
+    for i, subj in enumerate(weak_subjects[:5]):
+        tasks: list[str] = []
+        sec_info = section_details.get(subj)
+
+        if sec_info:
+            tasks.append(f"Study section format: {sec_info['raw']}")
+        else:
+            tasks.append(f"Review {subj} fundamentals")
+
+        if q_types:
+            tasks.append(f"Practice question types: {', '.join(q_types)}")
+        tasks.append(f"Solve 10–15 {subj} practice problems")
+
+        if neg_marking:
+            tasks.append(f"Accuracy drill (negative marking: {neg_marking})")
+        if timing:
+            tasks.append(f"Timed practice — target pace for {timing} total duration")
+        if calculator:
+            tasks.append(f"Calculator policy: {calculator}")
+
+        fallback = fallback_templates.get(subj, fallback_templates.get("Mathematics", []))
+        for fb in fallback:
+            if fb not in tasks:
+                tasks.append(fb)
+                break
+
         days.append({
             "day": i + 1,
             "label": f"Day {i + 1}" + (" · Today" if i == 0 else (" · Tomorrow" if i == 1 else "")),
             "subject": subj,
-            "title": f"{exam_type.upper().replace('_', ' ')} {subj}",
+            "title": f"{exam_label} — {subj}",
             "tasks": tasks,
         })
+
+    mock_tasks = [
+        "Revision: weak areas from previous days",
+        f"Full-length mock test ({timing or '45 min'}, simulating real {exam_label} format)",
+        "Analyze mistakes with AI tutor",
+    ]
+    if neg_marking:
+        mock_tasks.append(f"Review negative-marking strategy ({neg_marking})")
+
     days.append({
         "day": len(days) + 1,
         "label": f"Day {len(days) + 1}",
         "subject": "Review",
-        "title": "Weekly Review + Mock Test",
-        "tasks": [
-            "Revision: weak areas from previous days",
-            "Mini mock test (45 min, 30 Qs)",
-            "Analyze mistakes with AI tutor",
-        ],
+        "title": f"{exam_label} — Weekly Review + Mock Test",
+        "tasks": mock_tasks,
     })
     return days
 
@@ -600,18 +689,30 @@ async def predict_score(
     )
     subj_rows = (await session.execute(subj_stmt)).all()
 
-    max_score = 300.0
+    metadata = await _get_exam_metadata(session, body.exam_type)
+    scoring = metadata.get("scoring", {})
+    fmt = metadata.get("format", {})
+
+    max_score = float(
+        scoring.get("max_score")
+        or fmt.get("total_marks")
+        or 300.0
+    )
+    total_candidates = int(scoring.get("total_candidates", 1_000_000))
+
+    num_subjects = len(subj_rows) or 1
+    subject_max = max_score / num_subjects
+
     subj_breakdown: dict[str, Any] = {}
     weighted_score = 0.0
     for subj, total, correct in subj_rows:
         pct = (correct / total) * 100 if total else 0
-        subject_max = 100.0
         predicted = round(pct * subject_max / 100, 1)
         subj_breakdown[subj] = {"predicted": predicted, "max": subject_max, "accuracy_pct": round(pct, 1)}
         weighted_score += predicted
 
     percentile = min(99.9, max(1.0, _score_to_percentile(weighted_score, max_score)))
-    rank = max(1, int(1_200_000 * (1 - percentile / 100)))
+    rank = max(1, int(total_candidates * (1 - percentile / 100)))
 
     focus_areas = [s for s, v in subj_breakdown.items() if v["accuracy_pct"] < 70]
     insight = f"Focus on {', '.join(focus_areas)} to improve your score." if focus_areas else "Great performance across all subjects!"
