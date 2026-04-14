@@ -1,34 +1,30 @@
 """
-Two-file public memory system: SUMMARY.md and PROFILE.md.
+Per-user persistent memory backed by PostgreSQL.
 
-- SUMMARY: Running summary of the user's learning journey (auto-updated).
-- PROFILE: User identity, preferences, knowledge levels (auto-updated).
-
-Per-bot files (SOUL.md, TOOLS.md, USER.md, etc.) live in each bot's
-workspace directory, not in the shared memory dir.
+Each user has one row in `user_memory` with `summary` and `profile` text
+columns. Falls back to the old file-based system when PG is unavailable.
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+from sqlalchemy import select
+
+from deeptutor.api.middleware.tenant import get_current_user_id
 from deeptutor.services.llm import stream as llm_stream
-from deeptutor.services.path_service import PathService, get_path_service
-from deeptutor.services.session.sqlite_store import SQLiteSessionStore, get_sqlite_session_store
 
 MemoryFile = Literal["summary", "profile"]
 MEMORY_FILES: list[MemoryFile] = ["summary", "profile"]
 
 _NO_CHANGE = "NO_CHANGE"
 
-_FILENAMES: dict[MemoryFile, str] = {
-    "summary": "SUMMARY.md",
-    "profile": "PROFILE.md",
-}
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -46,139 +42,91 @@ class MemoryUpdateResult:
     updated_at: str | None
 
 
+def _user_id_or_default(user_id: str | None) -> str:
+    return (user_id or "").strip() or get_current_user_id()
+
+
 class MemoryService:
-    """Two-file public memory: SUMMARY + PROFILE."""
-
-    def __init__(
-        self,
-        path_service: PathService | None = None,
-        store: SQLiteSessionStore | None = None,
-    ) -> None:
-        self._path_service = path_service or get_path_service()
-        self._store = store or get_sqlite_session_store()
-        self._migrate_legacy()
-
-    @property
-    def _memory_dir(self) -> Path:
-        return self._path_service.get_memory_dir()
-
-    def _path(self, which: MemoryFile) -> Path:
-        return self._memory_dir / _FILENAMES[which]
-
-    def _migrate_legacy(self) -> None:
-        """One-time migration from old memory.md to the two-file system."""
-        legacy = self._memory_dir / "memory.md"
-        if not legacy.exists():
-            return
-        if self._path("profile").exists() or self._path("summary").exists():
-            return
-
-        content = legacy.read_text(encoding="utf-8").strip()
-        if not content:
-            legacy.rename(legacy.with_suffix(".md.bak"))
-            return
-
-        preferences, context = self._extract_legacy_sections(content)
-        self._memory_dir.mkdir(parents=True, exist_ok=True)
-        if preferences:
-            self._path("profile").write_text(
-                f"## Preferences\n{preferences}", encoding="utf-8",
-            )
-        if context:
-            self._path("summary").write_text(
-                f"## Learning Journey\n{context}", encoding="utf-8",
-            )
-        legacy.rename(legacy.with_suffix(".md.bak"))
+    """Per-user memory: SUMMARY + PROFILE in PostgreSQL."""
 
     # ── Read ──────────────────────────────────────────────────────────
 
-    def read_file(self, which: MemoryFile) -> str:
-        path = self._path(which)
-        if not path.exists():
+    async def read_file(self, which: MemoryFile, *, user_id: str | None = None) -> str:
+        uid = _user_id_or_default(user_id)
+        row = await self._get_row(uid)
+        if row is None:
             return ""
-        try:
-            return path.read_text(encoding="utf-8").strip()
-        except Exception:
-            return ""
+        return getattr(row, which, "") or ""
 
-    def read_summary(self) -> str:
-        return self.read_file("summary")
+    async def read_summary(self, *, user_id: str | None = None) -> str:
+        return await self.read_file("summary", user_id=user_id)
 
-    def read_profile(self) -> str:
-        return self.read_file("profile")
+    async def read_profile(self, *, user_id: str | None = None) -> str:
+        return await self.read_file("profile", user_id=user_id)
 
-    def _file_updated_at(self, which: MemoryFile) -> str | None:
-        path = self._path(which)
-        if not path.exists():
-            return None
-        try:
-            return datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat()
-        except Exception:
-            return None
-
-    def read_snapshot(self) -> MemorySnapshot:
+    async def read_snapshot(self, *, user_id: str | None = None) -> MemorySnapshot:
+        uid = _user_id_or_default(user_id)
+        row = await self._get_row(uid)
+        if row is None:
+            return MemorySnapshot(
+                summary="", profile="",
+                summary_updated_at=None, profile_updated_at=None,
+            )
+        ts = row.updated_at.isoformat() if row.updated_at else None
         return MemorySnapshot(
-            summary=self.read_summary(),
-            profile=self.read_profile(),
-            summary_updated_at=self._file_updated_at("summary"),
-            profile_updated_at=self._file_updated_at("profile"),
+            summary=row.summary or "",
+            profile=row.profile or "",
+            summary_updated_at=ts,
+            profile_updated_at=ts,
         )
 
     # ── Write ─────────────────────────────────────────────────────────
 
-    def write_file(self, which: MemoryFile, content: str) -> MemorySnapshot:
+    async def write_file(
+        self, which: MemoryFile, content: str, *, user_id: str | None = None
+    ) -> MemorySnapshot:
+        uid = _user_id_or_default(user_id)
         normalized = str(content or "").strip()
-        path = self._path(which)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if not normalized:
-            if path.exists():
-                path.unlink()
-        else:
-            path.write_text(normalized, encoding="utf-8")
-        return self.read_snapshot()
+        await self._upsert(uid, **{which: normalized})
+        return await self.read_snapshot(user_id=uid)
 
-    def write_memory(self, content: str) -> MemorySnapshot:
-        """Legacy compat: write to profile (primary editable file)."""
-        return self.write_file("profile", content)
+    async def write_memory(self, content: str, *, user_id: str | None = None) -> MemorySnapshot:
+        return await self.write_file("profile", content, user_id=user_id)
 
-    def clear_file(self, which: MemoryFile) -> MemorySnapshot:
-        return self.write_file(which, "")
+    async def clear_file(
+        self, which: MemoryFile, *, user_id: str | None = None
+    ) -> MemorySnapshot:
+        return await self.write_file(which, "", user_id=user_id)
 
-    def clear_memory(self) -> MemorySnapshot:
-        for f in MEMORY_FILES:
-            path = self._path(f)
-            if path.exists():
-                path.unlink()
-        return self.read_snapshot()
+    async def clear_memory(self, *, user_id: str | None = None) -> MemorySnapshot:
+        uid = _user_id_or_default(user_id)
+        await self._upsert(uid, summary="", profile="")
+        return await self.read_snapshot(user_id=uid)
 
     # ── Context building (injected into LLM prompts) ─────────────────
 
-    def build_memory_context(self, max_chars: int = 4000) -> str:
+    async def build_memory_context(
+        self, max_chars: int = 4000, *, user_id: str | None = None
+    ) -> str:
+        snap = await self.read_snapshot(user_id=user_id)
         parts: list[str] = []
-
-        profile = self.read_profile()
-        if profile:
-            parts.append(f"### User Profile\n{profile}")
-
-        summary = self.read_summary()
-        if summary:
-            parts.append(f"### Learning Context\n{summary}")
-
+        if snap.profile:
+            parts.append(f"### User Profile\n{snap.profile}")
+        if snap.summary:
+            parts.append(f"### Learning Context\n{snap.summary}")
         if not parts:
             return ""
-
         combined = "\n\n".join(parts)
         if len(combined) > max_chars:
             combined = combined[:max_chars].rstrip() + "\n...[truncated]"
-
         return (
             "## Background Memory\n"
             "Use this memory sparingly — only when directly relevant.\n\n"
             f"{combined}"
         )
 
-    def get_preferences_text(self) -> str:
-        profile = self.read_profile()
+    async def get_preferences_text(self, *, user_id: str | None = None) -> str:
+        profile = await self.read_profile(user_id=user_id)
         return f"## User Profile\n{profile}" if profile else ""
 
     # ── Auto-refresh from conversation ────────────────────────────────
@@ -192,7 +140,9 @@ class MemoryService:
         capability: str = "",
         language: str = "en",
         timestamp: str = "",
+        user_id: str | None = None,
     ) -> MemoryUpdateResult:
+        uid = _user_id_or_default(user_id)
         if not user_message.strip() or not assistant_message.strip():
             return MemoryUpdateResult(content="", changed=False, updated_at=None)
 
@@ -204,10 +154,10 @@ class MemoryService:
             f"[Assistant]\n{assistant_message.strip()}"
         )
 
-        p_changed = await self._rewrite_one("profile", source, language)
-        s_changed = await self._rewrite_one("summary", source, language)
+        p_changed = await self._rewrite_one("profile", source, language, uid)
+        s_changed = await self._rewrite_one("summary", source, language, uid)
 
-        snap = self.read_snapshot()
+        snap = await self.read_snapshot(user_id=uid)
         return MemoryUpdateResult(
             content=snap.profile,
             changed=p_changed or s_changed,
@@ -220,23 +170,26 @@ class MemoryService:
         *,
         language: str = "en",
         max_messages: int = 10,
+        user_id: str | None = None,
     ) -> MemoryUpdateResult:
+        uid = _user_id_or_default(user_id)
+        from deeptutor.services.session.sqlite_store import get_sqlite_session_store
+        store = get_sqlite_session_store()
+
         target = (session_id or "").strip()
         if not target:
-            sessions = await self._store.list_sessions(limit=1)
+            sessions = await store.list_sessions(limit=1)
             if sessions:
                 target = str(sessions[0].get("session_id", "") or "")
-
         if not target:
             return MemoryUpdateResult(content="", changed=False, updated_at=None)
 
-        messages = await self._store.get_messages_for_context(target)
+        messages = await store.get_messages_for_context(target)
         relevant = [
             m for m in messages
             if str(m.get("role", "")) in {"user", "assistant"}
             and str(m.get("content", "") or "").strip()
         ][-max_messages:]
-
         if not relevant:
             return MemoryUpdateResult(content="", changed=False, updated_at=None)
 
@@ -247,7 +200,7 @@ class MemoryService:
         )
 
         cap = ""
-        sess = await self._store.get_session(target)
+        sess = await store.get_session(target)
         if sess:
             cap = str(sess.get("capability", "") or "")
 
@@ -257,10 +210,10 @@ class MemoryService:
             f"[Recent Transcript]\n{transcript}"
         )
 
-        p_changed = await self._rewrite_one("profile", source, language)
-        s_changed = await self._rewrite_one("summary", source, language)
+        p_changed = await self._rewrite_one("profile", source, language, uid)
+        s_changed = await self._rewrite_one("summary", source, language, uid)
 
-        snap = self.read_snapshot()
+        snap = await self.read_snapshot(user_id=uid)
         return MemoryUpdateResult(
             content=snap.profile,
             changed=p_changed or s_changed,
@@ -269,9 +222,10 @@ class MemoryService:
 
     # ── LLM rewrite for individual files ──────────────────────────────
 
-    async def _rewrite_one(self, which: MemoryFile, source: str, language: str) -> bool:
-        """Rewrite a single memory file. Returns True if changed."""
-        current = self.read_file(which)
+    async def _rewrite_one(
+        self, which: MemoryFile, source: str, language: str, uid: str
+    ) -> bool:
+        current = await self.read_file(which, user_id=uid)
         zh = str(language).lower().startswith("zh")
 
         if which == "profile":
@@ -291,11 +245,10 @@ class MemoryService:
         raw = _strip_code_fence("".join(chunks)).strip()
         if not raw or raw == _NO_CHANGE:
             return False
-
         if raw == current:
             return False
 
-        self.write_file(which, raw)
+        await self.write_file(which, raw, user_id=uid)
         return True
 
     @staticmethod
@@ -344,26 +297,35 @@ class MemoryService:
             f"[New material]\n{source}"
         )
 
-    # ── Helpers ───────────────────────────────────────────────────────
+    # ── DB helpers ────────────────────────────────────────────────────
 
-    @staticmethod
-    def _extract_legacy_sections(content: str) -> tuple[str, str]:
-        text = content.replace("\r\n", "\n").strip()
-        preferences = ""
-        context = ""
-        pref_match = re.search(
-            r"##\s*Preferences\s*(.*?)(?=\n##\s*Context\b|\Z)",
-            text, flags=re.IGNORECASE | re.DOTALL,
-        )
-        ctx_match = re.search(
-            r"##\s*Context\s*(.*)$",
-            text, flags=re.IGNORECASE | re.DOTALL,
-        )
-        if pref_match:
-            preferences = pref_match.group(1).strip()
-        if ctx_match:
-            context = ctx_match.group(1).strip()
-        return preferences, context
+    async def _get_row(self, uid: str):
+        from deeptutor.services.db.models.memory import UserMemory
+        from deeptutor.services.db.engine import get_session_factory
+        try:
+            factory = get_session_factory()
+        except RuntimeError:
+            return None
+        async with factory() as session:
+            stmt = select(UserMemory).where(UserMemory.user_id == uid)
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    async def _upsert(self, uid: str, **fields: str) -> None:
+        from deeptutor.services.db.models.memory import UserMemory
+        from deeptutor.services.db.engine import get_session_factory
+        factory = get_session_factory()
+        async with factory() as session:
+            stmt = select(UserMemory).where(UserMemory.user_id == uid)
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if row is None:
+                row = UserMemory(user_id=uid, **fields)
+                session.add(row)
+            else:
+                for k, v in fields.items():
+                    setattr(row, k, v)
+            await session.commit()
 
 
 def _strip_code_fence(content: str) -> str:

@@ -387,7 +387,7 @@ class TurnRuntimeManager:
                 on_event=lambda event: self._persist_and_publish(execution, event),
             )
             memory_service = get_memory_service()
-            memory_context = memory_service.build_memory_context()
+            memory_context = await memory_service.build_memory_context()
 
             if notebook_references:
                 referenced_records = notebook_manager.get_records_by_references(notebook_references)

@@ -1,17 +1,14 @@
 """
-Unified session history API.
+Unified session history API (multi-tenant).
 """
 
 from __future__ import annotations
 
-import logging
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from pydantic import BaseModel, Field, field_validator
-from fastapi import APIRouter, HTTPException, Query
-
-from deeptutor.services.session import get_sqlite_session_store
-
-logger = logging.getLogger(__name__)
+from deeptutor.api.middleware.tenant import require_user_id
+from deeptutor.services.session import get_session_store
 
 router = APIRouter()
 
@@ -23,23 +20,9 @@ class SessionRenameRequest(BaseModel):
 class QuizResultItem(BaseModel):
     question_id: str = ""
     question: str = Field(..., min_length=1)
-    question_type: str = ""
-    options: dict[str, str] | None = None
     user_answer: str = ""
     correct_answer: str = ""
-    explanation: str | None = ""
-    difficulty: str | None = ""
     is_correct: bool
-
-    @field_validator("options", mode="before")
-    @classmethod
-    def _coerce_options(cls, v):
-        return v if isinstance(v, dict) else {}
-
-    @field_validator("explanation", "difficulty", mode="before")
-    @classmethod
-    def _coerce_str(cls, v):
-        return v if isinstance(v, str) else ""
 
 
 class QuizResultsRequest(BaseModel):
@@ -68,15 +51,19 @@ def _format_quiz_results_message(answers: list[QuizResultItem]) -> str:
 async def list_sessions(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    user_id: str = Depends(require_user_id),
 ):
-    store = get_sqlite_session_store()
+    store = get_session_store()
     sessions = await store.list_sessions(limit=limit, offset=offset)
     return {"sessions": sessions}
 
 
 @router.get("/{session_id}")
-async def get_session(session_id: str):
-    store = get_sqlite_session_store()
+async def get_session(
+    session_id: str,
+    user_id: str = Depends(require_user_id),
+):
+    store = get_session_store()
     session = await store.get_session_with_messages(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -84,8 +71,12 @@ async def get_session(session_id: str):
 
 
 @router.patch("/{session_id}")
-async def rename_session(session_id: str, payload: SessionRenameRequest):
-    store = get_sqlite_session_store()
+async def rename_session(
+    session_id: str,
+    payload: SessionRenameRequest,
+    user_id: str = Depends(require_user_id),
+):
+    store = get_session_store()
     updated = await store.update_session_title(session_id, payload.title)
     if not updated:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -94,8 +85,11 @@ async def rename_session(session_id: str, payload: SessionRenameRequest):
 
 
 @router.delete("/{session_id}")
-async def delete_session(session_id: str):
-    store = get_sqlite_session_store()
+async def delete_session(
+    session_id: str,
+    user_id: str = Depends(require_user_id),
+):
+    store = get_session_store()
     deleted = await store.delete_session(session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -103,10 +97,14 @@ async def delete_session(session_id: str):
 
 
 @router.post("/{session_id}/quiz-results")
-async def record_quiz_results(session_id: str, payload: QuizResultsRequest):
+async def record_quiz_results(
+    session_id: str,
+    payload: QuizResultsRequest,
+    user_id: str = Depends(require_user_id),
+):
     if not payload.answers:
         raise HTTPException(status_code=400, detail="Quiz results are required")
-    store = get_sqlite_session_store()
+    store = get_session_store()
     session = await store.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -117,18 +115,9 @@ async def record_quiz_results(session_id: str, payload: QuizResultsRequest):
         content=content,
         capability="deep_question",
     )
-    notebook_count = 0
-    try:
-        notebook_count = await store.upsert_notebook_entries(
-            session_id,
-            [item.model_dump() for item in payload.answers],
-        )
-    except Exception:
-        logger.warning("Failed to upsert notebook entries for session %s", session_id, exc_info=True)
     return {
         "recorded": True,
         "session_id": session_id,
         "answer_count": len(payload.answers),
-        "notebook_count": notebook_count,
         "content": content,
     }

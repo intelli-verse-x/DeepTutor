@@ -5,21 +5,23 @@ Guided Learning API Router
 Provides session creation, learning progress management, and chat interaction.
 """
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from deeptutor.agents.notebook import NotebookAnalysisAgent
 from deeptutor.agents.base_agent import BaseAgent
 from deeptutor.agents.guide.guide_manager import GuideManager
+from deeptutor.api.middleware.tenant import get_current_user_id, require_user_id
 from deeptutor.api.utils.task_id_manager import TaskIDManager
 from deeptutor.logging import get_logger
 from deeptutor.services.config import PROJECT_ROOT, load_config_with_main
 from deeptutor.services.llm import get_llm_config
 from deeptutor.services.notebook import notebook_manager
+from deeptutor.services.path_service import get_path_service
 from deeptutor.services.settings.interface_settings import get_ui_language
 
 router = APIRouter()
-_guide_manager: GuideManager | None = None
+_guide_managers: dict[str, GuideManager] = {}
 
 # Initialize logger with config
 config = load_config_with_main("main.yaml", PROJECT_ROOT)
@@ -78,10 +80,10 @@ class RetryPageRequest(BaseModel):
 
 
 def get_guide_manager():
-    """Get GuideManager instance"""
-    global _guide_manager
-    if _guide_manager is not None:
-        return _guide_manager
+    """Get GuideManager instance scoped to the current user."""
+    uid = get_current_user_id()
+    if uid in _guide_managers:
+        return _guide_managers[uid]
 
     try:
         llm_config = get_llm_config()
@@ -92,15 +94,21 @@ def get_guide_manager():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"LLM config error: {e!s}")
 
+    path_service = get_path_service()
+    user_guide_dir = path_service.get_guide_dir().parent.parent / uid / "workspace" / "guide"
+    user_guide_dir.mkdir(parents=True, exist_ok=True)
+
     ui_language = get_ui_language(default=config.get("system", {}).get("language", "en"))
-    _guide_manager = GuideManager(
+    mgr = GuideManager(
         api_key=api_key,
         base_url=base_url,
         api_version=api_version,
         language=ui_language,
         binding=binding,
-    )  # Read from config file
-    return _guide_manager
+        output_dir=str(user_guide_dir),
+    )
+    _guide_managers[uid] = mgr
+    return mgr
 
 
 def _build_user_input_from_records(records: list[dict]) -> str:

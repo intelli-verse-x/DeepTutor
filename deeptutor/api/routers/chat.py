@@ -7,6 +7,7 @@ REST endpoints for session operations.
 """
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
 
 from deeptutor.agents.chat import ChatAgent, SessionManager
 from deeptutor.logging import get_logger
@@ -75,6 +76,141 @@ async def delete_session(session_id: str):
     if session_manager.delete_session(session_id):
         return {"status": "deleted", "session_id": session_id}
     raise HTTPException(status_code=404, detail="Session not found")
+
+
+# =============================================================================
+# HTTP chat (non-streaming) — same session + ChatAgent logic as WebSocket /chat
+# =============================================================================
+
+
+class ChatHttpRequest(BaseModel):
+    """Body for POST /api/v1/chat (QuizVerse site, guided learning, HTTP fallback)."""
+
+    message: str = ""
+    user_id: str | None = Field(default=None, description="Client user id (optional; echoed in logs)")
+    session_id: str | None = None
+    tutor_type: str | None = Field(default=None, description="Tutor persona hint (optional)")
+    kb_name: str = ""
+    enable_rag: bool = False
+    enable_web_search: bool = False
+    history: list[dict[str, str]] | None = Field(
+        default=None,
+        description="Optional explicit history override (same shape as WebSocket)",
+    )
+
+
+@router.post("/chat")
+async def http_chat(body: ChatHttpRequest):
+    """
+    Single-turn or multi-turn chat over HTTP (non-streaming).
+
+    Returns JSON compatible with QuizVerse ``httpChat`` / guided learning helpers:
+    ``session_id``, ``content``, ``response``, ``text``.
+    """
+    message = body.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    language = get_ui_language(default=config.get("system", {}).get("language", "en"))
+    session_id = body.session_id
+    kb_name = body.kb_name or ""
+    enable_rag = body.enable_rag
+    enable_web_search = body.enable_web_search
+    explicit_history = body.history
+
+    logger.info(
+        f"HTTP chat: session={session_id}, user={body.user_id}, tutor_type={body.tutor_type}, "
+        f"message={message[:50]}..., rag={enable_rag}, web={enable_web_search}"
+    )
+
+    try:
+        if session_id:
+            session = session_manager.get_session(session_id)
+            if not session:
+                session = session_manager.create_session(
+                    title=message[:50] + ("..." if len(message) > 50 else ""),
+                    settings={
+                        "kb_name": kb_name,
+                        "enable_rag": enable_rag,
+                        "enable_web_search": enable_web_search,
+                    },
+                )
+                session_id = session["session_id"]
+        else:
+            session = session_manager.create_session(
+                title=message[:50] + ("..." if len(message) > 50 else ""),
+                settings={
+                    "kb_name": kb_name,
+                    "enable_rag": enable_rag,
+                    "enable_web_search": enable_web_search,
+                },
+            )
+            session_id = session["session_id"]
+
+        if explicit_history is not None:
+            history = explicit_history
+        else:
+            history = [
+                {"role": msg["role"], "content": msg["content"]}
+                for msg in session.get("messages", [])
+            ]
+
+        session_manager.add_message(
+            session_id=session_id,
+            role="user",
+            content=message,
+        )
+
+        try:
+            llm_config = get_llm_config()
+            api_key = llm_config.api_key
+            base_url = llm_config.base_url
+            api_version = getattr(llm_config, "api_version", None)
+        except Exception:
+            api_key = None
+            base_url = None
+            api_version = None
+
+        agent = ChatAgent(
+            language=language,
+            config=config,
+            api_key=api_key,
+            base_url=base_url,
+            api_version=api_version,
+        )
+
+        result = await agent.process(
+            message=message,
+            history=history,
+            kb_name=kb_name,
+            enable_rag=enable_rag,
+            enable_web_search=enable_web_search,
+            stream=False,
+        )
+        full_response = result["response"]
+        sources = result.get("sources", {"rag": [], "web": []})
+
+        session_manager.add_message(
+            session_id=session_id,
+            role="assistant",
+            content=full_response,
+            sources=sources if (sources.get("rag") or sources.get("web")) else None,
+        )
+
+        logger.info(f"HTTP chat completed: session={session_id}, {len(full_response)} chars")
+
+        return {
+            "session_id": session_id,
+            "content": full_response,
+            "response": full_response,
+            "text": full_response,
+            "sources": sources,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"HTTP chat processing error: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # =============================================================================

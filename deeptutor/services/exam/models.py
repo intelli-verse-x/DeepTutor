@@ -25,16 +25,14 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from deeptutor.services.db.base import Base  # shared declarative base
 
 try:
     from pgvector.sqlalchemy import Vector
 except ImportError:  # graceful fallback when pgvector isn't installed yet
     Vector = None  # type: ignore[assignment,misc]
-
-
-class Base(DeclarativeBase):
-    type_annotation_map = {dict[str, Any]: JSONB}
 
 
 # ---------------------------------------------------------------------------
