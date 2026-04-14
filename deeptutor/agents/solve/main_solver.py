@@ -593,7 +593,7 @@ class MainSolver:
         language = self.config.get("system", {}).get("language", "en")
         lang_code = parse_language(language)
 
-        preference = "" if self.disable_memory else self._get_user_preference()
+        preference = "" if self.disable_memory else await self._get_user_preference()
 
         content_cb = getattr(self, "_content_callback", None)
 
@@ -838,12 +838,12 @@ class MainSolver:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_user_preference(self) -> str:
+    async def _get_user_preference(self) -> str:
         """Get personalisation preference (optional)."""
         try:
             from deeptutor.services.memory import get_memory_service
 
-            return get_memory_service().get_preferences_text()
+            return await get_memory_service().get_preferences_text()
         except Exception:
             return ""
 

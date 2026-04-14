@@ -86,12 +86,12 @@ async def lifespan(app: FastAPI):
     # Validate configuration consistency
     validate_tool_consistency()
 
-    # Initialize Exam Packs PostgreSQL (graceful if PG_HOST is unset)
+    # Initialize shared PostgreSQL engine (creates all tables incl. exam, memory, etc.)
     try:
-        from deeptutor.services.exam.db import init_pg
+        from deeptutor.services.db import init_pg
         pg_ready = await init_pg()
         if pg_ready:
-            logger.info("Exam Packs PostgreSQL ready")
+            logger.info("PostgreSQL ready (all subsystems)")
             from deeptutor.services.exam.seed import seed_exam_packs
             from deeptutor.services.exam.ingest import ingest_questions
             await seed_exam_packs()
@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI):
             if n:
                 logger.info(f"Ingested {n} exam questions")
     except Exception as e:
-        logger.warning(f"Exam Packs PostgreSQL init skipped: {e}")
+        logger.warning(f"PostgreSQL init skipped: {e}")
 
     # Initialize LLM client early so OPENAI_* env vars are available before
     # any downstream provider integrations start.
@@ -131,12 +131,12 @@ async def lifespan(app: FastAPI):
     # Execute on shutdown
     logger.info("Application shutdown")
 
-    # Close Exam Packs PostgreSQL
+    # Close shared PostgreSQL engine
     try:
-        from deeptutor.services.exam.db import close_pg
+        from deeptutor.services.db import close_pg
         await close_pg()
     except Exception as e:
-        logger.warning(f"Exam Packs PG shutdown error: {e}")
+        logger.warning(f"PostgreSQL shutdown error: {e}")
 
     # Stop TutorBots
     try:
@@ -195,6 +195,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Tenant middleware — extracts x-user-id header and sets contextvars
+from deeptutor.api.middleware.tenant import TenantMiddleware  # noqa: E402
+app.add_middleware(TenantMiddleware)
+
 # Mount a filtered view over user outputs.
 # Only whitelisted artifact paths are readable through the static handler.
 path_service = get_path_service()
@@ -224,7 +228,9 @@ from deeptutor.api.routers import (
     co_writer,
     dashboard,
     exams,
+    external_notes,
     guide,
+    referral,
     knowledge,
     memory,
     notebook,
@@ -258,6 +264,8 @@ app.include_router(plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"
 app.include_router(agent_config.router, prefix="/api/v1/agent-config", tags=["agent-config"])
 app.include_router(vision_solver.router, prefix="/api/v1", tags=["vision-solver"])
 app.include_router(tutorbot.router, prefix="/api/v1/tutorbot", tags=["tutorbot"])
+app.include_router(external_notes.router, prefix="/api/v1/external", tags=["external-notes"])
+app.include_router(referral.router, prefix="/api/v1/referral", tags=["referral"])
 
 # Exam Packs, Diagnostic, Study Plan, Score Predictor, Knowledge Base
 app.include_router(exams.router, prefix="/api/v1/exams", tags=["exams"])

@@ -25,6 +25,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from deeptutor.api.middleware.tenant import require_user_id
 from deeptutor.api.utils.progress_broadcaster import ProgressBroadcaster
 from deeptutor.api.utils.task_id_manager import TaskIDManager
 from deeptutor.api.utils.task_log_stream import capture_task_logs, get_task_stream_manager
@@ -32,6 +33,7 @@ from deeptutor.knowledge.add_documents import DocumentAdder
 from deeptutor.knowledge.initializer import KnowledgeBaseInitializer
 from deeptutor.knowledge.manager import KnowledgeBaseManager
 from deeptutor.knowledge.progress_tracker import ProgressStage, ProgressTracker
+from deeptutor.knowledge.tenant_manager import get_tenant_kb_manager, get_tenant_kb_base_dir
 from deeptutor.services.rag.components.routing import FileTypeRouter
 from deeptutor.services.rag.factory import DEFAULT_PROVIDER, has_pipeline, normalize_provider_name
 from deeptutor.utils.document_validator import DocumentValidator
@@ -62,18 +64,17 @@ def format_bytes_human_readable(size_bytes: int) -> str:
         return f"{size_bytes} bytes"
 
 
-_kb_base_dir = PROJECT_ROOT / "data" / "knowledge_bases"
+_kb_base_dir_global = PROJECT_ROOT / "data" / "knowledge_bases"
 
-# Lazy initialization
-kb_manager = None
+
+def _kb_base_dir():
+    """Return the tenant-scoped KB base directory for the current request."""
+    return get_tenant_kb_base_dir()
 
 
 def get_kb_manager():
-    """Get KnowledgeBaseManager instance (lazy init)"""
-    global kb_manager
-    if kb_manager is None:
-        kb_manager = KnowledgeBaseManager(base_dir=str(_kb_base_dir))
-    return kb_manager
+    """Get KnowledgeBaseManager scoped to the current user."""
+    return get_tenant_kb_manager()
 
 
 class KnowledgeBaseInfo(BaseModel):
@@ -475,7 +476,7 @@ async def sync_configs_from_metadata():
         from deeptutor.services.config import get_kb_config_service
 
         service = get_kb_config_service()
-        service.sync_all_from_metadata(_kb_base_dir)
+        service.sync_all_from_metadata(_kb_base_dir())
         return {"status": "success", "message": "Configurations synced from metadata files"}
     except Exception as e:
         logger.error(f"Error syncing configs: {e}")
@@ -668,7 +669,7 @@ async def upload_files(
         background_tasks.add_task(
             run_upload_processing_task,
             kb_name=kb_name,
-            base_dir=str(_kb_base_dir),
+            base_dir=str(_kb_base_dir()),
             uploaded_file_paths=uploaded_file_paths,
             task_id=task_id,
             rag_provider=kb_provider,
@@ -729,11 +730,11 @@ async def create_knowledge_base(
             manager.config["knowledge_bases"][name]["needs_reindex"] = False
             manager._save_config()
 
-        progress_tracker = ProgressTracker(name, _kb_base_dir)
+        progress_tracker = ProgressTracker(name, _kb_base_dir())
 
         initializer = KnowledgeBaseInitializer(
             kb_name=name,
-            base_dir=str(_kb_base_dir),
+            base_dir=str(_kb_base_dir()),
             progress_tracker=progress_tracker,
             rag_provider=rag_provider,
         )
@@ -781,7 +782,7 @@ async def create_knowledge_base(
 async def get_progress(kb_name: str):
     """Get initialization progress for a knowledge base"""
     try:
-        progress_tracker = ProgressTracker(kb_name, _kb_base_dir)
+        progress_tracker = ProgressTracker(kb_name, _kb_base_dir())
         progress = progress_tracker.get_progress()
 
         if progress is None:
@@ -796,7 +797,7 @@ async def get_progress(kb_name: str):
 async def clear_progress(kb_name: str):
     """Clear progress file for a knowledge base (useful for stuck states)"""
     try:
-        progress_tracker = ProgressTracker(kb_name, _kb_base_dir)
+        progress_tracker = ProgressTracker(kb_name, _kb_base_dir())
         progress_tracker.clear()
         return {"status": "success", "message": f"Progress cleared for {kb_name}"}
     except Exception as e:
@@ -813,11 +814,12 @@ async def websocket_progress(websocket: WebSocket, kb_name: str):
     try:
         await broadcaster.connect(kb_name, websocket)
 
-        progress_tracker = ProgressTracker(kb_name, _kb_base_dir)
+        tenant_base = _kb_base_dir()
+        progress_tracker = ProgressTracker(kb_name, tenant_base)
         initial_progress = progress_tracker.get_progress()
         expected_task_id = websocket.query_params.get("task_id")
 
-        kb_dir = _kb_base_dir / kb_name
+        kb_dir = tenant_base / kb_name
         llamaindex_storage_dir = kb_dir / "llamaindex_storage"
         kb_is_ready = llamaindex_storage_dir.exists() and llamaindex_storage_dir.is_dir()
 
@@ -1025,11 +1027,11 @@ async def sync_folder(kb_name: str, folder_id: str, background_tasks: Background
         background_tasks.add_task(
             run_upload_processing_task,
             kb_name=kb_name,
-            base_dir=str(_kb_base_dir),
+            base_dir=str(_kb_base_dir()),
             uploaded_file_paths=files_to_process,
             task_id=task_id,
             rag_provider=kb_provider,
-            folder_id=folder_id,  # Pass folder_id to update state on success
+            folder_id=folder_id,
         )
 
         return {
