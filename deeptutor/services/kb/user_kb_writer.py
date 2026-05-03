@@ -137,7 +137,7 @@ async def push_user_chat(
     if not user_id or not session_id:
         return
     if not USER_ID_REGEX.match(user_id):
-        logger.debug("skip kb push: user_id %r failed regex", user_id)
+        logger.debug(f"skip kb push: user_id {user_id!r} failed regex")
         return
     if not assistant_response.strip():
         return
@@ -176,17 +176,14 @@ async def push_user_chat(
             res = await client.post(url, json=payload, headers=headers)
         if res.status_code >= 400:
             logger.warning(
-                "kb push failed: user=%s sid=%s HTTP %s — %s",
-                user_id,
-                session_id,
-                res.status_code,
-                res.text[:200],
+                f"kb push failed: user={user_id} sid={session_id} "
+                f"HTTP {res.status_code} — {res.text[:200]}"
             )
             return
-        logger.debug(
-            "kb push ok: user=%s sid=%s HTTP %s", user_id, session_id, res.status_code
+        logger.info(
+            f"kb push ok: user={user_id} sid={session_id} HTTP {res.status_code}"
         )
     except httpx.HTTPError as exc:
-        logger.warning("kb push network error: user=%s sid=%s — %s", user_id, session_id, exc)
+        logger.warning(f"kb push network error: user={user_id} sid={session_id} — {exc}")
     except Exception as exc:  # never let kb writes break the chat response
-        logger.warning("kb push unexpected error: user=%s sid=%s — %s", user_id, session_id, exc)
+        logger.warning(f"kb push unexpected error: user={user_id} sid={session_id} — {exc}")
