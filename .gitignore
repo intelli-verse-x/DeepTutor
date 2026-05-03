@@ -52,7 +52,6 @@ wheels/
 MANIFEST
 
 # Virtual Environments
-.env
 *.env
 !.env.example
 env/
@@ -286,3 +285,4 @@ celerybeat.pid
 *.wav
 *.ogg
 !demo/*.mp4
+config.bat
