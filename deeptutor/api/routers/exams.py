@@ -6,6 +6,7 @@ All endpoints are additive — they only work when PG_HOST is configured.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import uuid
@@ -32,6 +33,10 @@ from deeptutor.services.exam.models import (
     StudyPlan,
     StudyPlanTask,
     UserExamProgress,
+)
+from deeptutor.services.kb import (
+    push_user_diagnostic,
+    push_user_score_prediction,
 )
 
 logger = logging.getLogger("routers.exams")
@@ -298,11 +303,22 @@ async def diagnostic_start(
     session.add(ds)
     await session.flush()
 
-    first_q = await _pick_diagnostic_question(
+    # BUG-002 fix: progressive fallback. The original behaviour only tried the
+    # strict ``(difficulty="medium", subject=exam_subjects[0])`` combination and
+    # returned 404 if the question bank had no row matching that exact triple.
+    # Many real exam packs are seeded with subject names that don't exactly
+    # match the section headers (e.g. seed says "Mathematics" but bank stores
+    # "Math"), or have no medium-difficulty rows yet. We now relax the filter
+    # gradually before giving up so the diagnostic still starts.
+    first_q = await _pick_diagnostic_question_relaxed(
         session, body.exam_type, "medium", exam_subjects[0], set(),
     )
     if not first_q:
-        raise HTTPException(404, "No diagnostic questions available for this exam type")
+        raise HTTPException(
+            404,
+            "No diagnostic questions available for this exam type. "
+            "Please pick a different exam pack or contact support.",
+        )
 
     await session.commit()
     return {
@@ -342,11 +358,46 @@ async def diagnostic_answer(
         subject=q.subject,
     )
     session.add(da)
+    # Flush so ``da.id`` is materialised and stable for the KB doc_id.
+    await session.flush()
+
+    # Snapshot fields needed by the KB push BEFORE commit — async SQLA
+    # detaches expired ORM attrs after commit() in the default config.
+    kb_user_id = ds.user_id
+    kb_session_id = str(ds.id)
+    kb_answer_id = str(da.id)
+    kb_exam_type = ds.exam_type
+    kb_subject = q.subject
+    kb_difficulty = q.difficulty
+    kb_question_text = q.question_text
+    kb_options = q.options if isinstance(q.options, dict) else None
+    kb_correct = q.correct_answer
+    kb_selected = body.selected
+    kb_is_correct = is_correct
+
+    def _schedule_kb_push() -> None:
+        # Fire-and-forget — the writer swallows its own errors.
+        asyncio.create_task(
+            push_user_diagnostic(
+                user_id=kb_user_id,
+                session_id=kb_session_id,
+                answer_id=kb_answer_id,
+                exam_type=kb_exam_type,
+                subject=kb_subject,
+                difficulty=kb_difficulty,
+                question_text=kb_question_text,
+                options=kb_options,
+                selected_answer=kb_selected,
+                correct_answer=kb_correct,
+                is_correct=kb_is_correct,
+            )
+        )
 
     new_number = answer_count + 2
     if new_number > ds.total_questions:
         ds.status = "completed"
         await session.commit()
+        _schedule_kb_push()
         return {"status": "completed", "session_id": str(ds.id)}
 
     answered_ids_stmt = select(DiagnosticAnswer.question_id).where(DiagnosticAnswer.session_id == ds.id)
@@ -365,15 +416,17 @@ async def diagnostic_answer(
     subj_index = (answer_count + 1) % len(exam_subjects)
     next_subj = exam_subjects[subj_index]
 
-    next_q = await _pick_diagnostic_question(session, ds.exam_type, ds.current_difficulty, next_subj, answered_ids)
-    if not next_q:
-        next_q = await _pick_diagnostic_question(session, ds.exam_type, ds.current_difficulty, None, answered_ids)
+    next_q = await _pick_diagnostic_question_relaxed(
+        session, ds.exam_type, ds.current_difficulty, next_subj, answered_ids
+    )
     if not next_q:
         ds.status = "completed"
         await session.commit()
+        _schedule_kb_push()
         return {"status": "completed", "session_id": str(ds.id)}
 
     await session.commit()
+    _schedule_kb_push()
     return {
         "session_id": str(ds.id),
         "question": _q_dict(next_q),
@@ -439,6 +492,124 @@ async def _pick_diagnostic_question(
         stmt = stmt.where(ExamQuestion.id.notin_(exclude_ids))
     stmt = stmt.order_by(func.random()).limit(1)
     return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def _pick_diagnostic_question_relaxed(
+    session: AsyncSession,
+    exam_type: str,
+    difficulty: str,
+    subject: Optional[str],
+    exclude_ids: set,
+) -> ExamQuestion | None:
+    """BUG-002 fix: progressive fallback wrapper.
+
+    Tries strict (difficulty + subject), then drops subject, then drops
+    difficulty, then drops both. If the matched exam pack still has zero
+    questions, falls back to a just-in-time ingest from the static
+    ``question_bank.QUESTIONS`` dict so the diagnostic test can start
+    immediately even on a freshly-seeded environment.
+    """
+    # 1. strict — exact difficulty + exact subject
+    q = await _pick_diagnostic_question(session, exam_type, difficulty, subject, exclude_ids)
+    if q:
+        return q
+    # 2. relax subject — any subject at requested difficulty
+    q = await _pick_diagnostic_question(session, exam_type, difficulty, None, exclude_ids)
+    if q:
+        return q
+    # 3. relax difficulty — same subject, any difficulty
+    if subject:
+        for d in DIFFICULTY_LEVELS:
+            if d == difficulty:
+                continue
+            q = await _pick_diagnostic_question(session, exam_type, d, subject, exclude_ids)
+            if q:
+                return q
+    # 4. relax both — any subject, any difficulty
+    for d in DIFFICULTY_LEVELS:
+        if d == difficulty:
+            continue
+        q = await _pick_diagnostic_question(session, exam_type, d, None, exclude_ids)
+        if q:
+            return q
+    # 5. JIT-ingest fallback (BUG-002-DATA): if the pack matches but has zero
+    # rows, copy the static bank inline and retry once. Logged so ops can
+    # detect environments that skipped the startup ingest.
+    inserted = await _jit_ingest_for_pack(session, exam_type)
+    if inserted > 0:
+        logger.info(
+            "BUG-002 JIT-ingest seeded %d questions for exam_type=%r", inserted, exam_type
+        )
+        q = await _pick_diagnostic_question(session, exam_type, difficulty, None, exclude_ids)
+        if q:
+            return q
+        for d in DIFFICULTY_LEVELS:
+            q = await _pick_diagnostic_question(session, exam_type, d, None, exclude_ids)
+            if q:
+                return q
+    return None
+
+
+async def _jit_ingest_for_pack(session: AsyncSession, exam_type: str) -> int:
+    """Best-effort just-in-time ingest of static QUESTIONS for a single pack.
+
+    Used as a last-resort recovery path when the diagnostic picker would
+    otherwise 404 because the DB has zero rows for the matched pack. Returns
+    the number of rows inserted (0 if nothing matched or insert failed).
+    """
+    try:
+        from deeptutor.services.exam.question_bank import QUESTIONS
+    except Exception:  # noqa: BLE001
+        return 0
+    normalized = (exam_type or "").replace("_", " ").strip().lower()
+    pack_stmt = select(ExamPack).where(ExamPack.name.ilike(f"%{normalized}%")).limit(1)
+    pack = (await session.execute(pack_stmt)).scalar_one_or_none()
+    if pack is None:
+        return 0
+    bank_questions: list[dict] = []
+    for name, qs in QUESTIONS.items():
+        if normalized in name.lower() or name.lower() in normalized:
+            bank_questions = qs
+            break
+    if not bank_questions:
+        return 0
+    existing = (
+        await session.execute(
+            select(func.count())
+            .select_from(ExamQuestion)
+            .where(ExamQuestion.exam_pack_id == pack.id)
+        )
+    ).scalar() or 0
+    if existing > 0:
+        return 0
+    inserted = 0
+    for q_data in bank_questions:
+        try:
+            session.add(
+                ExamQuestion(
+                    exam_pack_id=pack.id,
+                    subject=q_data["subject"],
+                    year=q_data.get("year"),
+                    source=q_data.get("source"),
+                    difficulty=q_data.get("difficulty", "medium"),
+                    question_text=q_data["question_text"],
+                    options=q_data["options"],
+                    correct_answer=q_data["correct_answer"],
+                    explanation=q_data.get("explanation"),
+                    tags=q_data.get("tags", []),
+                )
+            )
+            inserted += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("JIT-ingest skipped one row for %s: %s", exam_type, exc)
+    if inserted:
+        try:
+            await session.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("JIT-ingest commit failed for %s: %s", exam_type, exc)
+            await session.rollback()
+            return 0
+    return inserted
 
 
 def _q_dict(q: ExamQuestion) -> dict[str, Any]:
@@ -731,7 +902,28 @@ async def predict_score(
         questions_analyzed=total_answered,
     )
     session.add(pred)
+    await session.flush()
+    prediction_id = str(pred.id)
     await session.commit()
+
+    # KB v2: push this score prediction into qv_u_<uid>_insights so the
+    # app can surface "this is what your score looks like today" the
+    # next time the user opens it. Fire-and-forget — never blocks the
+    # response, swallows its own errors.
+    asyncio.create_task(
+        push_user_score_prediction(
+            user_id=x_user_id,
+            prediction_id=prediction_id,
+            exam_type=body.exam_type,
+            predicted_score=weighted_score,
+            max_score=max_score,
+            percentile=percentile,
+            predicted_rank=rank,
+            subject_breakdown=subj_breakdown,
+            ai_insights=ai_insights,
+            questions_analyzed=total_answered,
+        )
+    )
 
     return ScorePredictOut(
         predicted_score=weighted_score,
