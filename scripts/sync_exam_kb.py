@@ -60,12 +60,43 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import httpx  # noqa: E402
 from sqlalchemy import select  # noqa: E402
+from sqlalchemy.orm import load_only  # noqa: E402
 
-from deeptutor.services.exam.db import get_session, init_pg  # noqa: E402
+from deeptutor.services.db.engine import get_session_factory, init_pg  # noqa: E402
 from deeptutor.services.exam.models import (  # noqa: E402
     ExamPack,
     ExamQuestion,
     KBQuestion,
+)
+
+# Columns we actually need. Excluding `embedding` is critical: it's a
+# pgvector column whose deserialiser blows up if libdir/vector isn't
+# loaded on whatever PG node the query lands on. We never use embeddings
+# from this script — the Memory Service computes its own.
+EXAM_Q_COLS = (
+    ExamQuestion.id,
+    ExamQuestion.exam_pack_id,
+    ExamQuestion.subject,
+    ExamQuestion.year,
+    ExamQuestion.source,
+    ExamQuestion.difficulty,
+    ExamQuestion.question_text,
+    ExamQuestion.options,
+    ExamQuestion.correct_answer,
+    ExamQuestion.explanation,
+    ExamQuestion.tags,
+    ExamQuestion.created_at,
+)
+KB_Q_COLS = (
+    KBQuestion.id,
+    KBQuestion.exam_type,
+    KBQuestion.subject,
+    KBQuestion.question_text,
+    KBQuestion.options,
+    KBQuestion.correct_answer,
+    KBQuestion.explanation,
+    KBQuestion.difficulty,
+    KBQuestion.created_at,
 )
 
 logging.basicConfig(
@@ -159,7 +190,8 @@ async def fetch_packs(slug_filter: Optional[str]) -> list[tuple[str, str]]:
 
     ``slug_filter`` matches the *slugified* pack name, not the raw name.
     """
-    async with get_session() as session:
+    factory = get_session_factory()
+    async with factory() as session:
         rows = (await session.execute(select(ExamPack))).scalars().all()
     packs: list[tuple[str, str]] = []
     for p in rows:
@@ -179,9 +211,11 @@ async def fetch_exam_questions(
     import uuid as _uuid
 
     pack_uuid = _uuid.UUID(pack_id_str)
-    async with get_session() as session:
+    factory = get_session_factory()
+    async with factory() as session:
         stmt = (
             select(ExamQuestion)
+            .options(load_only(*EXAM_Q_COLS, raiseload=True))
             .where(ExamQuestion.exam_pack_id == pack_uuid)
             .order_by(ExamQuestion.created_at.asc())
         )
@@ -193,9 +227,11 @@ async def fetch_exam_questions(
 async def fetch_kb_questions(
     exam_type: str, limit: Optional[int]
 ) -> list[KBQuestion]:
-    async with get_session() as session:
+    factory = get_session_factory()
+    async with factory() as session:
         stmt = (
             select(KBQuestion)
+            .options(load_only(*KB_Q_COLS, raiseload=True))
             .where(KBQuestion.exam_type == exam_type)
             .order_by(KBQuestion.created_at.asc())
         )
@@ -234,9 +270,11 @@ async def post_batch(
         logger.info("[dry-run] %s/%s: %d docs — %s…", exam_slug, doc_kind, len(documents), sample)
         return True, "dry-run"
     url = f"{base_url.rstrip('/')}/api/kb/ingest/exam"
+    # The /api/kb/ingest/<source> routes look for `x-qv-kb-secret`, not
+    # `Authorization: Bearer …` (see validateSecret in route.ts).
     headers = {
         "content-type": "application/json",
-        "authorization": f"Bearer {secret}",
+        "x-qv-kb-secret": secret,
     }
     try:
         res = await client.post(url, json=payload, headers=headers, timeout=30.0)
