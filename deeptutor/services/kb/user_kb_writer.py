@@ -163,9 +163,11 @@ async def push_user_chat(
         "doc_kind": "chat",
         "documents": [doc],
     }
+    # The /api/kb/ingest/user route validates with `x-qv-kb-secret`,
+    # not `Authorization: Bearer …` (see validateSecret in route.ts).
     headers = {
         "content-type": "application/json",
-        "authorization": f"Bearer {secret}",
+        "x-qv-kb-secret": secret,
     }
     url = f"{base_url}/api/kb/ingest/user"
 
