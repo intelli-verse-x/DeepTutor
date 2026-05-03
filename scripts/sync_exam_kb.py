@@ -234,9 +234,11 @@ async def post_batch(
         logger.info("[dry-run] %s/%s: %d docs — %s…", exam_slug, doc_kind, len(documents), sample)
         return True, "dry-run"
     url = f"{base_url.rstrip('/')}/api/kb/ingest/exam"
+    # The /api/kb/ingest/<source> routes look for `x-qv-kb-secret`, not
+    # `Authorization: Bearer …` (see validateSecret in route.ts).
     headers = {
         "content-type": "application/json",
-        "authorization": f"Bearer {secret}",
+        "x-qv-kb-secret": secret,
     }
     try:
         res = await client.post(url, json=payload, headers=headers, timeout=30.0)
