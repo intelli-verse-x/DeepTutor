@@ -6,12 +6,15 @@ WebSocket endpoint for lightweight chat with session management.
 REST endpoints for session operations.
 """
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from deeptutor.agents.chat import ChatAgent, SessionManager
 from deeptutor.logging import get_logger
 from deeptutor.services.config import PROJECT_ROOT, load_config_with_main
+from deeptutor.services.kb import push_user_chat
 from deeptutor.services.llm.config import get_llm_config
 from deeptutor.services.settings.interface_settings import get_ui_language
 
@@ -197,6 +200,21 @@ async def http_chat(body: ChatHttpRequest):
             sources=sources if (sources.get("rag") or sources.get("web")) else None,
         )
 
+        # KB v2: push this turn into qv_u_<uid>_chat. Fire-and-forget — the
+        # writer swallows its own errors and never blocks the response.
+        # No-ops automatically when user_id is missing/invalid.
+        asyncio.create_task(
+            push_user_chat(
+                user_id=body.user_id,
+                session_id=session_id,
+                user_message=message,
+                assistant_response=full_response,
+                language=language,
+                sources=sources,
+                tutor_type=body.tutor_type,
+            )
+        )
+
         logger.info(f"HTTP chat completed: session={session_id}, {len(full_response)} chars")
 
         return {
@@ -255,6 +273,8 @@ async def websocket_chat(websocket: WebSocket):
             kb_name = data.get("kb_name", "")
             enable_rag = data.get("enable_rag", False)
             enable_web_search = data.get("enable_web_search", False)
+            ws_user_id = data.get("user_id")  # Optional, used for KB v2 user push.
+            ws_tutor_type = data.get("tutor_type")
 
             if not message:
                 await websocket.send_json({"type": "error", "message": "Message is required"})
@@ -407,6 +427,21 @@ async def websocket_chat(websocket: WebSocket):
                     role="assistant",
                     content=full_response,
                     sources=sources if (sources.get("rag") or sources.get("web")) else None,
+                )
+
+                # KB v2: push the completed turn into qv_u_<uid>_chat.
+                # Fire-and-forget; the helper swallows errors and no-ops
+                # for anonymous sessions.
+                asyncio.create_task(
+                    push_user_chat(
+                        user_id=ws_user_id,
+                        session_id=session_id,
+                        user_message=message,
+                        assistant_response=full_response,
+                        language=language,
+                        sources=sources,
+                        tutor_type=ws_tutor_type,
+                    )
                 )
 
                 logger.info(f"Chat completed: session={session_id}, {len(full_response)} chars")
