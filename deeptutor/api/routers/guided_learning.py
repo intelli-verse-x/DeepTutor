@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter
+from pydantic import BaseModel
 
-from deeptutor.learning.models import QuizAttempt
+from deeptutor.learning.models import ErrorType, QuizAttempt
 from deeptutor.learning.scheduler import SpacedRepetitionScheduler
 from deeptutor.learning.service import LearningService
 from deeptutor.learning.storage import LearningStore
@@ -36,6 +36,7 @@ class AnswerRequest(BaseModel):
     user_answer: str | None = None
     error_type: str | None = None
     self_attribution: str = ""
+    mastery_estimate: float = 0.0
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -55,14 +56,23 @@ async def submit_answer(book_id: str, body: AnswerRequest):
 
     progress = service.get_or_create(book_id)
 
+    # 将字符串 error_type 转换为 ErrorType 枚举
+    error_type_enum = None
+    if body.error_type:
+        try:
+            error_type_enum = ErrorType(body.error_type)
+        except ValueError:
+            error_type_enum = None
+
     attempt = QuizAttempt(
         question_id=body.question_id,
         knowledge_point_id=body.knowledge_point_id,
         module_id=body.module_id,
         is_correct=body.is_correct,
         user_answer=body.user_answer,
-        error_type=body.error_type,
+        error_type=error_type_enum,
         self_attribution=body.self_attribution,
+        mastery_estimate=body.mastery_estimate,
     )
     service.record_quiz_attempt(progress, attempt)
 
@@ -72,6 +82,7 @@ async def submit_answer(book_id: str, body: AnswerRequest):
         state = progress.repetition_states.get(attempt.knowledge_point_id)
         if state is not None:
             scheduler.schedule_next(state, kp_type, attempt.is_correct)
+            progress.review_queue = scheduler.build_review_queue(progress)
 
     # Update mastery estimate
     if attempt.mastery_estimate > 0:
