@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 
 from deeptutor.learning.models import (
@@ -25,13 +26,20 @@ _TYPE_PRIORITY: dict[KnowledgeType, int] = {
 
 
 class SpacedRepetitionScheduler:
+    def __init__(self) -> None:
+        # When True, intervals are in seconds instead of days (for testing)
+        self.DEBUG_MODE: bool = os.environ.get("LEARNING_DEBUG", "").lower() in ("1", "true", "yes")
+
+    def _seconds_per_unit(self) -> float:
+        return 1.0 if self.DEBUG_MODE else 86400.0
+
     def get_initial_state(self, knowledge_type: KnowledgeType) -> RepetitionState:
         intervals = INTERVAL_SEQUENCES[knowledge_type]
         return RepetitionState(
             interval_index=0,
             consecutive_correct=0,
             consecutive_wrong=0,
-            next_review_at=time.time() + intervals[0] * 86400,
+            next_review_at=time.time() + intervals[0] * self._seconds_per_unit(),
         )
 
     def schedule_next(
@@ -56,7 +64,7 @@ class SpacedRepetitionScheduler:
                 state.consecutive_wrong = 0
 
         state.interval_index = max(0, min(state.interval_index, max_index))
-        state.next_review_at = time.time() + intervals[state.interval_index] * 86400
+        state.next_review_at = time.time() + intervals[state.interval_index] * self._seconds_per_unit()
         return state
 
     def get_due_tasks(

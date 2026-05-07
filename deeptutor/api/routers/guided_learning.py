@@ -39,6 +39,10 @@ class AnswerRequest(BaseModel):
     mastery_estimate: float = 0.0
 
 
+class InitModulesRequest(BaseModel):
+    modules: list[dict]  # list of LearningModule-compatible dicts
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
@@ -100,3 +104,18 @@ async def get_reviews(book_id: str):
     progress = service.get_or_create(book_id)
     tasks = scheduler.get_due_tasks(progress)
     return {"tasks": [t.model_dump() for t in tasks]}
+
+
+@router.post("/progress/{book_id}/init-modules")
+async def init_modules(book_id: str, body: InitModulesRequest):
+    from deeptutor.learning.models import KnowledgePoint, LearningModule
+
+    service = get_learning_service()
+    progress = service.get_or_create(book_id)
+    modules = []
+    for m in body.modules:
+        kps = [KnowledgePoint(**kp) for kp in m.pop("knowledge_points", [])]
+        modules.append(LearningModule(knowledge_points=kps, **m))
+    service.init_modules(progress, modules)
+    service.save(progress)
+    return {"status": "ok", "module_count": len(modules)}
