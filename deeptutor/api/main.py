@@ -204,6 +204,7 @@ from deeptutor.api.routers import (
     chat,
     co_writer,
     dashboard,
+    guided_learning,
     knowledge,
     memory,
     notebook,
@@ -226,6 +227,7 @@ app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(question.router, prefix="/api/v1/question", tags=["question"])
 app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
+app.include_router(guided_learning.router, prefix="/api/v1/learning", tags=["guided-learning"])
 app.include_router(co_writer.router, prefix="/api/v1/co_writer", tags=["co_writer"])
 app.include_router(notebook.router, prefix="/api/v1/notebook", tags=["notebook"])
 app.include_router(book.router, prefix="/api/v1/book", tags=["book"])

@@ -117,5 +117,7 @@ async def init_modules(book_id: str, body: InitModulesRequest):
         kps = [KnowledgePoint(**kp) for kp in m.pop("knowledge_points", [])]
         modules.append(LearningModule(knowledge_points=kps, **m))
     service.init_modules(progress, modules)
+    progress.current_module_id = modules[0].id if modules else ""
+    progress.current_kp_index = 0
     service.save(progress)
     return {"status": "ok", "module_count": len(modules)}
