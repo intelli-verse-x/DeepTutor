@@ -101,6 +101,16 @@ class GuidedLearningCapability(BaseCapability):
             return "模拟复习内容"
         return "mock response"
 
+    # ── Safe JSON parse ──────────────────────────────────────────────────
+
+    @staticmethod
+    def _safe_json_parse(text: str, default: dict | None = None) -> dict:
+        """Parse JSON with graceful fallback on failure."""
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return default or {}
+
     # ── State machine entry ──────────────────────────────────────────────
 
     async def run(self, context: UnifiedContext, stream: StreamBus) -> None:
@@ -127,7 +137,7 @@ class GuidedLearningCapability(BaseCapability):
             response = self._mock_llm(
                 "diagnostic", "generate diagnostic phase1 screening questions"
             )
-            data = json.loads(response)
+            data = self._safe_json_parse(response, default={"questions": [], "answers": []})
             progress.diagnostic = DiagnosticResult(
                 total_questions=len(data.get("questions", [])),
                 phase1_result=data,
@@ -142,7 +152,7 @@ class GuidedLearningCapability(BaseCapability):
             response = self._mock_llm(
                 "diagnostic", "generate diagnostic phase2 deep dive"
             )
-            data = json.loads(response)
+            data = self._safe_json_parse(response, default={})
             if progress.diagnostic is not None:
                 progress.diagnostic.phase2_results = {"phase2": data}
             await stream.content(response)
