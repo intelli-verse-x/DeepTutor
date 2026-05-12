@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 
-from deeptutor.learning.models import ErrorType, QuizAttempt
+from deeptutor.learning.models import ErrorType, KnowledgePoint, LearningModule, QuizAttempt
 from deeptutor.learning.scheduler import SpacedRepetitionScheduler
 from deeptutor.learning.service import LearningService
 from deeptutor.learning.storage import LearningStore
@@ -47,6 +48,9 @@ class InitModulesRequest(BaseModel):
 
 @router.get("/progress/{book_id}")
 async def get_progress(book_id: str):
+    if not book_id or ".." in book_id or "/" in book_id or "\\" in book_id or ":" in book_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid book_id")
     service = get_learning_service()
     progress = service.get_or_create(book_id)
     return progress.model_dump()
@@ -54,12 +58,15 @@ async def get_progress(book_id: str):
 
 @router.post("/progress/{book_id}/answer")
 async def submit_answer(book_id: str, body: AnswerRequest):
+    if not book_id or ".." in book_id or "/" in book_id or "\\" in book_id or ":" in book_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid book_id")
     service = get_learning_service()
     scheduler = get_scheduler()
 
     progress = service.get_or_create(book_id)
 
-    # 将字符串 error_type 转换为 ErrorType 枚举
+    # Convert string error_type to ErrorType enum
     error_type_enum = None
     if body.error_type:
         try:
@@ -100,6 +107,9 @@ async def submit_answer(book_id: str, body: AnswerRequest):
 
 @router.get("/progress/{book_id}/reviews")
 async def get_reviews(book_id: str):
+    if not book_id or ".." in book_id or "/" in book_id or "\\" in book_id or ":" in book_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid book_id")
     service = get_learning_service()
     scheduler = get_scheduler()
 
@@ -110,10 +120,9 @@ async def get_reviews(book_id: str):
 
 @router.post("/progress/{book_id}/init-modules")
 async def init_modules(book_id: str, body: InitModulesRequest):
-    from pydantic import ValidationError as PydanticValidationError
-
-    from deeptutor.learning.models import KnowledgePoint, LearningModule
-
+    if not book_id or ".." in book_id or "/" in book_id or "\\" in book_id or ":" in book_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid book_id")
     service = get_learning_service()
     progress = service.get_or_create(book_id)
     modules = []
@@ -122,7 +131,6 @@ async def init_modules(book_id: str, body: InitModulesRequest):
         try:
             kps = [KnowledgePoint(**kp) for kp in kps_data]
         except PydanticValidationError as exc:
-            from fastapi import HTTPException
             raise HTTPException(
                 status_code=422,
                 detail=f"Invalid knowledge_point data in modules[{i}]: {exc.errors()}",
@@ -132,7 +140,6 @@ async def init_modules(book_id: str, body: InitModulesRequest):
         try:
             modules.append(LearningModule(knowledge_points=kps, **m_clean))
         except PydanticValidationError as exc:
-            from fastapi import HTTPException
             raise HTTPException(
                 status_code=422,
                 detail=f"Invalid module data in modules[{i}]: {exc.errors()}",
@@ -140,5 +147,7 @@ async def init_modules(book_id: str, body: InitModulesRequest):
     service.init_modules(progress, modules)
     progress.current_module_id = modules[0].id if modules else ""
     progress.current_kp_index = 0
+    # NOTE: init_modules always resets to module 0. For incremental module addition,
+    # use the merge logic in LearningService.init_modules() which preserves position.
     service.save(progress)
     return {"status": "ok", "module_count": len(modules)}
