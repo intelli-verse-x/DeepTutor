@@ -125,8 +125,10 @@ class GuidedLearningCapability(BaseCapability):
                     await stream.content("学习流程已完成。进入复习阶段。")
             return
 
-        await handler(self, progress, context, stream)
-        self._service.save(progress)
+        try:
+            await handler(self, progress, context, stream)
+        finally:
+            self._service.save(progress)
 
     # ── §2 Diagnostic ────────────────────────────────────────────────────
 
