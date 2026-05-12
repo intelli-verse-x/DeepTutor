@@ -113,8 +113,11 @@ async def init_modules(book_id: str, body: InitModulesRequest):
     progress = service.get_or_create(book_id)
     modules = []
     for m in body.modules:
-        kps = [KnowledgePoint(**kp) for kp in m.get("knowledge_points", [])]
-        modules.append(LearningModule(knowledge_points=kps, **m))
+        kps_data = m.get("knowledge_points", [])
+        kps = [KnowledgePoint(**kp) for kp in kps_data]
+        # Remove knowledge_points from m to avoid duplicate argument to LearningModule
+        m_clean = {k: v for k, v in m.items() if k != "knowledge_points"}
+        modules.append(LearningModule(knowledge_points=kps, **m_clean))
     service.init_modules(progress, modules)
     progress.current_module_id = modules[0].id if modules else ""
     progress.current_kp_index = 0
