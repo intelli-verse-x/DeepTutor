@@ -126,7 +126,7 @@ def _build_cors_settings() -> dict[str, object]:
     # pre-v1.3.8 behavior and allow remote Docker/LAN origins out of the box.
     # When auth is enabled, require explicit CORS_ORIGIN(S) for credentialed
     # cross-origin requests.
-    allow_origin_regex = None if _env_truthy(os.getenv("AUTH_ENABLED")) else r"https?://.*"
+    allow_origin_regex = None if _env_truthy(os.getenv("AUTH_ENABLED")) else r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?"
     return {"allow_origins": origins, "allow_origin_regex": allow_origin_regex}
 
 

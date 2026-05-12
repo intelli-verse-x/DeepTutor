@@ -50,7 +50,11 @@ async def unified_websocket(ws: WebSocket) -> None:
 
     user_token = None
     if AUTH_ENABLED:
-        token = ws.query_params.get("token") or ws.cookies.get("dt_token")
+        token = ws.cookies.get("dt_token")
+        if not token:
+            token = ws.query_params.get("token")
+            if token:
+                logger.warning("WebSocket auth via ?token= query param is deprecated — use dt_token cookie instead")
         payload = decode_token(token) if token else None
         if not payload:
             await ws.close(code=4001)

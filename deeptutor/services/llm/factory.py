@@ -5,8 +5,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator, Mapping
 import contextlib
+import logging
 from types import SimpleNamespace
 from typing import Any, TypedDict
+
+logger = logging.getLogger(__name__)
 
 from deeptutor.config.settings import settings
 from deeptutor.services.provider_registry import (
@@ -468,14 +471,17 @@ async def stream(
     async def _runner() -> None:
         nonlocal in_think_block
         try:
-            response = await provider.chat_stream_with_retry(
-                messages=request_messages,
-                model=config.model,
-                reasoning_effort=config.reasoning_effort,
-                on_content_delta=_on_content_delta,
-                on_reasoning_delta=_on_reasoning_delta,
-                retry_delays=retry_delays,
-                **extra_kwargs,
+            response = await asyncio.wait_for(
+                provider.chat_stream_with_retry(
+                    messages=request_messages,
+                    model=config.model,
+                    reasoning_effort=config.reasoning_effort,
+                    on_content_delta=_on_content_delta,
+                    on_reasoning_delta=_on_reasoning_delta,
+                    retry_delays=retry_delays,
+                    **extra_kwargs,
+                ),
+                timeout=300,
             )
             if in_think_block:
                 in_think_block = False
@@ -496,6 +502,9 @@ async def stream(
                         provider=config.provider_name,
                     )
                 )
+        except asyncio.TimeoutError:
+            logger.error("LLM streaming timed out after 300s")
+            await queue.put(map_error(RuntimeError("LLM streaming timed out after 300s"), provider=config.provider_name))
         except Exception as exc:
             await queue.put(map_error(exc, provider=config.provider_name))
         finally:
