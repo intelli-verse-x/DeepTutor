@@ -43,8 +43,6 @@ class LearningService:
     def record_quiz_attempt(
         self, progress: LearningProgress, attempt: QuizAttempt
     ) -> None:
-        key = (attempt.question_id, attempt.knowledge_point_id)
-
         if not attempt.is_correct and attempt.error_type is not None:
             # Find existing error record for this question + knowledge point.
             existing = None
