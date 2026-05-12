@@ -83,9 +83,12 @@ async def submit_answer(book_id: str, body: AnswerRequest):
     kp_type = progress.knowledge_types.get(attempt.knowledge_point_id)
     if kp_type is not None:
         state = progress.repetition_states.get(attempt.knowledge_point_id)
-        if state is not None:
-            scheduler.schedule_next(state, kp_type, attempt.is_correct)
-            progress.review_queue = scheduler.build_review_queue(progress)
+        if state is None:
+            # Auto-create initial repetition state for new knowledge points
+            state = scheduler.get_initial_state(kp_type)
+            progress.repetition_states[attempt.knowledge_point_id] = state
+        scheduler.schedule_next(state, kp_type, attempt.is_correct)
+        progress.review_queue = scheduler.build_review_queue(progress)
 
     # Update mastery estimate
     if attempt.mastery_estimate > 0:
