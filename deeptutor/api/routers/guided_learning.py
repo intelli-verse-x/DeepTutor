@@ -12,17 +12,16 @@ from deeptutor.learning.storage import LearningStore
 
 router = APIRouter()
 
-_store = LearningStore()
-_service = LearningService(_store)
-_scheduler = SpacedRepetitionScheduler()
-
 
 def get_learning_service() -> LearningService:
-    return _service
+    # Create a fresh store + service per request to avoid object-level race conditions.
+    store = LearningStore()
+    return LearningService(store)
 
 
 def get_scheduler() -> SpacedRepetitionScheduler:
-    return _scheduler
+    # Stateless; safe to instantiate per request.
+    return SpacedRepetitionScheduler()
 
 
 # ── Request models ───────────────────────────────────────────────────────────

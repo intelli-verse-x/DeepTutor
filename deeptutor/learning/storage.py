@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from pathlib import Path
 
 from deeptutor.learning.models import LearningProgress
@@ -9,7 +10,7 @@ from deeptutor.services.path_service import get_path_service
 
 def _atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_suffix(path.suffix + f".tmp.{uuid.uuid4().hex}")
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(path)
 
@@ -25,19 +26,19 @@ class LearningStore:
         return self._root / f"{book_id}.json"
 
     def save(self, progress: LearningProgress) -> None:
-        progress.updated_at = time.time()
-        data = progress.model_dump(mode="json")
         import json
 
+        progress.updated_at = time.time()
+        data = progress.model_dump(mode="json")
         text = json.dumps(data, ensure_ascii=False, indent=2)
         _atomic_write_text(self._path(progress.book_id), text)
 
     def load(self, book_id: str) -> LearningProgress | None:
+        import json
+
         path = self._path(book_id)
         if not path.exists():
             return None
-        import json
-
         data = json.loads(path.read_text(encoding="utf-8"))
         return LearningProgress.model_validate(data)
 
