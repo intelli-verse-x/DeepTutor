@@ -75,6 +75,12 @@ class SpacedRepetitionScheduler:
         due.sort(key=lambda t: t.priority)
         return due[:max_tasks]
 
+    def complete_review_task(self, progress: LearningProgress, task_id: str) -> bool:
+        """Remove a completed review task from the queue. Returns True if found."""
+        original_len = len(progress.review_queue)
+        progress.review_queue = [t for t in progress.review_queue if t.id != task_id]
+        return len(progress.review_queue) < original_len
+
     def build_review_queue(self, progress: LearningProgress) -> list[ReviewTask]:
         tasks: list[ReviewTask] = []
         error_kps: set[str] = set()
