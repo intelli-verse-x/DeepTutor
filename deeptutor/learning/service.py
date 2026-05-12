@@ -29,8 +29,11 @@ class LearningService:
     def init_modules(
         self, progress: LearningProgress, modules: list[LearningModule]
     ) -> None:
-        progress.modules = modules
+        # Incremental merge: keep existing modules, add new ones by id
+        existing_ids = {m.id for m in progress.modules}
         for mod in modules:
+            if mod.id not in existing_ids:
+                progress.modules.append(mod)
             for kp in mod.knowledge_points:
                 progress.knowledge_types[kp.id] = kp.type
 
