@@ -19,8 +19,10 @@ import json_repair
 from openai import AsyncOpenAI
 
 from deeptutor.services.llm.capabilities import disable_response_format_at_runtime
+from deeptutor.services.llm.openai_http_client import openai_client_kwargs
 from deeptutor.services.llm.provider_core.base import LLMProvider, LLMResponse, ToolCallRequest
 from deeptutor.services.llm.provider_core.openai_responses import (
+    adapt_chat_kwargs_to_responses,
     consume_sdk_stream,
     convert_messages,
     convert_tools,
@@ -141,6 +143,7 @@ class OpenAICompatProvider(LLMProvider):
             base_url=effective_base,
             default_headers=default_headers,
             max_retries=0,
+            **openai_client_kwargs(),
         )
         self._responses_failures: dict[str, int] = {}
         self._responses_tripped_at: dict[str, float] = {}
@@ -307,7 +310,10 @@ class OpenAICompatProvider(LLMProvider):
         if spec and spec.name == "dashscope" and semantic_effort == "minimal":
             wire_effort = "minimum"
 
-        if wire_effort:
+        # Providers with thinking_style handle thinking via extra_body.
+        # "minimal" means disable thinking — only send via extra_body, never
+        # as a top-level reasoning_effort (e.g. DeepSeek rejects it).
+        if wire_effort and not (spec and spec.thinking_style and semantic_effort == "minimal"):
             kwargs["reasoning_effort"] = wire_effort
 
         if spec and spec.thinking_style and reasoning_effort is not None:
@@ -531,8 +537,6 @@ class OpenAICompatProvider(LLMProvider):
                     finish_reason = ch.finish_reason
             if not content and m.content:
                 content = m.content
-            if not content and getattr(m, "reasoning_content", None):
-                content = m.reasoning_content
             if not content and getattr(m, "reasoning", None):
                 content = m.reasoning
 
@@ -620,8 +624,11 @@ class OpenAICompatProvider(LLMProvider):
             for tc in (delta.tool_calls or []) if delta else []:
                 _accum_tc(tc, getattr(tc, "index", 0))
 
+        content = "".join(content_parts) or None
+        reasoning_content = "".join(reasoning_parts) or None
+
         return LLMResponse(
-            content="".join(content_parts) or None,
+            content=content,
             tool_calls=[
                 ToolCallRequest(
                     id=b["id"] or _short_tool_id(),
@@ -632,7 +639,7 @@ class OpenAICompatProvider(LLMProvider):
             ],
             finish_reason=finish_reason,
             usage=usage,
-            reasoning_content="".join(reasoning_parts) or None,
+            reasoning_content=reasoning_content,
         )
 
     @staticmethod
@@ -694,7 +701,7 @@ class OpenAICompatProvider(LLMProvider):
                         reasoning_effort,
                         tool_choice,
                     )
-                    body.update({k: v for k, v in extra_kwargs.items() if v is not None})
+                    body.update(adapt_chat_kwargs_to_responses(extra_kwargs))
                     result = parse_response_output(await self._client.responses.create(**body))
                     self._record_responses_success(model, reasoning_effort)
                     return result
@@ -777,7 +784,7 @@ class OpenAICompatProvider(LLMProvider):
                         reasoning_effort,
                         tool_choice,
                     )
-                    body.update({k: v for k, v in extra_kwargs.items() if v is not None})
+                    body.update(adapt_chat_kwargs_to_responses(extra_kwargs))
                     body["stream"] = True
                     stream = await self._client.responses.create(**body)
 

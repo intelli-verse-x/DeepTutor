@@ -24,7 +24,20 @@ class RAGService:
         provider: Optional[str] = None,  # accepted for backward compatibility
     ):
         self.logger = logging.getLogger(__name__)
-        self.kb_base_dir = kb_base_dir or DEFAULT_KB_BASE_DIR
+        if kb_base_dir is None:
+            try:
+                from deeptutor.services.path_service import get_path_service
+
+                kb_base_dir = str(get_path_service().get_knowledge_bases_root())
+            except Exception:
+                self.logger.warning(
+                    "RAGService falling back to DEFAULT_KB_BASE_DIR (%s); "
+                    "this should only happen in single-user / CLI mode. "
+                    "Multi-user requests must reach this path with an explicit kb_base_dir.",
+                    DEFAULT_KB_BASE_DIR,
+                )
+                kb_base_dir = DEFAULT_KB_BASE_DIR
+        self.kb_base_dir = kb_base_dir
         self.provider = DEFAULT_PROVIDER
         self._pipeline = None
 
@@ -125,7 +138,26 @@ class RAGService:
     def _capture_raw_logs(self, event_sink):
         from contextlib import nullcontext
 
-        return nullcontext()
+        if event_sink is None:
+            return nullcontext()
+
+        from deeptutor.logging import capture_process_logs
+
+        def emit(event):
+            return self._emit_tool_event(
+                event_sink,
+                "raw_log",
+                event.message,
+                {
+                    "level": event.level,
+                    "logger": event.logger,
+                    "timestamp": event.timestamp,
+                    "trace_layer": "raw",
+                    **event.context,
+                },
+            )
+
+        return capture_process_logs(emit, min_level=logging.INFO)
 
     async def delete(self, kb_name: str) -> bool:
         self.logger.info(f"Deleting KB '{kb_name}'")

@@ -9,23 +9,39 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from typing import Any, List, Literal, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
+
+from deeptutor.multi_user.context import get_current_user
+from deeptutor.multi_user.model_access import allowed_llm_options, redacted_model_access
 from deeptutor.services.config import get_config_test_runner, get_model_catalog_service
 from deeptutor.services.embedding.client import reset_embedding_client
 from deeptutor.services.llm.client import reset_llm_client
 from deeptutor.services.llm.config import clear_llm_config_cache
+from deeptutor.services.model_selection import list_llm_options
 from deeptutor.services.path_service import get_path_service
 
 router = APIRouter()
 
-_path_service = get_path_service()
-SETTINGS_FILE = _path_service.get_settings_file("interface")
+TOUR_CACHE = None
+
+
+def _settings_file():
+    return get_path_service().get_settings_file("interface")
+
+
+def _tour_cache_file():
+    if TOUR_CACHE is not None:
+        return TOUR_CACHE
+    return get_path_service().get_settings_dir() / ".tour_cache.json"
+
 
 DEFAULT_SIDEBAR_NAV_ORDER = {
     "start": ["/", "/history", "/knowledge", "/notebook"],
@@ -73,16 +89,27 @@ class CatalogPayload(BaseModel):
 
 
 def _invalidate_runtime_caches() -> None:
-    """Force runtime clients/config to pick up the latest saved catalog."""
+    """Force runtime clients/config to pick up the latest saved catalog.
+
+    The LLM and embedding clients are process-wide singletons, so resetting
+    them here will affect any user turn that is mid-flight on another worker.
+    Admins issuing Apply during active sessions accept that trade-off; we log
+    a WARNING so the cause is visible in the audit trail.
+    """
+    logger.warning(
+        "Admin applied catalog; resetting global LLM/embedding clients. "
+        "In-flight user turns may flip backend client mid-call."
+    )
     clear_llm_config_cache()
     reset_llm_client()
     reset_embedding_client()
 
 
 def load_ui_settings() -> dict[str, Any]:
-    if SETTINGS_FILE.exists():
+    settings_file = _settings_file()
+    if settings_file.exists():
         try:
-            with open(SETTINGS_FILE, encoding="utf-8") as handle:
+            with open(settings_file, encoding="utf-8") as handle:
                 saved = json.load(handle)
                 return {**DEFAULT_UI_SETTINGS, **saved}
         except Exception:
@@ -91,9 +118,18 @@ def load_ui_settings() -> dict[str, Any]:
 
 
 def save_ui_settings(settings: dict[str, Any]) -> None:
-    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as handle:
+    settings_file = _settings_file()
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(settings_file, "w", encoding="utf-8") as handle:
         json.dump(settings, handle, ensure_ascii=False, indent=2)
+
+
+def _require_settings_admin() -> None:
+    if not get_current_user().is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Model configuration is managed by an administrator.",
+        )
 
 
 def _provider_choices() -> dict[str, list[dict[str, str]]]:
@@ -144,6 +180,12 @@ def _provider_choices() -> dict[str, list[dict[str, str]]]:
 
 @router.get("")
 async def get_settings():
+    user = get_current_user()
+    if not user.is_admin:
+        return {
+            "ui": load_ui_settings(),
+            "model_access": redacted_model_access(user.id),
+        }
     return {
         "ui": load_ui_settings(),
         "catalog": get_model_catalog_service().load(),
@@ -153,11 +195,20 @@ async def get_settings():
 
 @router.get("/catalog")
 async def get_catalog():
+    _require_settings_admin()
     return {"catalog": get_model_catalog_service().load()}
+
+
+@router.get("/llm-options")
+async def get_llm_options():
+    if not get_current_user().is_admin:
+        return allowed_llm_options()
+    return list_llm_options(get_model_catalog_service().load())
 
 
 @router.put("/catalog")
 async def update_catalog(payload: CatalogPayload):
+    _require_settings_admin()
     catalog = get_model_catalog_service().save(payload.catalog)
     _invalidate_runtime_caches()
     return {"catalog": catalog}
@@ -165,6 +216,7 @@ async def update_catalog(payload: CatalogPayload):
 
 @router.post("/apply")
 async def apply_catalog(payload: CatalogPayload | None = None):
+    _require_settings_admin()
     catalog = payload.catalog if payload is not None else get_model_catalog_service().load()
     rendered = get_model_catalog_service().apply(catalog)
     _invalidate_runtime_caches()
@@ -246,12 +298,14 @@ async def update_sidebar_nav_order(update: SidebarNavOrderUpdate):
 
 @router.post("/tests/{service}/start")
 async def start_service_test(service: str, payload: CatalogPayload | None = None):
+    _require_settings_admin()
     run = get_config_test_runner().start(service, payload.catalog if payload else None)
     return {"run_id": run.id}
 
 
 @router.get("/tests/{service}/{run_id}/events")
 async def stream_service_test_events(service: str, run_id: str, request: Request):
+    _require_settings_admin()
     runner = get_config_test_runner()
     run = runner.get(run_id)
 
@@ -276,18 +330,17 @@ async def stream_service_test_events(service: str, run_id: str, request: Request
 
 @router.post("/tests/{service}/{run_id}/cancel")
 async def cancel_service_test(service: str, run_id: str):
+    _require_settings_admin()
     get_config_test_runner().cancel(run_id)
     return {"message": "Cancelled"}
 
 
-TOUR_CACHE = _path_service.get_settings_dir() / ".tour_cache.json"
-
-
 @router.get("/tour/status")
 async def tour_status():
-    if TOUR_CACHE.exists():
+    tour_cache = _tour_cache_file()
+    if tour_cache.exists():
         try:
-            cache = json.loads(TOUR_CACHE.read_text(encoding="utf-8"))
+            cache = json.loads(tour_cache.read_text(encoding="utf-8"))
             return {
                 "active": True,
                 "status": cache.get("status", "unknown"),
@@ -306,6 +359,7 @@ class TourCompletePayload(BaseModel):
 
 @router.post("/tour/complete")
 async def complete_tour(payload: TourCompletePayload | None = None):
+    _require_settings_admin()
     catalog = payload.catalog if payload and payload.catalog else get_model_catalog_service().load()
     rendered = get_model_catalog_service().apply(catalog)
     _invalidate_runtime_caches()
@@ -313,9 +367,10 @@ async def complete_tour(payload: TourCompletePayload | None = None):
     launch_at = now + 3
     redirect_at = now + 5
 
-    if TOUR_CACHE.exists():
+    tour_cache = _tour_cache_file()
+    if tour_cache.exists():
         try:
-            cache = json.loads(TOUR_CACHE.read_text(encoding="utf-8"))
+            cache = json.loads(tour_cache.read_text(encoding="utf-8"))
         except Exception:
             cache = {}
         cache["status"] = "completed"
@@ -323,7 +378,7 @@ async def complete_tour(payload: TourCompletePayload | None = None):
         cache["redirect_at"] = redirect_at
         if payload and payload.test_results:
             cache["test_results"] = payload.test_results
-        TOUR_CACHE.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+        tour_cache.write_text(json.dumps(cache, indent=2), encoding="utf-8")
 
     return {
         "status": "completed",

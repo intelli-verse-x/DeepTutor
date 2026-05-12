@@ -22,6 +22,9 @@ export interface ProgressInfo {
   total?: number;
   percent?: number;
   progress_percent?: number;
+  indexed_count?: number;
+  index_changed?: boolean;
+  index_action?: string;
 }
 
 export interface IndexVersion {
@@ -35,6 +38,7 @@ export interface IndexVersion {
 }
 
 export interface KnowledgeBase {
+  id?: string;
   name: string;
   is_default?: boolean;
   status?: string;
@@ -42,6 +46,9 @@ export interface KnowledgeBase {
   metadata?: {
     created_at?: string;
     last_updated?: string;
+    last_indexed_at?: string;
+    last_indexed_count?: number;
+    last_indexed_action?: string;
     rag_provider?: string;
     needs_reindex?: boolean;
     embedding_model?: string;
@@ -62,6 +69,11 @@ export interface KnowledgeBase {
     active_signature?: string | null;
     active_match?: boolean;
   };
+  source?: "admin" | "user";
+  assigned?: boolean;
+  read_only?: boolean;
+  provenance_label?: string;
+  available?: boolean;
 }
 
 export interface ValidatedSelectionFile {

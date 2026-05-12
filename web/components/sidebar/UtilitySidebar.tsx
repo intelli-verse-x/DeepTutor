@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { SidebarShell } from "@/components/sidebar/SidebarShell";
+import { LogoutButton } from "@/components/auth/LogoutButton";
+import { AdminLink } from "@/components/auth/AdminLink";
 import { useAppShell } from "@/context/AppShellContext";
 import {
   deleteSession,
@@ -93,6 +95,12 @@ export default function UtilitySidebar() {
       onSelectSession={handleSelectSession}
       onRenameSession={handleRenameSession}
       onDeleteSession={handleDeleteSession}
+      footerSlot={
+        <>
+          <AdminLink />
+          <LogoutButton />
+        </>
+      }
     />
   );
 }

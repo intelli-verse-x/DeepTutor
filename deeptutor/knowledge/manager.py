@@ -17,7 +17,7 @@ import stat
 import sys
 from typing import Any
 
-from deeptutor.services.rag.factory import DEFAULT_PROVIDER
+from deeptutor.services.rag.factory import DEFAULT_PROVIDER, normalize_provider_name
 from deeptutor.services.rag.file_routing import FileTypeRouter
 
 logger = logging.getLogger(__name__)
@@ -178,6 +178,13 @@ class KnowledgeBaseManager:
         self.config_file = self.base_dir / "kb_config.json"
         self.config = self._load_config()
 
+        # PocketBase sync — enabled when POCKETBASE_URL is set.
+        # The local JSON file stays the source of truth; PocketBase gets a
+        # mirrored copy for admin-panel visibility and future multi-user access.
+        from deeptutor.services.pocketbase_client import is_pocketbase_enabled
+
+        self._pb_enabled = is_pocketbase_enabled()
+
     def _load_config(self) -> dict:
         """Load knowledge base configuration from the canonical kb_config.json file."""
         if self.config_file.exists():
@@ -265,6 +272,35 @@ class KnowledgeBaseManager:
                 f.flush()
                 os.fsync(f.fileno())  # Ensure data is written to disk
 
+    def _sync_kb_to_pb(self, name: str, kb_entry: dict) -> None:
+        """
+        Mirror a KB metadata entry to PocketBase (best-effort, non-blocking).
+        Called after every local config save when PocketBase is enabled.
+        """
+        if not self._pb_enabled:
+            return
+        try:
+            from deeptutor.services.pocketbase_client import get_pb_client
+
+            pb = get_pb_client()
+            records = pb.collection("knowledge_bases").get_full_list(
+                query_params={"filter": f'kb_name="{name}"'}
+            )
+            payload = {
+                "kb_name": name,
+                "description": kb_entry.get("description", f"Knowledge base: {name}"),
+                "rag_provider": kb_entry.get("rag_provider", "llamaindex"),
+                "needs_reindex": bool(kb_entry.get("needs_reindex", False)),
+                "status": kb_entry.get("status", "unknown"),
+                "kb_created_at": kb_entry.get("created_at", ""),
+            }
+            if records:
+                pb.collection("knowledge_bases").update(records[0].id, payload)
+            else:
+                pb.collection("knowledge_bases").create(payload)
+        except Exception as exc:
+            logger.debug(f"PocketBase KB sync failed for '{name}': {exc}")
+
     def update_kb_status(
         self,
         name: str,
@@ -273,6 +309,9 @@ class KnowledgeBaseManager:
     ):
         """
         Update knowledge base status and progress in kb_config.json.
+
+        When PocketBase is enabled, the updated entry is also mirrored to the
+        PocketBase knowledge_bases collection (best-effort).
 
         Args:
             name: Knowledge base name
@@ -302,6 +341,27 @@ class KnowledgeBaseManager:
         kb_config = self.config["knowledge_bases"][name]
         kb_config["status"] = status
         kb_config["updated_at"] = datetime.now().isoformat()
+        index_changed = False
+        indexed_count: int | None = None
+        index_action: str | None = None
+        if isinstance(progress, dict):
+            raw_indexed_count = progress.get("indexed_count")
+            if isinstance(raw_indexed_count, bool):
+                indexed_count = int(raw_indexed_count)
+            elif isinstance(raw_indexed_count, (int, float)):
+                indexed_count = int(raw_indexed_count)
+            elif isinstance(raw_indexed_count, str):
+                try:
+                    indexed_count = int(raw_indexed_count)
+                except ValueError:
+                    indexed_count = None
+
+            index_changed = bool(progress.get("index_changed")) or (
+                indexed_count is not None and indexed_count > 0
+            )
+            raw_index_action = progress.get("index_action")
+            if isinstance(raw_index_action, str) and raw_index_action.strip():
+                index_action = raw_index_action.strip()
 
         if status == "ready":
             # Ready KBs should look like stable resources in the UI instead of
@@ -311,6 +371,12 @@ class KnowledgeBaseManager:
                 kb_config["last_completed_at"] = (
                     progress.get("timestamp") or datetime.now().isoformat()
                 )
+                if index_changed:
+                    kb_config["last_indexed_at"] = kb_config["last_completed_at"]
+                    if indexed_count is not None:
+                        kb_config["last_indexed_count"] = max(indexed_count, 0)
+                    if index_action:
+                        kb_config["last_indexed_action"] = index_action
         elif progress is not None:
             kb_config["progress"] = progress
 
@@ -338,6 +404,7 @@ class KnowledgeBaseManager:
                 pass
 
         self._save_config()
+        self._sync_kb_to_pb(name, kb_config)
 
     def get_kb_status(self, name: str) -> dict | None:
         """Get status and progress for a knowledge base."""
@@ -424,13 +491,21 @@ class KnowledgeBaseManager:
                     kb_entry["description"] = metadata["description"]
                 if metadata.get("rag_provider"):
                     raw_provider = str(metadata["rag_provider"]).strip().lower()
-                    kb_entry["rag_provider"] = DEFAULT_PROVIDER
+                    kb_entry["rag_provider"] = normalize_provider_name(raw_provider)
                     if raw_provider not in {"", DEFAULT_PROVIDER}:
                         kb_entry["needs_reindex"] = True
                 if metadata.get("created_at"):
                     kb_entry["created_at"] = metadata["created_at"]
                 if metadata.get("last_updated"):
                     kb_entry["updated_at"] = metadata["last_updated"]
+                if metadata.get("last_indexed_at"):
+                    kb_entry["last_indexed_at"] = metadata["last_indexed_at"]
+                elif metadata.get("last_updated"):
+                    kb_entry["last_indexed_at"] = metadata["last_updated"]
+                if metadata.get("last_indexed_count") is not None:
+                    kb_entry["last_indexed_count"] = metadata["last_indexed_count"]
+                if metadata.get("last_indexed_action"):
+                    kb_entry["last_indexed_action"] = metadata["last_indexed_action"]
             except Exception as e:
                 logger.warning(f"Failed to read metadata.json for '{name}': {e}")
 
@@ -590,6 +665,9 @@ class KnowledgeBaseManager:
                 "needs_reindex": bool(kb_config.get("needs_reindex", False)),
                 "created_at": kb_config.get("created_at"),
                 "last_updated": kb_config.get("updated_at"),
+                "last_indexed_at": kb_config.get("last_indexed_at"),
+                "last_indexed_count": kb_config.get("last_indexed_count"),
+                "last_indexed_action": kb_config.get("last_indexed_action"),
             }
             metadata.update(self._embedding_fields(kb_config))
             # Remove None values
@@ -684,6 +762,12 @@ class KnowledgeBaseManager:
             metadata["created_at"] = created_at
         if updated_at:
             metadata["last_updated"] = updated_at
+        if kb_config.get("last_indexed_at"):
+            metadata["last_indexed_at"] = kb_config.get("last_indexed_at")
+        if kb_config.get("last_indexed_count") is not None:
+            metadata["last_indexed_count"] = kb_config.get("last_indexed_count")
+        if kb_config.get("last_indexed_action"):
+            metadata["last_indexed_action"] = kb_config.get("last_indexed_action")
 
         metadata.update(self._embedding_fields(kb_config))
 

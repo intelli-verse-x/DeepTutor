@@ -24,7 +24,6 @@ configure_text_streams()
 ENV_PATH = PROJECT_ROOT / ".env"
 ENV_EXAMPLE_PATH = PROJECT_ROOT / ".env.example"
 INTERFACE_SETTINGS_PATH = PROJECT_ROOT / "data" / "user" / "settings" / "interface.json"
-ENV_SETTINGS_PATH = PROJECT_ROOT / "data" / "user" / "settings" / "env.json"
 LEGACY_TOUR_CACHE_PATH = PROJECT_ROOT / "data" / "user" / "settings" / ".tour_cache.json"
 
 
@@ -283,7 +282,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "install_profile_tutorbot_label": "Web + TutorBot",
         "install_profile_tutorbot_desc": "Adds TutorBot engine and common channel SDKs",
         "install_profile_matrix_label": "Web + TutorBot + Matrix",
-        "install_profile_matrix_desc": "Also installs matrix-nio[e2e]; requires libolm on your system",
+        "install_profile_matrix_desc": "Adds Matrix support without E2EE/libolm; install matrix-e2e for encrypted rooms",
         "install_math_animator": "Install Math Animator add-on?",
         "install_math_animator_hint": (
             "Optional: Manim can require LaTeX, Cairo, pkg-config, CMake, and ffmpeg."
@@ -399,7 +398,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "install_profile_tutorbot_label": "Web + TutorBot",
         "install_profile_tutorbot_desc": "增加 TutorBot 引擎和常用渠道 SDK",
         "install_profile_matrix_label": "Web + TutorBot + Matrix",
-        "install_profile_matrix_desc": "额外安装 matrix-nio[e2e]；系统需先安装 libolm",
+        "install_profile_matrix_desc": "增加非 E2EE Matrix 支持；加密房间请另装 matrix-e2e/libolm",
         "install_math_animator": "是否安装 Math Animator 附加能力？",
         "install_math_animator_hint": "选填：Manim 可能需要 LaTeX、Cairo、pkg-config、CMake 和 ffmpeg。",
         "install_selected": "已选择安装配置：{profile}",
@@ -590,35 +589,6 @@ def _save_ui_language(language: str, path: Path = INTERFACE_SETTINGS_PATH) -> No
     payload["language"] = "zh" if language == "zh" else "en"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _save_launch_ports(values: dict[str, str], path: Path = ENV_SETTINGS_PATH) -> None:
-    """Keep launcher ports in runtime settings without rewriting provider data."""
-    backend = values.get("BACKEND_PORT")
-    frontend = values.get("FRONTEND_PORT")
-    if backend is None and frontend is None:
-        return
-
-    payload: dict[str, Any] = {}
-    if path.exists() and path.stat().st_size > 0:
-        try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                payload = loaded
-        except Exception:
-            payload = {}
-
-    payload.setdefault("version", 1)
-    ports = payload.get("ports")
-    if not isinstance(ports, dict):
-        ports = {}
-    if backend is not None:
-        ports["backend"] = int(backend)
-    if frontend is not None:
-        ports["frontend"] = int(frontend)
-    payload["ports"] = ports
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _ensure_env_file(env_path: Path = ENV_PATH, template_path: Path = ENV_EXAMPLE_PATH) -> bool:
@@ -1305,7 +1275,6 @@ def _print_review(values: dict[str, str]) -> None:
 
 def _write_env(values: dict[str, str]) -> None:
     get_env_store().write(values)
-    _save_launch_ports(values)
 
 
 def _tour_banner() -> None:

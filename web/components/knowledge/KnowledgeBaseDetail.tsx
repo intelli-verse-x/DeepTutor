@@ -103,6 +103,7 @@ export default function KnowledgeBaseDetail({
     : t("Default embedding");
   const updatedLabel =
     formatKnowledgeTimestamp(meta.last_updated) || t("Unknown time");
+  const lastIndexedLabel = formatKnowledgeTimestamp(meta.last_indexed_at);
 
   const isReindexingLocally =
     task?.kind === "reindex" && task.executing === true;
@@ -125,6 +126,11 @@ export default function KnowledgeBaseDetail({
                   {t("Default")}
                 </span>
               )}
+              {kb.assigned && (
+                <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                  {kb.provenance_label || t("Assigned by admin")}
+                </span>
+              )}
               <KbStatusBadge
                 kb={kb}
                 isReindexingLocally={isReindexingLocally}
@@ -132,6 +138,9 @@ export default function KnowledgeBaseDetail({
             </div>
             <p className="mt-1 text-[12px] text-[var(--muted-foreground)]">
               {provider} · {embeddingLabel} · {t("Updated")} {updatedLabel}
+              {lastIndexedLabel
+                ? ` · ${t("Last indexed")} ${lastIndexedLabel}`
+                : ""}
             </p>
           </div>
         </div>
@@ -173,21 +182,29 @@ export default function KnowledgeBaseDetail({
                   task={task}
                   history={history}
                   onClearHistory={() => onClearHistory(kb.name)}
-                  onUpload={(files) => onUpload(kb.name, files)}
+                  onUpload={(files) =>
+                    kb.read_only ? Promise.resolve() : onUpload(kb.name, files)
+                  }
                 />
               )}
               {section === "versions" && (
                 <KbIndexVersionsSection
                   kb={kb}
                   task={task}
-                  onReindex={() => onReindex(kb.name)}
+                  onReindex={() =>
+                    kb.read_only ? Promise.resolve() : onReindex(kb.name)
+                  }
                 />
               )}
               {section === "settings" && (
                 <KbSettingsSection
                   kb={kb}
-                  onSetDefault={() => onSetDefault(kb.name)}
-                  onDelete={() => onDelete(kb.name)}
+                  onSetDefault={() =>
+                    kb.read_only ? Promise.resolve() : onSetDefault(kb.name)
+                  }
+                  onDelete={() =>
+                    kb.read_only ? Promise.resolve() : onDelete(kb.name)
+                  }
                 />
               )}
             </div>

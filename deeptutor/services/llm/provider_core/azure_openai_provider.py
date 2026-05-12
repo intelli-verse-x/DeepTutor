@@ -9,8 +9,10 @@ import uuid
 
 from openai import AsyncOpenAI
 
+from deeptutor.services.llm.openai_http_client import openai_client_kwargs
 from deeptutor.services.llm.provider_core.base import LLMProvider, LLMResponse
 from deeptutor.services.llm.provider_core.openai_responses import (
+    adapt_chat_kwargs_to_responses,
     consume_sdk_stream,
     convert_messages,
     convert_tools,
@@ -51,6 +53,7 @@ class AzureOpenAIProvider(LLMProvider):
             base_url=base_url,
             default_headers=headers,
             max_retries=0,
+            **openai_client_kwargs(),
         )
 
     @staticmethod
@@ -122,7 +125,7 @@ class AzureOpenAIProvider(LLMProvider):
             reasoning_effort,
             tool_choice,
         )
-        body.update({k: v for k, v in extra_kwargs.items() if v is not None})
+        body.update(adapt_chat_kwargs_to_responses(extra_kwargs))
         try:
             return parse_response_output(await self._client.responses.create(**body))
         except Exception as exc:
@@ -150,7 +153,7 @@ class AzureOpenAIProvider(LLMProvider):
             reasoning_effort,
             tool_choice,
         )
-        body.update({k: v for k, v in extra_kwargs.items() if v is not None})
+        body.update(adapt_chat_kwargs_to_responses(extra_kwargs))
         body["stream"] = True
         idle_timeout_s = 90
 

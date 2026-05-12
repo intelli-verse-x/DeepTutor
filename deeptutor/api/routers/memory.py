@@ -8,11 +8,16 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from deeptutor.services.memory import MemoryFile, get_memory_service
-from deeptutor.services.session import get_sqlite_session_store
+from deeptutor.services.session import get_session_store
 
 router = APIRouter()
 
 _VALID_FILES: set[MemoryFile] = {"summary", "profile"}
+
+
+def get_sqlite_session_store():
+    """Backward-compatible hook for tests and legacy monkeypatches."""
+    return get_session_store()
 
 
 def _snap_dict(snap) -> dict:

@@ -5,16 +5,20 @@ Turn-level runtime manager for unified chat streaming.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 import contextlib
+from contextvars import Token
 from dataclasses import dataclass, field
 import json
 import logging
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from deeptutor.core.stream import StreamEvent, StreamEventType
 from deeptutor.services.path_service import get_path_service
-from deeptutor.services.session.sqlite_store import SQLiteSessionStore, get_sqlite_session_store
+from deeptutor.services.session.protocol import SessionStoreProtocol
+
+if TYPE_CHECKING:
+    from deeptutor.services.llm.config import LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,13 @@ def _string_list(value: Any) -> list[str]:
     return [item for item in value if isinstance(item, str) and item]
 
 
+def _llm_selection_dict(value: Any) -> dict[str, str] | None:
+    from deeptutor.services.model_selection import LLMSelection
+
+    selection = LLMSelection.from_payload(value)
+    return selection.to_dict() if selection else None
+
+
 def _request_snapshot_metadata(
     *,
     payload: dict[str, Any],
@@ -70,6 +81,7 @@ def _request_snapshot_metadata(
     book_references: list[Any],
     requested_skills: list[str],
     memory_references: Sequence[str],
+    llm_selection: dict[str, str] | None,
 ) -> dict[str, Any]:
     """Persist the front-end context chips with the user message."""
     snapshot: dict[str, Any] = {
@@ -95,6 +107,8 @@ def _request_snapshot_metadata(
         snapshot["skills"] = requested_skills
     if memory_references:
         snapshot["memoryReferences"] = memory_references
+    if llm_selection:
+        snapshot["llmSelection"] = llm_selection
     return {"request_snapshot": snapshot}
 
 
@@ -142,10 +156,14 @@ def _format_question_bank_entry(entry: dict[str, Any]) -> str:
 
 
 async def _build_question_bank_context(
-    store: SQLiteSessionStore,
+    store: SessionStoreProtocol,
     entry_ids: list[Any],
 ) -> str:
     """Fetch the requested Question Bank entries and render them as context."""
+    get_entry = getattr(store, "get_notebook_entry", None)
+    if not callable(get_entry):
+        return ""
+
     seen: set[int] = set()
     blocks: list[str] = []
     for raw in entry_ids:
@@ -157,7 +175,7 @@ async def _build_question_bank_context(
             continue
         seen.add(entry_id)
         try:
-            entry = await store.get_notebook_entry(entry_id)
+            entry = await get_entry(entry_id)
         except Exception:
             entry = None
         if not entry:
@@ -335,8 +353,10 @@ class _TurnExecution:
 class TurnRuntimeManager:
     """Run one turn in the background and multiplex persisted/live events."""
 
-    def __init__(self, store: SQLiteSessionStore | None = None) -> None:
-        self.store = store or get_sqlite_session_store()
+    def __init__(self, store: SessionStoreProtocol | None = None) -> None:
+        from deeptutor.services.session import get_session_store
+
+        self.store = store or get_session_store()
         self._lock = asyncio.Lock()
         self._executions: dict[str, _TurnExecution] = {}
 
@@ -366,15 +386,68 @@ class TurnRuntimeManager:
             "config": {**validated_public_config, **runtime_only_config},
         }
         session = await self.store.ensure_session(payload.get("session_id"))
-        await self.store.update_session_preferences(
-            session["id"],
-            {
-                "capability": capability,
-                "tools": list(payload.get("tools") or []),
-                "knowledge_bases": list(payload.get("knowledge_bases") or []),
-                "language": str(payload.get("language") or "en"),
-            },
-        )
+        preferences = session.get("preferences") or {}
+        raw_llm_selection = payload.get("llm_selection")
+        if raw_llm_selection is None:
+            raw_llm_selection = preferences.get("llm_selection")
+        try:
+            llm_selection = _llm_selection_dict(raw_llm_selection)
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
+        if llm_selection:
+            try:
+                from deeptutor.multi_user.model_access import apply_allowed_llm_selection
+
+                llm_selection = apply_allowed_llm_selection(llm_selection) or {}
+            except PermissionError as exc:
+                raise RuntimeError(str(exc)) from exc
+        else:
+            # Non-admin users MUST end up with a concrete llm_selection so we
+            # never silently fall through to the global LLM client (which is
+            # configured from admin's .env). Admin keeps the existing behavior
+            # (None llm_selection → default config from admin scope).
+            from deeptutor.multi_user.context import get_current_user
+            from deeptutor.multi_user.model_access import redacted_model_access
+
+            current_user = get_current_user()
+            if not current_user.is_admin:
+                assigned_llms = [
+                    item
+                    for item in redacted_model_access(current_user.id).get("llm", [])
+                    if item.get("available")
+                ]
+                if not assigned_llms:
+                    raise RuntimeError(
+                        "No LLM model is assigned to your account. Please contact an administrator."
+                    )
+                llm_selection = {
+                    "profile_id": assigned_llms[0].get("profile_id"),
+                    "model_id": assigned_llms[0].get("model_id"),
+                }
+        if llm_selection:
+            from deeptutor.services.config import get_model_catalog_service
+            from deeptutor.services.model_selection import (
+                LLMSelection,
+                apply_llm_selection_to_catalog,
+            )
+
+            try:
+                apply_llm_selection_to_catalog(
+                    get_model_catalog_service().load(),
+                    LLMSelection.from_payload(llm_selection),
+                )
+            except ValueError as exc:
+                raise RuntimeError(str(exc)) from exc
+        payload = {**payload, "llm_selection": llm_selection}
+        preference_update: dict[str, Any] = {
+            "capability": capability,
+            "tools": list(payload.get("tools") or []),
+            "knowledge_bases": list(payload.get("knowledge_bases") or []),
+            "language": str(payload.get("language") or "en"),
+        }
+        if llm_selection:
+            preference_update["llm_selection"] = llm_selection
+        await self.store.update_session_preferences(session["id"], preference_update)
         turn = await self.store.create_turn(session["id"], capability=capability)
         execution = _TurnExecution(
             turn_id=turn["id"],
@@ -443,7 +516,7 @@ class TurnRuntimeManager:
                 if turn_id:
                     previous_turn_id = turn_id
                     break
-            await self.store.delete_message(int(last_message["id"]))
+            await self.store.delete_message(last_message["id"])
 
         preferences = session.get("preferences") or {}
         overrides = overrides or {}
@@ -482,6 +555,11 @@ class TurnRuntimeManager:
         )
         if previous_turn_id:
             config["_superseded_turn_id"] = previous_turn_id
+        llm_selection = (
+            overrides.get("llm_selection")
+            if overrides.get("llm_selection") is not None
+            else snapshot.get("llmSelection") or preferences.get("llm_selection")
+        )
 
         payload: dict[str, Any] = {
             "session_id": session_id,
@@ -508,6 +586,8 @@ class TurnRuntimeManager:
             ),
             "config": config,
         }
+        if llm_selection:
+            payload["llm_selection"] = llm_selection
         return await self.start_turn(payload)
 
     async def cancel_turn(self, turn_id: str) -> bool:
@@ -594,15 +674,22 @@ class TurnRuntimeManager:
         attachment_records = []
         assistant_events: list[dict[str, Any]] = []
         assistant_content = ""
+        llm_scope_token: Token[LLMConfig | None] | None = None
+        reset_active_llm_selection: Callable[[Token[LLMConfig | None] | None], None] | None = None
 
         try:
             from deeptutor.agents.notebook import NotebookAnalysisAgent
             from deeptutor.book.context import build_book_context
             from deeptutor.core.context import Attachment, UnifiedContext
             from deeptutor.runtime.orchestrator import ChatOrchestrator
-            from deeptutor.services.llm.config import get_llm_config
             from deeptutor.services.memory import get_memory_service
-            from deeptutor.services.notebook import notebook_manager
+            from deeptutor.services.model_selection.runtime import (
+                activate_llm_selection,
+            )
+            from deeptutor.services.model_selection.runtime import (
+                reset_llm_selection as reset_active_llm_selection,
+            )
+            from deeptutor.services.notebook import get_notebook_manager
             from deeptutor.services.session.context_builder import ContextBuilder
             from deeptutor.services.skill import get_skill_service
 
@@ -716,7 +803,7 @@ class TurnRuntimeManager:
                         capability=capability_name or "chat",
                     )
 
-            llm_config = get_llm_config()
+            llm_config, llm_scope_token = activate_llm_selection(payload.get("llm_selection"))
             builder = ContextBuilder(self.store)
 
             async def _emit_context_event(event: StreamEvent) -> None:
@@ -731,18 +818,62 @@ class TurnRuntimeManager:
             memory_service = get_memory_service()
             memory_context = memory_service.build_memory_context(memory_references)
 
-            skill_service = get_skill_service()
+            # Skill resolution differs for admin vs non-admin users:
+            # - Admin: use the user-scope SkillService (which is the admin
+            #   workspace) for both auto_select and content load.
+            # - Non-admin: auto_select from their own workspace + the admin
+            #   pool (so admin-curated skills can fire), then intersect with
+            #   the assigned skill ids, then load content from BOTH scopes
+            #   (assigned skills live in admin workspace; user's own skills
+            #   live in their workspace).
+            from deeptutor.multi_user.context import get_current_user
+            from deeptutor.multi_user.paths import get_admin_path_service
+            from deeptutor.multi_user.skill_access import assigned_skill_ids
+            from deeptutor.services.skill.service import SkillService
+
+            current_user = get_current_user()
+            user_skill_service = get_skill_service()
             requested_skills = _string_list(payload.get("skills"))
-            if not requested_skills or requested_skills == ["auto"]:
-                resolved_skills = skill_service.auto_select(raw_user_content)
+
+            if current_user.is_admin:
+                if not requested_skills or requested_skills == ["auto"]:
+                    resolved_skills = user_skill_service.auto_select(raw_user_content)
+                else:
+                    resolved_skills = [
+                        s for s in requested_skills if isinstance(s, str) and s != "auto"
+                    ]
+                skills_context = user_skill_service.load_for_context(resolved_skills)
             else:
-                resolved_skills = [
-                    s for s in requested_skills if isinstance(s, str) and s != "auto"
-                ]
-            skills_context = skill_service.load_for_context(resolved_skills)
+                admin_skill_service = SkillService(
+                    root=get_admin_path_service().get_workspace_dir() / "skills"
+                )
+                allowed_skills = assigned_skill_ids(current_user.id)
+                user_owned = {info.name for info in user_skill_service.list_skills()}
+                if not requested_skills or requested_skills == ["auto"]:
+                    auto_pool = list(
+                        dict.fromkeys(
+                            user_skill_service.auto_select(raw_user_content)
+                            + admin_skill_service.auto_select(raw_user_content)
+                        )
+                    )
+                    resolved_skills = [
+                        s for s in auto_pool if s in allowed_skills or s in user_owned
+                    ]
+                else:
+                    explicit = [s for s in requested_skills if isinstance(s, str) and s != "auto"]
+                    resolved_skills = [
+                        s for s in explicit if s in allowed_skills or s in user_owned
+                    ]
+                admin_picks = [s for s in resolved_skills if s in allowed_skills]
+                user_picks = [s for s in resolved_skills if s not in allowed_skills]
+                admin_block = admin_skill_service.load_for_context(admin_picks)
+                user_block = user_skill_service.load_for_context(user_picks)
+                skills_context = "\n\n".join(part for part in (admin_block, user_block) if part)
 
             if notebook_references:
-                referenced_records = notebook_manager.get_records_by_references(notebook_references)
+                referenced_records = get_notebook_manager().get_records_by_references(
+                    notebook_references
+                )
                 if referenced_records:
                     analysis_agent = NotebookAnalysisAgent(
                         language=str(payload.get("language", "en") or "en")
@@ -873,6 +1004,7 @@ class TurnRuntimeManager:
                         book_references=book_references,
                         requested_skills=requested_skills,
                         memory_references=memory_references,
+                        llm_selection=payload.get("llm_selection"),
                     ),
                 )
 
@@ -907,6 +1039,9 @@ class TurnRuntimeManager:
                     "question_bank_context": question_bank_context,
                     "memory_context": memory_context,
                     "active_skills": resolved_skills,
+                    "llm_selection": payload.get("llm_selection") or {},
+                    "llm_model": str(getattr(llm_config, "model", "") or ""),
+                    "llm_provider": str(getattr(llm_config, "provider_name", "") or ""),
                 },
             )
 
@@ -980,6 +1115,8 @@ class TurnRuntimeManager:
                 ),
             )
         finally:
+            if llm_scope_token is not None and reset_active_llm_selection is not None:
+                reset_active_llm_selection(llm_scope_token)
             async with self._lock:
                 current = self._executions.get(turn_id)
                 if current is not None:
@@ -1033,14 +1170,17 @@ class TurnRuntimeManager:
             logger.debug("Failed to mirror turn event to workspace", exc_info=True)
 
 
-_runtime_instance: TurnRuntimeManager | None = None
+_runtime_instances: dict[str, TurnRuntimeManager] = {}
 
 
 def get_turn_runtime_manager() -> TurnRuntimeManager:
-    global _runtime_instance
-    if _runtime_instance is None:
-        _runtime_instance = TurnRuntimeManager()
-    return _runtime_instance
+    from deeptutor.services.session import get_session_store
+
+    store = get_session_store()
+    key = str(getattr(store, "db_path", id(store)))
+    if key not in _runtime_instances:
+        _runtime_instances[key] = TurnRuntimeManager(store=store)
+    return _runtime_instances[key]
 
 
 __all__ = ["TurnRuntimeManager", "get_turn_runtime_manager"]
