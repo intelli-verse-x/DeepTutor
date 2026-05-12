@@ -190,9 +190,12 @@ class GuidedLearningCapability(BaseCapability):
     def _current_knowledge_points(self, progress: LearningProgress) -> list:
         if not progress.modules:
             return []
-        for mod in progress.modules:
-            if mod.id == progress.current_module_id or not progress.current_module_id:
-                return mod.knowledge_points
+        # If current_module_id is set, find the matching module
+        if progress.current_module_id:
+            for mod in progress.modules:
+                if mod.id == progress.current_module_id:
+                    return mod.knowledge_points
+        # Fallback: return first module's knowledge points
         return progress.modules[0].knowledge_points
 
     async def _run_pretest(
