@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { BookOpen, Loader2, Play } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { fetchProgress } from "@/lib/learning-api";
 
 interface ModuleSummary {
@@ -15,9 +16,17 @@ interface ModuleSummary {
 
 export default function LearningPage() {
   const router = useRouter();
+  const { t } = useTranslation();
   const [modules, setModules] = useState<ModuleSummary[]>([]);
   const [masteryLevels, setMasteryLevels] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 3500);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const loadProgress = useCallback(async () => {
     try {
@@ -25,11 +34,11 @@ export default function LearningPage() {
       setModules(data.modules ?? []);
       setMasteryLevels(data.mastery_levels ?? {});
     } catch {
-      // No progress yet — show empty state
+      setToast(t("guidedLearning.connectionError"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadProgress();
@@ -50,13 +59,18 @@ export default function LearningPage() {
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-lg bg-red-500/90 px-4 py-2 text-sm text-white shadow-lg">
+          {toast}
+        </div>
+      )}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Learning Modules</h1>
+          <h1 className="text-2xl font-bold">{t("guidedLearning.title")}</h1>
           <p className="text-[var(--muted-foreground)] text-sm mt-1">
             {modules.length > 0
-              ? `${modules.length} module${modules.length > 1 ? "s" : ""} available`
-              : "Start a learning session to generate modules"}
+              ? `${modules.length} ${t("guidedLearning.modules")}`
+              : t("guidedLearning.description")}
           </p>
         </div>
         <button
@@ -64,16 +78,16 @@ export default function LearningPage() {
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] text-sm font-medium hover:opacity-90 transition-opacity"
         >
           <Play className="w-4 h-4" />
-          Start Learning
+          {t("guidedLearning.startLearning")}
         </button>
       </div>
 
       {modules.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-[var(--muted-foreground)]">
           <BookOpen className="w-12 h-12 mb-4 opacity-50" />
-          <p className="text-lg font-medium">No modules yet</p>
+          <p className="text-lg font-medium">{t("guidedLearning.noModules")}</p>
           <p className="text-sm mt-1">
-            Click &quot;Start Learning&quot; to begin — modules will be created automatically.
+            {t("guidedLearning.description")}
           </p>
         </div>
       ) : (
@@ -94,12 +108,12 @@ export default function LearningPage() {
                     {mod.name}
                   </h3>
                   <p className="text-sm text-[var(--muted-foreground)] mt-1">
-                    {total} knowledge point{total !== 1 ? "s" : ""}
+                    {t("guidedLearning.moduleProgress", { count: total })}
                   </p>
                   {total > 0 && (
                     <div className="mt-3">
                       <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1">
-                        <span>{mastered}/{total} mastered</span>
+                        <span>{t("guidedLearning.masteredProgress", { mastered, total })}</span>
                         <span>{pct}%</span>
                       </div>
                       <div className="w-full h-1.5 rounded-full bg-[var(--muted)]">

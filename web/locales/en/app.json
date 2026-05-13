@@ -1605,5 +1605,18 @@
   "Co-Writer tooltip": "AI-powered document editor.",
   "Book tooltip": "Create AI-powered books.",
   "Knowledge tooltip": "Manage learning personas.",
-  "Space tooltip": "Your personal learning library."
+  "Space tooltip": "Your personal learning library.",
+  "guidedLearning.title": "Guided Learning",
+  "guidedLearning.description": "Framework v1.8.2 — structured mastery-based learning",
+  "guidedLearning.noModules": "No modules yet",
+  "guidedLearning.startLearning": "Start Learning",
+  "guidedLearning.modules": "Modules",
+  "guidedLearning.knowledgePoints": "knowledge points",
+  "guidedLearning.mastered": "mastered",
+  "guidedLearning.stages": "Learning Stages",
+  "guidedLearning.ready": "Ready to start learning",
+  "guidedLearning.connectionError": "Connection error",
+  "guidedLearning.stageFailed": "Stage execution failed. Progress saved, will retry this stage.",
+  "guidedLearning.moduleProgress": "{{count}} knowledge point(s)",
+  "guidedLearning.masteredProgress": "{{mastered}}/{{total}} mastered"
 }

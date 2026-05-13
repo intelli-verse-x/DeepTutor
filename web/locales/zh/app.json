@@ -1605,5 +1605,18 @@
   "Co-Writer tooltip": "AI 驱动的协作文档编辑器。",
   "Book tooltip": "生成交互式 AI 书籍。",
   "Knowledge tooltip": "管理文档与教学人设。",
-  "Space tooltip": "你的个人学习空间。"
+  "Space tooltip": "你的个人学习空间。",
+  "guidedLearning.title": "引导式学习",
+  "guidedLearning.description": "框架 v1.8.2 — 结构化掌握式学习",
+  "guidedLearning.noModules": "暂无模块",
+  "guidedLearning.startLearning": "开始学习",
+  "guidedLearning.modules": "学习模块",
+  "guidedLearning.knowledgePoints": "个知识点",
+  "guidedLearning.mastered": "已掌握",
+  "guidedLearning.stages": "学习阶段",
+  "guidedLearning.ready": "准备开始学习",
+  "guidedLearning.connectionError": "连接错误",
+  "guidedLearning.stageFailed": "阶段执行失败。进度已保存，将重试该阶段。",
+  "guidedLearning.moduleProgress": "{{count}} 个知识点",
+  "guidedLearning.masteredProgress": "已掌握 {{mastered}}/{{total}}"
 }

@@ -44,6 +44,7 @@ export default function LearningBookPage() {
   const currentStageRef = useRef<string>("");
   const [connecting, setConnecting] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
 
   interface ModuleData {
@@ -95,7 +96,7 @@ export default function LearningBookPage() {
       } catch { /* ignore parse errors */ }
     };
 
-    ws.onerror = () => setError("Connection error");
+    ws.onerror = () => setError(t("guidedLearning.connectionError"));
     ws.onclose = () => setConnecting(true);
   }, [params.bookId]);
 
@@ -129,11 +130,18 @@ export default function LearningBookPage() {
       }
     } else if (evt.type === "error") {
       setError(evt.content);
+      setToast(t("guidedLearning.stageFailed"));
       setStages(prev => prev.map(s =>
         s.stage === currentStageRef.current ? { ...s, status: "error" } : s
       ));
     }
   };
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 3500);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   // Fetch learning progress for module tree
   useEffect(() => {
@@ -146,13 +154,18 @@ export default function LearningBookPage() {
   }, [connect]);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full relative">
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-lg bg-red-500/90 px-4 py-2 text-sm text-white shadow-lg">
+          {toast}
+        </div>
+      )}
       {/* Sidebar */}
       <div className="w-64 border-r border-[var(--border)] p-4 overflow-y-auto flex flex-col gap-4">
         {/* Module tree */}
         {modules.length > 0 && (
           <div>
-            <h2 className="text-sm font-semibold mb-2">Modules</h2>
+            <h2 className="text-sm font-semibold mb-2">{t("guidedLearning.modules")}</h2>
             <ModuleTree
               modules={modules}
               masteryLevels={masteryLevels}
@@ -165,7 +178,7 @@ export default function LearningBookPage() {
         <div>
           <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
             <Lightbulb className="w-4 h-4 text-[var(--primary)]" />
-            Learning Stages
+            {t("guidedLearning.stages")}
           </h2>
         {connecting && <Loader2 className="w-4 h-4 animate-spin text-[var(--muted-foreground)]" />}
         {stages.map((s) => (
@@ -190,7 +203,7 @@ export default function LearningBookPage() {
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-[var(--muted-foreground)]">
-            {connecting ? <Loader2 className="w-8 h-8 animate-spin" /> : "Ready to start learning"}
+            {connecting ? <Loader2 className="w-8 h-8 animate-spin" /> : t("guidedLearning.ready")}
           </div>
         )}
       </div>
