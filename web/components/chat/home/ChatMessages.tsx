@@ -74,7 +74,6 @@ function getModeBadgeLabel(capability?: string | null): string {
   if (capability === "deep_research") return "Deep Research";
   if (capability === "math_animator") return "Math Animator";
   if (capability === "visualize") return "Visualize";
-  if (capability === "guided_learning") return "Guided Learning";
   return capability;
 }
 
