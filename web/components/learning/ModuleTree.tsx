@@ -1,0 +1,124 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { ChevronRight, ChevronDown, Circle } from "lucide-react";
+
+interface KnowledgePoint {
+  id: string;
+  name: string;
+  type: string;
+}
+
+interface Module {
+  id: string;
+  name: string;
+  order: number;
+  knowledge_points: KnowledgePoint[];
+  pass_threshold: number;
+}
+
+interface ModuleTreeProps {
+  modules: Module[];
+  masteryLevels: Record<string, number>;
+  currentModuleId: string;
+  currentStage: string;
+}
+
+function masteryColor(mastery: number, threshold: number): string {
+  if (mastery >= threshold) return "text-green-500";
+  if (mastery > 0) return "text-yellow-500";
+  return "text-[var(--muted-foreground)]";
+}
+
+function ModuleNode({
+  module,
+  masteryLevels,
+  isCurrent,
+}: {
+  module: Module;
+  masteryLevels: Record<string, number>;
+  isCurrent: boolean;
+}) {
+  const [expanded, setExpanded] = useState(isCurrent);
+
+  useEffect(() => {
+    if (isCurrent) setExpanded(true);
+  }, [isCurrent]);
+
+  const mastered = module.knowledge_points.filter(
+    (kp) => (masteryLevels[kp.id] ?? 0) >= module.pass_threshold
+  ).length;
+  const total = module.knowledge_points.length;
+  const passRate = total > 0 ? Math.round((mastered / total) * 100) : 0;
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded((prev) => !prev)}
+        className={`flex items-center gap-1.5 w-full px-2 py-1.5 text-left text-sm rounded-md transition-colors ${
+          isCurrent
+            ? "bg-[var(--primary)]/10 text-[var(--primary)]"
+            : "text-[var(--foreground)] hover:bg-[var(--accent)]"
+        }`}
+      >
+        {expanded ? (
+          <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+        ) : (
+          <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+        )}
+        <span className="truncate flex-1">{module.name}</span>
+        <span className="text-xs text-[var(--muted-foreground)] shrink-0">
+          {passRate}%
+        </span>
+      </button>
+      {expanded && (
+        <div className="ml-4 border-l border-[var(--border)] pl-2">
+          {module.knowledge_points.map((kp) => {
+            const mastery = masteryLevels[kp.id] ?? 0;
+            return (
+              <div
+                key={kp.id}
+                className="flex items-center gap-1.5 px-2 py-1 text-sm text-[var(--muted-foreground)]"
+              >
+                <Circle
+                  className={`w-2 h-2 shrink-0 fill-current ${masteryColor(mastery, module.pass_threshold)}`}
+                />
+                <span className="truncate">{kp.name}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ModuleTree({
+  modules,
+  masteryLevels,
+  currentModuleId,
+  currentStage,
+}: ModuleTreeProps) {
+  const sorted = [...modules].sort((a, b) => a.order - b.order);
+
+  if (sorted.length === 0) {
+    return (
+      <div className="text-sm text-[var(--muted-foreground)] px-2 py-1">
+        No modules loaded
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-0.5">
+      {sorted.map((mod) => (
+        <ModuleNode
+          key={mod.id}
+          module={mod}
+          masteryLevels={masteryLevels}
+          isCurrent={mod.id === currentModuleId}
+        />
+      ))}
+    </div>
+  );
+}

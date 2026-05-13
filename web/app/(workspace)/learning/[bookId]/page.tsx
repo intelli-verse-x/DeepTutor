@@ -4,7 +4,8 @@ import { useParams } from "next/navigation";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Lightbulb, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { wsUrl } from "@/lib/api";
+import { apiUrl, wsUrl } from "@/lib/api";
+import ModuleTree from "@/components/learning/ModuleTree";
 
 interface StreamEvent {
   type: string;
@@ -44,6 +45,31 @@ export default function LearningBookPage() {
   const [connecting, setConnecting] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  interface ModuleData {
+    id: string;
+    name: string;
+    order: number;
+    knowledge_points: { id: string; name: string; type: string }[];
+    pass_threshold: number;
+  }
+  const [modules, setModules] = useState<ModuleData[]>([]);
+  const [masteryLevels, setMasteryLevels] = useState<Record<string, number>>({});
+  const [currentModuleId, setCurrentModuleId] = useState<string>("");
+
+  const fetchProgress = useCallback(() => {
+    fetch(apiUrl(`/api/v1/learning/progress/${params.bookId}`), { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        setModules(data.modules ?? []);
+        setMasteryLevels(data.mastery_levels ?? {});
+        setCurrentModuleId(data.current_module_id ?? "");
+      })
+      .catch(() => {});
+  }, [params.bookId]);
+
+  const fetchProgressRef = useRef(fetchProgress);
+  fetchProgressRef.current = fetchProgress;
 
   const connect = useCallback(() => {
     const ws = new WebSocket(wsUrl("/api/v1/ws"));
@@ -95,8 +121,12 @@ export default function LearningBookPage() {
       setStages(prev => prev.map(s =>
         s.stage === currentStageRef.current ? { ...s, status: "completed" } : s
       ));
+      const endedStage = currentStageRef.current;
       currentStageRef.current = "";
       setCurrentStage("");
+      if (["plan", "diagnostic_phase1", "diagnostic_phase2", "review", "module_test"].includes(endedStage)) {
+        fetchProgressRef.current();
+      }
     } else if (evt.type === "error") {
       setError(evt.content);
       setStages(prev => prev.map(s =>
@@ -105,6 +135,11 @@ export default function LearningBookPage() {
     }
   };
 
+  // Fetch learning progress for module tree
+  useEffect(() => {
+    fetchProgress();
+  }, [fetchProgress]);
+
   useEffect(() => {
     connect();
     return () => { wsRef.current?.close(); };
@@ -112,12 +147,26 @@ export default function LearningBookPage() {
 
   return (
     <div className="flex h-full">
-      {/* Stage sidebar */}
-      <div className="w-64 border-r border-[var(--border)] p-4 overflow-y-auto">
-        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
-          <Lightbulb className="w-4 h-4 text-[var(--primary)]" />
-          Learning Stages
-        </h2>
+      {/* Sidebar */}
+      <div className="w-64 border-r border-[var(--border)] p-4 overflow-y-auto flex flex-col gap-4">
+        {/* Module tree */}
+        {modules.length > 0 && (
+          <div>
+            <h2 className="text-sm font-semibold mb-2">Modules</h2>
+            <ModuleTree
+              modules={modules}
+              masteryLevels={masteryLevels}
+              currentModuleId={currentModuleId}
+              currentStage={currentStage}
+            />
+          </div>
+        )}
+        {/* Stage progress */}
+        <div>
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <Lightbulb className="w-4 h-4 text-[var(--primary)]" />
+            Learning Stages
+          </h2>
         {connecting && <Loader2 className="w-4 h-4 animate-spin text-[var(--muted-foreground)]" />}
         {stages.map((s) => (
           <div key={s.stage} className="flex items-center gap-2 py-1 text-sm">
@@ -130,6 +179,7 @@ export default function LearningBookPage() {
             </span>
           </div>
         ))}
+        </div>
       </div>
       {/* Content area */}
       <div className="flex-1 p-8 overflow-y-auto">
