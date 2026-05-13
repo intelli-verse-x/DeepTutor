@@ -72,6 +72,8 @@ class GuidedLearningCapability(BaseCapability):
         service: LearningService | None = None,
         scheduler: SpacedRepetitionScheduler | None = None,
         store: LearningStore | None = None,
+        kb_name: str | None = None,
+        kb_base_dir: str | None = None,
     ) -> None:
         if service is not None:
             self._service = service
@@ -79,6 +81,8 @@ class GuidedLearningCapability(BaseCapability):
             self._store = store or LearningStore()
             self._service = LearningService(self._store)
         self._scheduler = scheduler or SpacedRepetitionScheduler()
+        self._kb_name = kb_name
+        self._kb_base_dir = kb_base_dir
 
     def _resolve_book_id(self, context: UnifiedContext) -> str:
         book_id = getattr(context, "book_id", None)
@@ -103,12 +107,35 @@ class GuidedLearningCapability(BaseCapability):
         except json.JSONDecodeError:
             return default or {}
 
+    # ── RAG retrieval ───────────────────────────────────────────────────
+
+    async def _retrieve_context(self, query: str) -> str:
+        """Retrieve relevant content from knowledge base. Returns '' if no KB configured."""
+        if not self._kb_name:
+            return ""
+        try:
+            from deeptutor.services.rag.service import RAGService
+            rag = RAGService(kb_base_dir=self._kb_base_dir)
+            result = await rag.search(query=query, kb_name=self._kb_name)
+            content = result.get("content") or result.get("answer") or ""
+            if content:
+                return f"\n\n参考教材内容：\n{content}"
+            return ""
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"RAG retrieval failed: {e}")
+            return ""
+
     # ── Real LLM call ───────────────────────────────────────────────────
 
     async def _call_llm(self, system_prompt: str, user_message: str) -> str:
         """Call real LLM via DeepTutor's complete() function."""
         try:
             from deeptutor.services.llm import complete
+            # RAG retrieval
+            rag_context = await self._retrieve_context(user_message)
+            if rag_context:
+                system_prompt = system_prompt + rag_context
             response = await complete(
                 prompt=user_message,
                 system_prompt=system_prompt,
