@@ -129,21 +129,15 @@ class GuidedLearningCapability(BaseCapability):
     # ── Real LLM call ───────────────────────────────────────────────────
 
     async def _call_llm(self, system_prompt: str, user_message: str) -> str:
-        """Call real LLM via DeepTutor's complete() function."""
-        try:
-            # RAG retrieval
-            rag_context = await self._retrieve_context(user_message)
-            if rag_context:
-                system_prompt = system_prompt + rag_context
-            response = await complete(
-                prompt=user_message,
-                system_prompt=system_prompt,
-            )
-            return response
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"LLM call failed: {e}")
-            return json.dumps({"error": f"LLM call failed: {e}"})
+        """Call real LLM via DeepTutor's complete() function. Raises on failure."""
+        rag_context = await self._retrieve_context(user_message)
+        if rag_context:
+            system_prompt = system_prompt + rag_context
+        response = await complete(
+            prompt=user_message,
+            system_prompt=system_prompt,
+        )
+        return response
 
     # ── State machine entry ──────────────────────────────────────────────
 
@@ -161,6 +155,11 @@ class GuidedLearningCapability(BaseCapability):
 
         try:
             await handler(self, progress, context, stream)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Stage {stage} failed: {e}")
+            async with stream.stage("error", source=self.manifest.name):
+                await stream.content(f"阶段执行失败: {e}。进度已保存，下次将继续此阶段。")
         finally:
             self._service.save(progress)
 
