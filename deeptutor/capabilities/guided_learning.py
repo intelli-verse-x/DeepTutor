@@ -19,6 +19,7 @@ from deeptutor.learning.models import (
 from deeptutor.learning.scheduler import SpacedRepetitionScheduler
 from deeptutor.learning.service import LearningService
 from deeptutor.learning.storage import LearningStore
+from deeptutor.services.llm import complete
 
 
 class GuidedLearningCapability(BaseCapability):
@@ -131,7 +132,6 @@ class GuidedLearningCapability(BaseCapability):
     async def _call_llm(self, system_prompt: str, user_message: str) -> str:
         """Call real LLM via DeepTutor's complete() function."""
         try:
-            from deeptutor.services.llm import complete
             # RAG retrieval
             rag_context = await self._retrieve_context(user_message)
             if rag_context:
