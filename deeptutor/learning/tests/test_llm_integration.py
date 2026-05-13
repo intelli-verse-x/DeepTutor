@@ -22,13 +22,12 @@ class TestLLMIntegration:
 
     @pytest.mark.asyncio
     async def test_call_llm_network_error(self):
-        """_call_llm returns error JSON on failure, never raises."""
+        """_call_llm raises on failure, does not return error JSON."""
         cap = GuidedLearningCapability()
         with patch("deeptutor.capabilities.guided_learning.complete",
                    new_callable=AsyncMock, side_effect=Exception("Network down")):
-            result = await cap._call_llm("system", "user")
-            assert "error" in result
-            assert "Network down" in result
+            with pytest.raises(Exception, match="Network down"):
+                await cap._call_llm("system", "user")
 
     def test_call_llm_exists_and_is_async(self):
         """_call_llm should be an async method."""
