@@ -68,39 +68,6 @@ class GuidedLearningCapability(BaseCapability):
             return ref.get("book_id") or ref.get("id", "default")
         return getattr(context, "session_id", "default")
 
-    # ── Mock LLM ─────────────────────────────────────────────────────────
-
-    def _mock_llm(self, system_prompt: str, user_message: str) -> str:
-        """Return canned responses for testing. Replace with real LLM calls later."""
-        lower = (system_prompt + " " + user_message).lower()
-        if "diagnostic" in lower:
-            return json.dumps({
-                "questions": ["Q1: placeholder", "Q2: placeholder"],
-                "answers": ["A1", "A2"],
-            })
-        if "explain" in lower:
-            return "这是一个概念型知识点的模拟讲解..."
-        if "feynman" in lower:
-            return "模拟费曼检验结果：通过"
-        if "pretest" in lower:
-            return json.dumps({"question": "模拟预习题", "hint": "模拟提示"})
-        if "practice" in lower:
-            return json.dumps({
-                "exercises": [
-                    {"question": "练习1", "answer": "答案1"},
-                    {"question": "练习2", "answer": "答案2"},
-                ]
-            })
-        if "module_test" in lower:
-            return json.dumps({
-                "questions": ["测验1", "测验2"],
-                "answers": ["答案1", "答案2"],
-                "pass": True,
-            })
-        if "review" in lower:
-            return "模拟复习内容"
-        return "mock response"
-
     # ── Safe JSON parse ──────────────────────────────────────────────────
 
     @staticmethod
@@ -110,6 +77,22 @@ class GuidedLearningCapability(BaseCapability):
             return json.loads(text)
         except json.JSONDecodeError:
             return default or {}
+
+    # ── Real LLM call ───────────────────────────────────────────────────
+
+    async def _call_llm(self, system_prompt: str, user_message: str) -> str:
+        """Call real LLM via DeepTutor's complete() function."""
+        try:
+            from deeptutor.services.llm import complete
+            response = await complete(
+                prompt=user_message,
+                system_prompt=system_prompt,
+            )
+            return response
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"LLM call failed: {e}")
+            return json.dumps({"error": f"LLM call failed: {e}"})
 
     # ── State machine entry ──────────────────────────────────────────────
 
@@ -136,8 +119,9 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("diagnostic_phase1", source=self.manifest.name):
-            response = self._mock_llm(
-                "diagnostic", "generate diagnostic phase1 screening questions"
+            response = await self._call_llm(
+                "你是一个教育诊断专家。请出题测试学生水平，返回JSON格式。",
+                "生成摸底测试题",
             )
             data = self._safe_json_parse(response, default={"questions": [], "answers": []})
             progress.diagnostic = DiagnosticResult(
@@ -151,8 +135,9 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("diagnostic_phase2", source=self.manifest.name):
-            response = self._mock_llm(
-                "diagnostic", "generate diagnostic phase2 deep dive"
+            response = await self._call_llm(
+                "你是一个教育诊断专家。请出题测试学生水平，返回JSON格式。",
+                "生成摸底测试题",
             )
             data = self._safe_json_parse(response, default={})
             if progress.diagnostic is not None:
@@ -164,7 +149,10 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("metacognitive_intro", source=self.manifest.name):
-            response = self._mock_llm("metacognitive", "introduce learning methods")
+            response = await self._call_llm(
+                "你介绍高效学习方法",
+                "介绍主动回忆、间隔重复和费曼技巧",
+            )
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.PLAN)
 
@@ -172,7 +160,10 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("plan", source=self.manifest.name):
-            response = self._mock_llm("plan", "generate study plan from diagnostic results")
+            response = await self._call_llm(
+                "你是一个学习规划师",
+                "基于诊断结果制定学习计划",
+            )
             await stream.content(response)
             if not progress.modules:
                 mock_module = LearningModule(
@@ -202,7 +193,10 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("pretest", source=self.manifest.name):
-            response = self._mock_llm("pretest", "generate pretest guess question")
+            response = await self._call_llm(
+                '请出一道预习题，返回JSON格式{"question":"...","hint":"..."}',
+                "为知识点出预习题",
+            )
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.EXPLAIN)
 
@@ -210,7 +204,10 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("explain", source=self.manifest.name):
-            response = self._mock_llm("explain", "teach this knowledge point")
+            response = await self._call_llm(
+                "你是一个耐心专业的老师。用通俗语言讲解知识点，300-500字。",
+                "讲解这个知识点",
+            )
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.FEYNMAN_CHECK)
 
@@ -218,7 +215,10 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("feynman_check", source=self.manifest.name):
-            response = self._mock_llm("feynman", "verify understanding via feynman technique")
+            response = await self._call_llm(
+                '判断学生是否能用费曼技巧解释清楚概念。返回JSON{"passed":bool,"feedback":"...","gap":"..."}',
+                "费曼检验",
+            )
             await stream.content(response)
             kps = self._current_knowledge_points(progress)
             if progress.current_kp_index + 1 < len(kps):
@@ -237,7 +237,10 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("practice", source=self.manifest.name):
-            response = self._mock_llm("practice", "generate 3-5 exercises with Bloom + interleaving")
+            response = await self._call_llm(
+                '生成3-5道练习题，难度递进。返回JSON{"exercises":[...]}',
+                "生成练习题",
+            )
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
 
@@ -245,7 +248,10 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("error_diagnosis", source=self.manifest.name):
-            response = self._mock_llm("error_diagnosis", "self-attribution and AI confirmation")
+            response = await self._call_llm(
+                '分析学生做错的题目属于什么错误类型。返回JSON{"error_type":"...","analysis":"..."}',
+                "诊断错误",
+            )
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.MODULE_TEST)
 
@@ -253,7 +259,10 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("module_test", source=self.manifest.name):
-            response = self._mock_llm("module_test", "10-question module test with mastery gate")
+            response = await self._call_llm(
+                "出一套10题模块测验，覆盖所有知识点，通过线70%。返回JSON。",
+                "生成模块测验",
+            )
             await stream.content(response)
             self._init_repetition_states(progress)
             self._service.advance_stage(progress, LearningStage.REVIEW)
@@ -288,7 +297,10 @@ class GuidedLearningCapability(BaseCapability):
         async with stream.stage("review", source=self.manifest.name):
             self._init_repetition_states(progress)
             self._schedule_reviews(progress)
-            response = self._mock_llm("review", "spaced repetition review")
+            response = await self._call_llm(
+                "生成间隔复习内容：核心概念回顾、易错点提醒",
+                "生成复习内容",
+            )
             await stream.content(response)
             if self._advance_to_next_module(progress):
                 self._service.advance_stage(progress, LearningStage.PRETEST)
