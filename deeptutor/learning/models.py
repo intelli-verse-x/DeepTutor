@@ -96,6 +96,8 @@ class DiagnosticResult(BaseModel):
     skipped_modules: list[str] = Field(default_factory=list)
     inferred_modules: list[str] = Field(default_factory=list)
     total_questions: int = 0
+    correct_count: int = 0
+    phase2_correct_count: int = 0
     phase1_result: dict = Field(default_factory=dict)
     phase2_results: dict[str, dict] = Field(default_factory=dict)
 

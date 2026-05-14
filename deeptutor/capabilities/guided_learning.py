@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 
 from deeptutor.core.capability_protocol import BaseCapability, CapabilityManifest
 from deeptutor.core.context import UnifiedContext
@@ -15,6 +16,7 @@ from deeptutor.learning.models import (
     LearningModule,
     LearningProgress,
     LearningStage,
+    QuizAttempt,
 )
 from deeptutor.learning.scheduler import SpacedRepetitionScheduler
 from deeptutor.learning.service import LearningService
@@ -130,6 +132,15 @@ class GuidedLearningCapability(BaseCapability):
                 answers[qid] = str(q["answer"])
         return answers
 
+    _ANSWER_KEYS = {"answer", "correct_answer", "explanation", "solution"}
+
+    @classmethod
+    def _strip_answer(cls, question: Any) -> Any:
+        """Remove answer-bearing fields from a question before streaming to client."""
+        if not isinstance(question, dict):
+            return question
+        return {k: v for k, v in question.items() if k not in cls._ANSWER_KEYS}
+
     @staticmethod
     def _inject_question_ids(data: dict, prefix: str) -> dict:
         """Add question_ids array so clients can reference server-stored answers."""
@@ -207,14 +218,42 @@ class GuidedLearningCapability(BaseCapability):
         async with stream.stage("diagnostic_phase1", source=self.manifest.name):
             response = await self._call_llm(DIAGNOSTIC_PHASE1_SYSTEM, DIAGNOSTIC_PHASE1_USER)
             data = self._safe_json_parse(response, default={"questions": [], "answers": []})
+            book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, "diag1")
-            self._store.save_question_answers(self._resolve_book_id(context), answers)
+            self._store.save_question_answers(book_id, answers)
             self._inject_question_ids(data, "diag1")
+
+            questions = data.get("questions", [])
+            qids = data.get("question_ids", [])
+            correct_count = 0
+            for i, q in enumerate(questions):
+                qid = qids[i] if i < len(qids) else f"diag1_{i}"
+                await stream.content(
+                    json.dumps({"question": self._strip_answer(q), "question_id": qid}, ensure_ascii=False),
+                    source=self.manifest.name,
+                )
+                user_answer = await stream.wait_for_input("请回答", source=self.manifest.name, timeout=120)
+                stored = self._store.load_question_answers(book_id)
+                expected = stored.get(qid, "")
+                is_correct = bool(expected) and user_answer.strip().lower() == expected.strip().lower()
+                if is_correct:
+                    correct_count += 1
+                self._service.record_quiz_attempt(
+                    progress,
+                    QuizAttempt(
+                        question_id=qid,
+                        knowledge_point_id="",
+                        module_id="",
+                        is_correct=is_correct,
+                        user_answer=user_answer,
+                    ),
+                )
+
             progress.diagnostic = DiagnosticResult(
-                total_questions=len(data.get("questions", [])),
+                total_questions=len(questions),
+                correct_count=correct_count,
                 phase1_result=data,
             )
-            await stream.content(json.dumps(data, ensure_ascii=False))
             self._service.advance_stage(progress, LearningStage.DIAGNOSTIC_PHASE2)
 
     async def _run_diagnostic_phase2(
@@ -223,12 +262,40 @@ class GuidedLearningCapability(BaseCapability):
         async with stream.stage("diagnostic_phase2", source=self.manifest.name):
             response = await self._call_llm(DIAGNOSTIC_PHASE2_SYSTEM, DIAGNOSTIC_PHASE2_USER)
             data = self._safe_json_parse(response, default={})
+            book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, "diag2")
-            self._store.save_question_answers(self._resolve_book_id(context), answers)
+            self._store.save_question_answers(book_id, answers)
             self._inject_question_ids(data, "diag2")
+
+            questions = data.get("questions", [])
+            qids = data.get("question_ids", [])
+            correct_count = 0
+            for i, q in enumerate(questions):
+                qid = qids[i] if i < len(qids) else f"diag2_{i}"
+                await stream.content(
+                    json.dumps({"question": self._strip_answer(q), "question_id": qid}, ensure_ascii=False),
+                    source=self.manifest.name,
+                )
+                user_answer = await stream.wait_for_input("请回答", source=self.manifest.name, timeout=120)
+                stored = self._store.load_question_answers(book_id)
+                expected = stored.get(qid, "")
+                is_correct = bool(expected) and user_answer.strip().lower() == expected.strip().lower()
+                if is_correct:
+                    correct_count += 1
+                self._service.record_quiz_attempt(
+                    progress,
+                    QuizAttempt(
+                        question_id=qid,
+                        knowledge_point_id="",
+                        module_id="",
+                        is_correct=is_correct,
+                        user_answer=user_answer,
+                    ),
+                )
+
             if progress.diagnostic is not None:
                 progress.diagnostic.phase2_results = {"phase2": data}
-            await stream.content(json.dumps(data, ensure_ascii=False))
+                progress.diagnostic.phase2_correct_count = correct_count
             self._service.advance_stage(progress, LearningStage.METACOGNITIVE_INTRO)
 
     async def _run_metacognitive_intro(

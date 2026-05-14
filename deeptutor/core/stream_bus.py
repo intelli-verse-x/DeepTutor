@@ -259,8 +259,15 @@ class StreamBus:
         prompt: str,
         source: str = "",
         stage: str = "",
+        timeout: float | None = None,
     ) -> str:
-        """Pause capability execution and wait for user input from the frontend."""
+        """Pause capability execution and wait for user input from the frontend.
+
+        Returns the user's input, or an empty string if *timeout* seconds elapse
+        with no input (e.g. when running from a CLI that cannot send input).
+        Pass ``timeout=None`` (the default) to wait indefinitely for interactive
+        clients; pass a finite value for headless/CLI entry points.
+        """
         await self.emit(
             StreamEvent(
                 type=StreamEventType.WAIT_FOR_INPUT,
@@ -272,7 +279,9 @@ class StreamBus:
         input_queue: asyncio.Queue[str] = asyncio.Queue()
         self._input_listeners.append(input_queue)
         try:
-            return await input_queue.get()
+            return await asyncio.wait_for(input_queue.get(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return ""
         finally:
             if input_queue in self._input_listeners:
                 self._input_listeners.remove(input_queue)
