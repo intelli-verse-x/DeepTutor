@@ -50,5 +50,29 @@ class LearningStore:
     def exists(self, book_id: str) -> bool:
         return self._path(book_id).exists()
 
+    def _questions_path(self, book_id: str) -> Path:
+        if "/" in book_id or "\\" in book_id or ".." in book_id or ":" in book_id:
+            raise ValueError(f"Invalid book_id: {book_id!r}")
+        return self._root / "questions" / f"{book_id}.json"
+
+    def save_question_answers(self, book_id: str, answers: dict[str, str]) -> None:
+        """Save generated question answers for server-side grading."""
+        import json
+
+        path = self._questions_path(book_id)
+        existing = self.load_question_answers(book_id)
+        existing.update(answers)
+        text = json.dumps(existing, ensure_ascii=False, indent=2)
+        _atomic_write_text(path, text)
+
+    def load_question_answers(self, book_id: str) -> dict[str, str]:
+        """Load question answers. Returns {} if none saved."""
+        import json
+
+        path = self._questions_path(book_id)
+        if not path.exists():
+            return {}
+        return json.loads(path.read_text(encoding="utf-8"))
+
 
 __all__ = ["LearningStore"]

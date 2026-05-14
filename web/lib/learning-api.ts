@@ -5,7 +5,6 @@ export interface AnswerRequest {
   knowledge_point_id: string;
   module_id?: string;
   user_answer: string;
-  expected_answer: string;
   self_attribution?: string;
 }
 

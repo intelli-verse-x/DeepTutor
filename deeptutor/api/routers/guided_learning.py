@@ -55,7 +55,6 @@ class AnswerRequest(BaseModel):
     knowledge_point_id: str
     module_id: str = ""
     user_answer: str = ""
-    expected_answer: str = ""
     self_attribution: str = ""
 
 
@@ -86,20 +85,20 @@ async def submit_answer(book_id: str, body: AnswerRequest):
 
     progress = service.get_or_create(book_id)
 
-    if not body.expected_answer.strip():
-        raise HTTPException(status_code=400, detail="expected_answer is required for server-side grading")
-
-    # TODO: expected_answer currently comes from the client because there is no
-    # server-side question store.  Once questions are persisted server-side,
-    # look up the expected answer by question_id instead of trusting the caller.
+    # Look up expected answer from server-side store
+    store = LearningStore()
+    all_answers = store.load_question_answers(book_id)
+    expected_answer = all_answers.get(body.question_id, "")
+    if not expected_answer:
+        raise HTTPException(status_code=400, detail=f"No stored answer for question_id={body.question_id}")
 
     # Server-side grading
-    is_correct = _grade_answer(body.user_answer, body.expected_answer)
+    is_correct = _grade_answer(body.user_answer, expected_answer)
 
     # Classify error type if wrong
     error_type = None
     if not is_correct:
-        error_type = _classify_error(body.user_answer, body.expected_answer)
+        error_type = _classify_error(body.user_answer, expected_answer)
 
     attempt = QuizAttempt(
         question_id=body.question_id,

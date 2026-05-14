@@ -77,6 +77,7 @@ class GuidedLearningCapability(BaseCapability):
     ) -> None:
         if service is not None:
             self._service = service
+            self._store = service._store
         else:
             self._store = store or LearningStore()
             self._service = LearningService(self._store)
@@ -106,6 +107,41 @@ class GuidedLearningCapability(BaseCapability):
             return json.loads(text)
         except json.JSONDecodeError:
             return default or {}
+
+    # ── Answer extraction ───────────────────────────────────────────────
+
+    @staticmethod
+    def _extract_answers(data: dict, prefix: str) -> dict[str, str]:
+        """Extract {question_id: answer} from LLM response data."""
+        answers: dict[str, str] = {}
+        questions = data.get("questions", [])
+        for i, ans in enumerate(data.get("answers", [])):
+            qid = f"{prefix}_{i}"
+            if i < len(questions) and isinstance(questions[i], dict):
+                qid = questions[i].get("question_id") or questions[i].get("id") or qid
+            answers[qid] = str(ans)
+        for i, ex in enumerate(data.get("exercises", [])):
+            if isinstance(ex, dict) and "answer" in ex:
+                qid = ex.get("question_id") or ex.get("id") or f"{prefix}_{i}"
+                answers[qid] = str(ex["answer"])
+        for i, q in enumerate(data.get("questions", [])):
+            if isinstance(q, dict) and "answer" in q:
+                qid = q.get("question_id") or q.get("id") or f"{prefix}_{i}"
+                answers[qid] = str(q["answer"])
+        return answers
+
+    @staticmethod
+    def _inject_question_ids(data: dict, prefix: str) -> dict:
+        """Add question_ids array so clients can reference server-stored answers."""
+        items = data.get("questions") or data.get("exercises") or []
+        ids = []
+        for i, item in enumerate(items):
+            if isinstance(item, dict):
+                ids.append(item.get("question_id") or item.get("id") or f"{prefix}_{i}")
+            else:
+                ids.append(f"{prefix}_{i}")
+        data["question_ids"] = ids
+        return data
 
     # ── RAG retrieval ───────────────────────────────────────────────────
 
@@ -171,6 +207,9 @@ class GuidedLearningCapability(BaseCapability):
         async with stream.stage("diagnostic_phase1", source=self.manifest.name):
             response = await self._call_llm(DIAGNOSTIC_PHASE1_SYSTEM, DIAGNOSTIC_PHASE1_USER)
             data = self._safe_json_parse(response, default={"questions": [], "answers": []})
+            answers = self._extract_answers(data, "diag1")
+            self._store.save_question_answers(self._resolve_book_id(context), answers)
+            self._inject_question_ids(data, "diag1")
             progress.diagnostic = DiagnosticResult(
                 total_questions=len(data.get("questions", [])),
                 phase1_result=data,
@@ -184,9 +223,12 @@ class GuidedLearningCapability(BaseCapability):
         async with stream.stage("diagnostic_phase2", source=self.manifest.name):
             response = await self._call_llm(DIAGNOSTIC_PHASE2_SYSTEM, DIAGNOSTIC_PHASE2_USER)
             data = self._safe_json_parse(response, default={})
+            answers = self._extract_answers(data, "diag2")
+            self._store.save_question_answers(self._resolve_book_id(context), answers)
+            self._inject_question_ids(data, "diag2")
             if progress.diagnostic is not None:
                 progress.diagnostic.phase2_results = {"phase2": data}
-            await stream.content(response)
+            await stream.content(json.dumps(data, ensure_ascii=False))
             self._service.advance_stage(progress, LearningStage.METACOGNITIVE_INTRO)
 
     async def _run_metacognitive_intro(
@@ -285,10 +327,15 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("practice", source=self.manifest.name):
+            prefix = f"{progress.current_module_id}_practice" if progress.current_module_id else "practice"
             response = await self._call_llm(
                 PRACTICE_SYSTEM, PRACTICE_USER.format(module_name=self._current_module_name(progress))
             )
-            await stream.content(response)
+            data = self._safe_json_parse(response, default={})
+            answers = self._extract_answers(data, prefix)
+            self._store.save_question_answers(self._resolve_book_id(context), answers)
+            self._inject_question_ids(data, prefix)
+            await stream.content(json.dumps(data, ensure_ascii=False))
             self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
 
     async def _run_error_diagnosis(
@@ -303,10 +350,15 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("module_test", source=self.manifest.name):
+            prefix = f"{progress.current_module_id}_modtest" if progress.current_module_id else "modtest"
             response = await self._call_llm(
                 MODULE_TEST_SYSTEM, MODULE_TEST_USER.format(module_name=self._current_module_name(progress))
             )
-            await stream.content(response)
+            data = self._safe_json_parse(response, default={})
+            answers = self._extract_answers(data, prefix)
+            self._store.save_question_answers(self._resolve_book_id(context), answers)
+            self._inject_question_ids(data, prefix)
+            await stream.content(json.dumps(data, ensure_ascii=False))
             self._init_repetition_states(progress)
             self._service.advance_stage(progress, LearningStage.REVIEW)
 
