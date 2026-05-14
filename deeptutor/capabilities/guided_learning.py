@@ -11,6 +11,7 @@ from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.learning.models import (
     DiagnosticResult,
+    ErrorType,
     KnowledgePoint,
     KnowledgeType,
     LearningModule,
@@ -120,16 +121,17 @@ class GuidedLearningCapability(BaseCapability):
         for i, ans in enumerate(data.get("answers", [])):
             qid = f"{prefix}_{i}"
             if i < len(questions) and isinstance(questions[i], dict):
-                qid = questions[i].get("question_id") or questions[i].get("id") or qid
+                raw = questions[i].get("question_id") or questions[i].get("id") or qid
+                qid = str(raw)
             answers[qid] = str(ans)
         for i, ex in enumerate(data.get("exercises", [])):
             if isinstance(ex, dict) and "answer" in ex:
-                qid = ex.get("question_id") or ex.get("id") or f"{prefix}_{i}"
-                answers[qid] = str(ex["answer"])
+                raw = ex.get("question_id") or ex.get("id") or f"{prefix}_{i}"
+                answers[str(raw)] = str(ex["answer"])
         for i, q in enumerate(data.get("questions", [])):
             if isinstance(q, dict) and "answer" in q:
-                qid = q.get("question_id") or q.get("id") or f"{prefix}_{i}"
-                answers[qid] = str(q["answer"])
+                raw = q.get("question_id") or q.get("id") or f"{prefix}_{i}"
+                answers[str(raw)] = str(q["answer"])
         return answers
 
     _ANSWER_KEYS = {"answer", "correct_answer", "explanation", "solution"}
@@ -148,7 +150,8 @@ class GuidedLearningCapability(BaseCapability):
         ids = []
         for i, item in enumerate(items):
             if isinstance(item, dict):
-                ids.append(item.get("question_id") or item.get("id") or f"{prefix}_{i}")
+                raw = item.get("question_id") or item.get("id") or f"{prefix}_{i}"
+                ids.append(str(raw))
             else:
                 ids.append(f"{prefix}_{i}")
         data["question_ids"] = ids
@@ -360,16 +363,40 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("feynman_check", source=self.manifest.name):
-            response = await self._call_llm(
-                FEYNMAN_SYSTEM, FEYNMAN_USER.format(knowledge_point=self._current_kp_name(progress))
-            )
-            await stream.content(response)
             kps = self._current_knowledge_points(progress)
-            if progress.current_kp_index + 1 < len(kps):
-                self._after_knowledge_point(progress)
-                self._service.advance_stage(progress, LearningStage.PRETEST)
+            kp = kps[progress.current_kp_index] if progress.current_kp_index < len(kps) else None
+            kp_name = kp.name if kp else "当前知识点"
+
+            await stream.content(f'请用自己的话解释"{kp_name}"，就像教一个高中生一样。', source=self.manifest.name)
+            user_explanation = await stream.wait_for_input("请输入你的解释", source=self.manifest.name, timeout=120)
+
+            if not user_explanation.strip():
+                # No input (timeout or headless mode) — skip grading, advance.
+                if progress.current_kp_index + 1 < len(kps):
+                    self._after_knowledge_point(progress)
+                    self._service.advance_stage(progress, LearningStage.PRETEST)
+                else:
+                    self._service.advance_stage(progress, LearningStage.PRACTICE)
+                return
+
+            response = await self._call_llm(
+                FEYNMAN_SYSTEM,
+                FEYNMAN_USER.format(knowledge_point=kp_name) + f"\n学生解释：{user_explanation}",
+            )
+            result = self._safe_json_parse(response, default={"passed": False, "feedback": "", "gap": ""})
+
+            await stream.content(json.dumps(result, ensure_ascii=False), source=self.manifest.name)
+            passed = result.get("passed")
+            is_passed = passed is True or str(passed).lower() in ("true", "1", "yes")
+            if is_passed:
+                if progress.current_kp_index + 1 < len(kps):
+                    self._after_knowledge_point(progress)
+                    self._service.advance_stage(progress, LearningStage.PRETEST)
+                else:
+                    self._service.advance_stage(progress, LearningStage.PRACTICE)
             else:
-                self._service.advance_stage(progress, LearningStage.PRACTICE)
+                await stream.content(f"反馈：{result.get('feedback', '请重新学习')}", source=self.manifest.name)
+                self._service.advance_stage(progress, LearningStage.EXPLAIN)
 
     def _current_kp_name(self, progress: LearningProgress) -> str:
         kps = self._current_knowledge_points(progress)
@@ -398,11 +425,36 @@ class GuidedLearningCapability(BaseCapability):
             response = await self._call_llm(
                 PRACTICE_SYSTEM, PRACTICE_USER.format(module_name=self._current_module_name(progress))
             )
-            data = self._safe_json_parse(response, default={})
+            data = self._safe_json_parse(response, default={"exercises": []})
+            book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, prefix)
-            self._store.save_question_answers(self._resolve_book_id(context), answers)
+            self._store.save_question_answers(book_id, answers)
             self._inject_question_ids(data, prefix)
-            await stream.content(json.dumps(data, ensure_ascii=False))
+
+            exercises = data.get("exercises") or data.get("questions") or []
+            qids = data.get("question_ids", [])
+            for i, ex in enumerate(exercises):
+                qid = qids[i] if i < len(qids) else f"{prefix}_{i}"
+                await stream.content(
+                    json.dumps({"question": self._strip_answer(ex), "question_id": qid}, ensure_ascii=False),
+                    source=self.manifest.name,
+                )
+                user_answer = await stream.wait_for_input("请回答", source=self.manifest.name, timeout=120)
+                stored = self._store.load_question_answers(book_id)
+                expected = stored.get(qid, "")
+                is_correct = bool(expected) and user_answer.strip().lower() == expected.strip().lower()
+                self._service.record_quiz_attempt(
+                    progress,
+                    QuizAttempt(
+                        question_id=qid,
+                        knowledge_point_id="",
+                        module_id="",
+                        is_correct=is_correct,
+                        user_answer=user_answer,
+                        error_type=None if is_correct else ErrorType.APPLICATION_ERROR,
+                    ),
+                )
+
             self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
 
     async def _run_error_diagnosis(
