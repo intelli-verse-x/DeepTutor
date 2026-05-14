@@ -1618,5 +1618,13 @@
   "guidedLearning.connectionError": "连接错误",
   "guidedLearning.stageFailed": "阶段执行失败。进度已保存，将重试该阶段。",
   "guidedLearning.moduleProgress": "{{count}} 个知识点",
-  "guidedLearning.masteredProgress": "已掌握 {{mastered}}/{{total}}"
+  "guidedLearning.masteredProgress": "已掌握 {{mastered}}/{{total}}",
+  "knowledgeType.memory": "记忆型",
+  "knowledgeType.concept": "概念型",
+  "knowledgeType.procedure": "程序型",
+  "knowledgeType.design": "设计型",
+  "errorType.structural": "知识结构性",
+  "errorType.deviation": "理解偏差型",
+  "errorType.application": "应用错误",
+  "errorType.metacognitive": "元认知型"
 }

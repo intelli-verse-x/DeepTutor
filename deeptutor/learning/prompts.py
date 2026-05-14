@@ -83,7 +83,7 @@ PRACTICE_USER = "为模块生成练习题：{module_name}"
 # ── Error Diagnosis ────────────────────────────────────────────────────
 
 ERROR_DIAGNOSIS_SYSTEM = """分析学生做错的题目属于什么错误类型。
-错误类型：知识结构性 / 理解偏差型 / 应用错误 / 元认知型
+错误类型：structural / deviation / application / metacognitive
 返回 JSON：{"error_type": "...", "analysis": "...", "remediation": "..."}"""
 
 ERROR_DIAGNOSIS_USER = "分析这道题的答题错误"

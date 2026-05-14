@@ -21,21 +21,33 @@ from deeptutor.learning.models import (
 
 class TestKnowledgeType:
     def test_values(self):
-        assert KnowledgeType.MEMORY.value == "记忆型"
-        assert KnowledgeType.CONCEPT.value == "概念型"
-        assert KnowledgeType.PROCEDURE.value == "程序型"
-        assert KnowledgeType.DESIGN.value == "设计型"
+        assert KnowledgeType.MEMORY.value == "memory"
+        assert KnowledgeType.CONCEPT.value == "concept"
+        assert KnowledgeType.PROCEDURE.value == "procedure"
+        assert KnowledgeType.DESIGN.value == "design"
 
     def test_str_subclass(self):
         assert isinstance(KnowledgeType.MEMORY, str)
 
+    def test_legacy_values(self):
+        assert KnowledgeType("记忆型") is KnowledgeType.MEMORY
+        assert KnowledgeType("概念型") is KnowledgeType.CONCEPT
+        assert KnowledgeType("程序型") is KnowledgeType.PROCEDURE
+        assert KnowledgeType("设计型") is KnowledgeType.DESIGN
+
 
 class TestErrorType:
     def test_values(self):
-        assert ErrorType.KNOWLEDGE_STRUCTURAL.value == "知识结构性"
-        assert ErrorType.UNDERSTANDING_DEVIATION.value == "理解偏差型"
-        assert ErrorType.APPLICATION_ERROR.value == "应用错误"
-        assert ErrorType.METACOGNITIVE.value == "元认知型"
+        assert ErrorType.KNOWLEDGE_STRUCTURAL.value == "structural"
+        assert ErrorType.UNDERSTANDING_DEVIATION.value == "deviation"
+        assert ErrorType.APPLICATION_ERROR.value == "application"
+        assert ErrorType.METACOGNITIVE.value == "metacognitive"
+
+    def test_legacy_values(self):
+        assert ErrorType("知识结构性") is ErrorType.KNOWLEDGE_STRUCTURAL
+        assert ErrorType("理解偏差型") is ErrorType.UNDERSTANDING_DEVIATION
+        assert ErrorType("应用错误") is ErrorType.APPLICATION_ERROR
+        assert ErrorType("元认知型") is ErrorType.METACOGNITIVE
 
 
 class TestMasteryLevel:

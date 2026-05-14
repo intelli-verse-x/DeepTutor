@@ -1618,5 +1618,13 @@
   "guidedLearning.connectionError": "Connection error",
   "guidedLearning.stageFailed": "Stage execution failed. Progress saved, will retry this stage.",
   "guidedLearning.moduleProgress": "{{count}} knowledge point(s)",
-  "guidedLearning.masteredProgress": "{{mastered}}/{{total}} mastered"
+  "guidedLearning.masteredProgress": "{{mastered}}/{{total}} mastered",
+  "knowledgeType.memory": "Rote Memory",
+  "knowledgeType.concept": "Conceptual",
+  "knowledgeType.procedure": "Procedural",
+  "knowledgeType.design": "Design",
+  "errorType.structural": "Knowledge Structure Gap",
+  "errorType.deviation": "Misunderstanding",
+  "errorType.application": "Application Error",
+  "errorType.metacognitive": "Metacognitive Error"
 }

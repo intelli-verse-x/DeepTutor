@@ -7,18 +7,43 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+_KNOWLEDGE_TYPE_LEGACY: dict[str, str] = {
+    "记忆型": "memory",
+    "概念型": "concept",
+    "程序型": "procedure",
+    "设计型": "design",
+}
+
+_ERROR_TYPE_LEGACY: dict[str, str] = {
+    "知识结构性": "structural",
+    "理解偏差型": "deviation",
+    "应用错误": "application",
+    "元认知型": "metacognitive",
+}
+
+
 class KnowledgeType(str, Enum):
-    MEMORY = "记忆型"
-    CONCEPT = "概念型"
-    PROCEDURE = "程序型"
-    DESIGN = "设计型"
+    MEMORY = "memory"
+    CONCEPT = "concept"
+    PROCEDURE = "procedure"
+    DESIGN = "design"
+
+    @classmethod
+    def _missing_(cls, value: object) -> KnowledgeType | None:
+        mapped = _KNOWLEDGE_TYPE_LEGACY.get(str(value))
+        return cls(mapped) if mapped else None
 
 
 class ErrorType(str, Enum):
-    KNOWLEDGE_STRUCTURAL = "知识结构性"
-    UNDERSTANDING_DEVIATION = "理解偏差型"
-    APPLICATION_ERROR = "应用错误"
-    METACOGNITIVE = "元认知型"
+    KNOWLEDGE_STRUCTURAL = "structural"
+    UNDERSTANDING_DEVIATION = "deviation"
+    APPLICATION_ERROR = "application"
+    METACOGNITIVE = "metacognitive"
+
+    @classmethod
+    def _missing_(cls, value: object) -> ErrorType | None:
+        mapped = _ERROR_TYPE_LEGACY.get(str(value))
+        return cls(mapped) if mapped else None
 
 
 class MasteryLevel(int, Enum):
