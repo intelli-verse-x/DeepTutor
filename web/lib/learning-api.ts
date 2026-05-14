@@ -4,11 +4,9 @@ export interface AnswerRequest {
   question_id: string;
   knowledge_point_id: string;
   module_id?: string;
-  is_correct: boolean;
-  user_answer?: string;
-  error_type?: string;
+  user_answer: string;
+  expected_answer: string;
   self_attribution?: string;
-  mastery_estimate?: number;
 }
 
 export interface ModuleInit {

@@ -14,6 +14,28 @@ from deeptutor.learning.storage import LearningStore
 router = APIRouter()
 
 
+def _grade_answer(user_answer: str, expected_answer: str) -> bool:
+    """Simple comparison. For short answers, do fuzzy match."""
+    if not expected_answer:
+        return False
+    user = user_answer.strip().lower()
+    expected = expected_answer.strip().lower()
+    if user == expected:
+        return True
+    # Allow substring match for long expected answers
+    if len(expected) > 10 and expected in user:
+        return True
+    return False
+
+
+def _classify_error(user_answer: str, expected_answer: str) -> ErrorType | None:
+    """Basic classification. Full AI-based classification in error_diagnosis stage."""
+    user = user_answer.strip().lower()
+    if not user:
+        return ErrorType.METACOGNITIVE  # blank = didn't know
+    return ErrorType.APPLICATION_ERROR  # default: wrong application
+
+
 def get_learning_service() -> LearningService:
     # Create a fresh store + service per request to avoid object-level race conditions.
     store = LearningStore()
@@ -32,11 +54,9 @@ class AnswerRequest(BaseModel):
     question_id: str
     knowledge_point_id: str
     module_id: str = ""
-    is_correct: bool
-    user_answer: str | None = None
-    error_type: str | None = None
+    user_answer: str = ""
+    expected_answer: str = ""
     self_attribution: str = ""
-    mastery_estimate: float = 0.0
 
 
 class InitModulesRequest(BaseModel):
@@ -66,23 +86,29 @@ async def submit_answer(book_id: str, body: AnswerRequest):
 
     progress = service.get_or_create(book_id)
 
-    # Convert string error_type to ErrorType enum
-    error_type_enum = None
-    if body.error_type:
-        try:
-            error_type_enum = ErrorType(body.error_type)
-        except ValueError:
-            error_type_enum = None
+    if not body.expected_answer.strip():
+        raise HTTPException(status_code=400, detail="expected_answer is required for server-side grading")
+
+    # TODO: expected_answer currently comes from the client because there is no
+    # server-side question store.  Once questions are persisted server-side,
+    # look up the expected answer by question_id instead of trusting the caller.
+
+    # Server-side grading
+    is_correct = _grade_answer(body.user_answer, body.expected_answer)
+
+    # Classify error type if wrong
+    error_type = None
+    if not is_correct:
+        error_type = _classify_error(body.user_answer, body.expected_answer)
 
     attempt = QuizAttempt(
         question_id=body.question_id,
         knowledge_point_id=body.knowledge_point_id,
         module_id=body.module_id,
-        is_correct=body.is_correct,
+        is_correct=is_correct,
         user_answer=body.user_answer,
-        error_type=error_type_enum,
+        error_type=error_type,
         self_attribution=body.self_attribution,
-        mastery_estimate=body.mastery_estimate,
     )
     service.record_quiz_attempt(progress, attempt)
 
@@ -97,9 +123,9 @@ async def submit_answer(book_id: str, body: AnswerRequest):
         scheduler.schedule_next(state, kp_type, attempt.is_correct)
         progress.review_queue = scheduler.build_review_queue(progress)
 
-    # Update mastery estimate
-    if attempt.mastery_estimate > 0:
-        service.update_mastery(progress, attempt.knowledge_point_id, attempt.mastery_estimate)
+    # Update mastery from graded result
+    mastery = 1.0 if is_correct else 0.0
+    service.update_mastery(progress, attempt.knowledge_point_id, mastery)
 
     service.save(progress)
     return progress.model_dump()
