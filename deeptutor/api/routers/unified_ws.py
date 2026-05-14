@@ -224,6 +224,20 @@ async def unified_websocket(ws: WebSocket) -> None:
                 await subscribe_turn(turn["id"], after_seq=0)
                 continue
 
+            if msg_type == "user_input":
+                turn_id = str(msg.get("turn_id") or "").strip()
+                if not turn_id:
+                    await safe_send({"type": "error", "content": "Missing turn_id for user_input."})
+                    continue
+                from deeptutor.core.stream_bus import get_bus
+
+                bus = get_bus(turn_id)
+                if bus is None:
+                    await safe_send({"type": "error", "content": f"No active bus for turn: {turn_id}"})
+                    continue
+                bus.submit_input(str(msg.get("content") or ""))
+                continue
+
             await safe_send({"type": "error", "content": f"Unknown type: {msg_type}"})
 
     except WebSocketDisconnect:

@@ -35,6 +35,7 @@ class StreamBus:
         self._subscribers: list[asyncio.Queue[StreamEvent | None]] = []
         self._closed = False
         self._history: list[StreamEvent] = []
+        self._input_listeners: list[asyncio.Queue[str]] = []
 
     async def emit(self, event: StreamEvent) -> None:
         """Push *event* to every active subscriber."""
@@ -253,9 +254,58 @@ class StreamBus:
             )
         )
 
+    async def wait_for_input(
+        self,
+        prompt: str,
+        source: str = "",
+        stage: str = "",
+    ) -> str:
+        """Pause capability execution and wait for user input from the frontend."""
+        await self.emit(
+            StreamEvent(
+                type=StreamEventType.WAIT_FOR_INPUT,
+                source=source,
+                stage=stage,
+                content=prompt,
+            )
+        )
+        input_queue: asyncio.Queue[str] = asyncio.Queue()
+        self._input_listeners.append(input_queue)
+        try:
+            return await input_queue.get()
+        finally:
+            if input_queue in self._input_listeners:
+                self._input_listeners.remove(input_queue)
+
+    def submit_input(self, content: str) -> None:
+        """Receive user input from the frontend/WS and deliver to waiters."""
+        for q in self._input_listeners:
+            q.put_nowait(content)
+        self._input_listeners.clear()
+
     # ---- consumer adapters ----
 
     @staticmethod
     def event_to_json(event: StreamEvent) -> str:
         """Serialize an event to a single-line JSON string (NDJSON)."""
         return json.dumps(event.to_dict(), ensure_ascii=False)
+
+
+# ---- per-turn bus registry for user_input routing ----
+
+_bus_registry: dict[str, StreamBus] = {}
+
+
+def register_bus(turn_id: str, bus: StreamBus) -> None:
+    """Register a bus so ``user_input`` WS messages can find it."""
+    _bus_registry[turn_id] = bus
+
+
+def unregister_bus(turn_id: str) -> None:
+    """Remove a bus from the registry."""
+    _bus_registry.pop(turn_id, None)
+
+
+def get_bus(turn_id: str) -> StreamBus | None:
+    """Look up the active bus for *turn_id*."""
+    return _bus_registry.get(turn_id)

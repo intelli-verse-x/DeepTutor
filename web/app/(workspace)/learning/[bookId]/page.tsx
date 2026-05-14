@@ -13,6 +13,7 @@ interface StreamEvent {
   stage: string;
   content: string;
   metadata: Record<string, unknown>;
+  turn_id?: string;
 }
 
 interface StageProgress {
@@ -60,6 +61,10 @@ export default function LearningBookPage() {
   const [modules, setModules] = useState<ModuleData[]>([]);
   const [masteryLevels, setMasteryLevels] = useState<Record<string, number>>({});
   const [currentModuleId, setCurrentModuleId] = useState<string>("");
+  const [waitingForInput, setWaitingForInput] = useState(false);
+  const [inputPrompt, setInputPrompt] = useState("");
+  const [userInput, setUserInput] = useState("");
+  const currentTurnRef = useRef<string>("");
 
   const fetchProgress = useCallback(() => {
     fetch(apiUrl(`/api/v1/learning/progress/${params.bookId}`), { credentials: "include" })
@@ -104,6 +109,16 @@ export default function LearningBookPage() {
   }, [params.bookId]);
 
   const handleStreamEvent = (evt: StreamEvent) => {
+    if (evt.type === "session") {
+      const tid = (evt.metadata?.turn_id as string) || evt.turn_id || "";
+      if (tid) currentTurnRef.current = tid;
+      return;
+    }
+    if (evt.type === "wait_for_input") {
+      setWaitingForInput(true);
+      setInputPrompt(evt.content || "Please enter your answer");
+      return;
+    }
     if (evt.type === "stage_start") {
       currentStageRef.current = evt.stage;
       setCurrentStage(evt.stage);
@@ -252,8 +267,36 @@ export default function LearningBookPage() {
             {(stages.find(s => s.status === "active") || stages.find(s => s.status === "completed" && s.content))?.content}
           </div>
         ) : (
-          <div className="flex items-center justify-center h-full text-[var(--muted-foreground)]">
-            {connecting ? <Loader2 className="w-8 h-8 animate-spin" /> : t("guidedLearning.ready")}
+          !waitingForInput && (
+            <div className="flex items-center justify-center h-full text-[var(--muted-foreground)]">
+              {connecting ? <Loader2 className="w-8 h-8 animate-spin" /> : t("guidedLearning.ready")}
+            </div>
+          )
+        )}
+        {waitingForInput && (
+          <div className="mt-4 p-4 border border-[var(--border)] rounded-lg">
+            <p className="mb-2 text-sm text-[var(--foreground)]">{inputPrompt}</p>
+            <textarea
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              className="w-full p-2 border border-[var(--border)] rounded bg-[var(--background)] text-[var(--foreground)] resize-y min-h-[80px]"
+              placeholder={t("guidedLearning.inputPlaceholder", "Type your answer...")}
+            />
+            <button
+              onClick={() => {
+                if (!currentTurnRef.current) return;
+                wsRef.current?.send(JSON.stringify({
+                  type: "user_input",
+                  turn_id: currentTurnRef.current,
+                  content: userInput,
+                }));
+                setWaitingForInput(false);
+                setUserInput("");
+              }}
+              className="mt-2 px-4 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] text-sm hover:opacity-90"
+            >
+              {t("guidedLearning.submit", "Submit")}
+            </button>
           </div>
         )}
       </div>

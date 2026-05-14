@@ -30,6 +30,8 @@ class StreamEventType(str, Enum):
     ERROR = "error"
     SESSION = "session"
     DONE = "done"
+    WAIT_FOR_INPUT = "wait_for_input"
+    USER_INPUT = "user_input"
 
 
 @dataclass
