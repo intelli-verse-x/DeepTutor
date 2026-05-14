@@ -109,10 +109,9 @@ export default function LearningBookPage() {
   }, [params.bookId]);
 
   const handleStreamEvent = (evt: StreamEvent) => {
-    if (evt.type === "session") {
-      const tid = (evt.metadata?.turn_id as string) || evt.turn_id || "";
-      if (tid) currentTurnRef.current = tid;
-      return;
+    // Capture turn_id from any event that carries it
+    if (evt.turn_id) {
+      currentTurnRef.current = evt.turn_id;
     }
     if (evt.type === "wait_for_input") {
       setWaitingForInput(true);

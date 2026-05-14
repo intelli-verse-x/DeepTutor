@@ -170,6 +170,7 @@ class LearningProgress(BaseModel):
     current_kp_index: int = 0
     mastery_levels: dict[str, float] = Field(default_factory=dict)
     knowledge_types: dict[str, KnowledgeType] = Field(default_factory=dict)
+    quiz_attempts: list[QuizAttempt] = Field(default_factory=list)
     error_records: list[ErrorRecord] = Field(default_factory=list)
     repetition_states: dict[str, RepetitionState] = Field(default_factory=dict)
     review_queue: list[ReviewTask] = Field(default_factory=list)

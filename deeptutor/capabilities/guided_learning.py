@@ -113,8 +113,10 @@ class GuidedLearningCapability(BaseCapability):
 
     # ── Answer extraction ───────────────────────────────────────────────
 
-    @staticmethod
-    def _extract_answers(data: dict, prefix: str) -> dict[str, str]:
+    _INLINE_ANSWER_KEYS = ("answer", "correct_answer", "solution")
+
+    @classmethod
+    def _extract_answers(cls, data: dict, prefix: str) -> dict[str, str]:
         """Extract {question_id: answer} from LLM response data."""
         answers: dict[str, str] = {}
         questions = data.get("questions", [])
@@ -125,13 +127,19 @@ class GuidedLearningCapability(BaseCapability):
                 qid = str(raw)
             answers[qid] = str(ans)
         for i, ex in enumerate(data.get("exercises", [])):
-            if isinstance(ex, dict) and "answer" in ex:
-                raw = ex.get("question_id") or ex.get("id") or f"{prefix}_{i}"
-                answers[str(raw)] = str(ex["answer"])
+            if isinstance(ex, dict):
+                for key in cls._INLINE_ANSWER_KEYS:
+                    if key in ex:
+                        raw = ex.get("question_id") or ex.get("id") or f"{prefix}_{i}"
+                        answers[str(raw)] = str(ex[key])
+                        break
         for i, q in enumerate(data.get("questions", [])):
-            if isinstance(q, dict) and "answer" in q:
-                raw = q.get("question_id") or q.get("id") or f"{prefix}_{i}"
-                answers[str(raw)] = str(q["answer"])
+            if isinstance(q, dict):
+                for key in cls._INLINE_ANSWER_KEYS:
+                    if key in q:
+                        raw = q.get("question_id") or q.get("id") or f"{prefix}_{i}"
+                        answers[str(raw)] = str(q[key])
+                        break
         return answers
 
     _ANSWER_KEYS = {"answer", "correct_answer", "explanation", "solution"}
@@ -313,17 +321,16 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("plan", source=self.manifest.name):
+            if not progress.modules:
+                await stream.content("请先在 /learning 页面初始化学习模块，然后再开始引导学习。", source=self.manifest.name)
+                await stream.error(
+                    "模块未初始化，请先在 /learning 页面创建学习模块。",
+                    source=self.manifest.name,
+                    metadata={"turn_terminal": True, "reason": "no_modules"},
+                )
+                return
             response = await self._call_llm(PLAN_SYSTEM, PLAN_USER)
             await stream.content(response)
-            if not progress.modules:
-                mock_module = LearningModule(
-                    id="module_1", name="模拟模块", order=1,
-                    knowledge_points=[
-                        KnowledgePoint(id="kp_1", name="模拟知识点", type=KnowledgeType.CONCEPT, module_id="module_1"),
-                    ],
-                )
-                self._service.init_modules(progress, [mock_module])
-                progress.current_module_id = "module_1"
             self._service.advance_stage(progress, LearningStage.PRETEST)
 
     # ── §5 Per-knowledge-point loop ──────────────────────────────────────
@@ -433,6 +440,8 @@ class GuidedLearningCapability(BaseCapability):
 
             exercises = data.get("exercises") or data.get("questions") or []
             qids = data.get("question_ids", [])
+            kps = self._current_knowledge_points(progress)
+            default_kp_id = kps[0].id if kps else ""
             for i, ex in enumerate(exercises):
                 qid = qids[i] if i < len(qids) else f"{prefix}_{i}"
                 await stream.content(
@@ -447,8 +456,8 @@ class GuidedLearningCapability(BaseCapability):
                     progress,
                     QuizAttempt(
                         question_id=qid,
-                        knowledge_point_id="",
-                        module_id="",
+                        knowledge_point_id=default_kp_id,
+                        module_id=progress.current_module_id or "",
                         is_correct=is_correct,
                         user_answer=user_answer,
                         error_type=None if is_correct else ErrorType.APPLICATION_ERROR,
@@ -477,7 +486,12 @@ class GuidedLearningCapability(BaseCapability):
             answers = self._extract_answers(data, prefix)
             self._store.save_question_answers(self._resolve_book_id(context), answers)
             self._inject_question_ids(data, prefix)
-            await stream.content(json.dumps(data, ensure_ascii=False))
+            sanitized = {
+                k: [self._strip_answer(q) if isinstance(q, dict) else q for q in v] if isinstance(v, list) else v
+                for k, v in data.items()
+                if k not in ("answers",)
+            }
+            await stream.content(json.dumps(sanitized, ensure_ascii=False))
             self._init_repetition_states(progress)
             self._service.advance_stage(progress, LearningStage.REVIEW)
 

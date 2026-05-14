@@ -123,7 +123,7 @@ async def submit_answer(book_id: str, body: AnswerRequest):
         progress.review_queue = scheduler.build_review_queue(progress)
 
     # Update mastery from graded result
-    mastery = 1.0 if is_correct else 0.0
+    mastery = service.calculate_mastery(progress, attempt.knowledge_point_id)
     service.update_mastery(progress, attempt.knowledge_point_id, mastery)
 
     service.save(progress)

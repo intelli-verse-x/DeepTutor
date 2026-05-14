@@ -93,7 +93,19 @@ class LearningService:
                     rec.status = "graduated"
                     break
 
+        progress.quiz_attempts.append(attempt)
         progress.updated_at = time.time()
+
+    def calculate_mastery(self, progress: LearningProgress, kp_id: str) -> float:
+        """Weighted recent accuracy for *kp_id* (last 5 attempts)."""
+        attempts = [a for a in progress.quiz_attempts if a.knowledge_point_id == kp_id]
+        if not attempts:
+            return 0.0
+        recent = attempts[-5:]
+        weights = [0.5, 0.7, 0.85, 0.95, 1.0]
+        w = weights[-len(recent):]
+        score = sum((1.0 if a.is_correct else 0.0) * weight for a, weight in zip(recent, w))
+        return score / sum(w)
 
     def update_mastery(
         self, progress: LearningProgress, kp_id: str, level: float
