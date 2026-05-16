@@ -59,9 +59,9 @@ export default function LearningBookPage() {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: "change_module",
+        session_id: params.bookId,
         module_id: moduleId,
       }));
-      setCurrentModuleId(moduleId);
     }
   }, [currentModuleId]);
 
@@ -138,6 +138,13 @@ export default function LearningBookPage() {
     if (evt.type === "wait_for_input") {
       setWaitingForInput(true);
       setInputPrompt(evt.content || "Please enter your answer");
+      return;
+    }
+    if (evt.type === "module_changed") {
+      const e = evt as Record<string, unknown>;
+      if (e.success !== false) {
+        setCurrentModuleId(typeof e.module_id === "string" ? e.module_id : "");
+      }
       return;
     }
     if (evt.type === "stage_start") {

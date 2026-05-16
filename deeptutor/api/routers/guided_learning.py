@@ -6,7 +6,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
-from deeptutor.learning.models import ErrorType, KnowledgePoint, LearningModule, QuizAttempt
+from deeptutor.learning.models import (
+    ErrorType,
+    KnowledgePoint,
+    LearningModule,
+    LearningStage,
+    QuizAttempt,
+)
 from deeptutor.learning.scheduler import SpacedRepetitionScheduler
 from deeptutor.learning.service import LearningService
 from deeptutor.learning.storage import LearningStore
@@ -182,3 +188,39 @@ async def init_modules(book_id: str, body: InitModulesRequest):
     # use the merge logic in LearningService.init_modules() which preserves position.
     service.save(progress)
     return {"status": "ok", "module_count": len(modules)}
+
+
+@router.delete("/progress/{book_id}")
+async def delete_progress(book_id: str):
+    if not book_id or ".." in book_id or "/" in book_id or "\\" in book_id or ":" in book_id:
+        raise HTTPException(status_code=400, detail="Invalid book_id")
+    store = LearningStore()
+    if not store.exists(book_id):
+        raise HTTPException(status_code=404, detail="Progress not found")
+    store.delete(book_id)
+    return {"status": "ok"}
+
+
+@router.post("/progress/{book_id}/redo")
+async def redo_progress(book_id: str):
+    if not book_id or ".." in book_id or "/" in book_id or "\\" in book_id or ":" in book_id:
+        raise HTTPException(status_code=400, detail="Invalid book_id")
+    store = LearningStore()
+    progress = store.load(book_id)
+    if progress is None:
+        raise HTTPException(status_code=404, detail="Progress not found")
+    progress.current_stage = LearningStage.DIAGNOSTIC_PHASE1
+    progress.mastery_levels = {}
+    progress.quiz_attempts = []
+    progress.error_records = []
+    progress.repetition_states = {}
+    progress.review_queue = []
+    progress.diagnostic = None
+    progress.current_kp_index = 0
+    progress.current_module_id = progress.modules[0].id if progress.modules else ""
+    store.save(progress)
+    # Clear stored question answers so fresh questions are generated on redo
+    qpath = store._questions_path(book_id)
+    if qpath.exists():
+        qpath.unlink()
+    return {"status": "ok"}

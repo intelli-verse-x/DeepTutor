@@ -46,6 +46,9 @@ class LearningStore:
         path = self._path(book_id)
         if path.exists():
             path.unlink()
+        qpath = self._questions_path(book_id)
+        if qpath.exists():
+            qpath.unlink()
 
     def exists(self, book_id: str) -> bool:
         return self._path(book_id).exists()

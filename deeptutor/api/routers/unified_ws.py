@@ -238,6 +238,26 @@ async def unified_websocket(ws: WebSocket) -> None:
                 bus.submit_input(str(msg.get("content") or ""))
                 continue
 
+            if msg_type == "change_module":
+                session_id = str(msg.get("session_id") or "").strip()
+                module_id = str(msg.get("module_id") or "").strip()
+                if not session_id or not module_id:
+                    await safe_send({"type": "error", "content": "Missing session_id or module_id for change_module."})
+                    continue
+                from deeptutor.learning.service import LearningService
+                from deeptutor.learning.storage import LearningStore
+
+                store = LearningStore()
+                service = LearningService(store)
+                progress = service.get_or_create(session_id)
+                found = any(m.id == module_id for m in progress.modules)
+                if found:
+                    progress.current_module_id = module_id
+                    progress.current_kp_index = 0
+                    service.save(progress)
+                await safe_send({"type": "module_changed", "module_id": module_id, "success": found})
+                continue
+
             await safe_send({"type": "error", "content": f"Unknown type: {msg_type}"})
 
     except WebSocketDisconnect:

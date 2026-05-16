@@ -230,6 +230,7 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("diagnostic_phase1", source=self.manifest.name):
+            await stream.content("正在生成诊断题...", source=self.manifest.name)
             response = await self._call_llm(DIAGNOSTIC_PHASE1_SYSTEM, DIAGNOSTIC_PHASE1_USER)
             data = self._safe_json_parse(response, default={"questions": [], "answers": []})
             book_id = self._resolve_book_id(context)
@@ -274,6 +275,7 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("diagnostic_phase2", source=self.manifest.name):
+            await stream.content("正在生成深度诊断题...", source=self.manifest.name)
             response = await self._call_llm(DIAGNOSTIC_PHASE2_SYSTEM, DIAGNOSTIC_PHASE2_USER)
             data = self._safe_json_parse(response, default={})
             book_id = self._resolve_book_id(context)
@@ -316,6 +318,7 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("metacognitive_intro", source=self.manifest.name):
+            await stream.content("正在生成元认知介绍...", source=self.manifest.name)
             response = await self._call_llm(METACOGNITIVE_SYSTEM, METACOGNITIVE_USER)
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.PLAN)
@@ -336,6 +339,7 @@ class GuidedLearningCapability(BaseCapability):
                 # knowledge-point lists via the "_current_kp_name" fallback.
                 self._service.advance_stage(progress, LearningStage.PRETEST)
                 return
+            await stream.content("正在生成学习计划...", source=self.manifest.name)
             response = await self._call_llm(PLAN_SYSTEM, PLAN_USER)
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.PRETEST)
@@ -357,6 +361,7 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("pretest", source=self.manifest.name):
+            await stream.content("正在生成预测试题...", source=self.manifest.name)
             response = await self._call_llm(
                 PRETEST_SYSTEM, PRETEST_USER.format(knowledge_point=self._current_kp_name(progress))
             )
@@ -367,6 +372,7 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("explain", source=self.manifest.name):
+            await stream.content("正在生成讲解内容...", source=self.manifest.name)
             response = await self._call_llm(
                 EXPLAIN_SYSTEM, EXPLAIN_USER.format(knowledge_point=self._current_kp_name(progress))
             )
@@ -393,6 +399,7 @@ class GuidedLearningCapability(BaseCapability):
                     self._service.advance_stage(progress, LearningStage.PRACTICE_QUIZ)
                 return
 
+            await stream.content("正在评估你的解释...", source=self.manifest.name)
             response = await self._call_llm(
                 FEYNMAN_SYSTEM,
                 FEYNMAN_USER.format(knowledge_point=kp_name) + f"\n学生解释：{user_explanation}",
@@ -444,6 +451,7 @@ class GuidedLearningCapability(BaseCapability):
             kp_names = ", ".join(kp.name for kp in kps)
             prefix = f"{progress.current_module_id}_pquiz" if progress.current_module_id else "pquiz"
 
+            await stream.content("正在生成练习测验...", source=self.manifest.name)
             response = await self._call_llm(
                 PRACTICE_QUIZ_SYSTEM,
                 PRACTICE_QUIZ_USER.format(knowledge_points=kp_names),
@@ -502,6 +510,7 @@ class GuidedLearningCapability(BaseCapability):
     ) -> None:
         async with stream.stage("practice", source=self.manifest.name):
             prefix = f"{progress.current_module_id}_practice" if progress.current_module_id else "practice"
+            await stream.content("正在生成练习题...", source=self.manifest.name)
             response = await self._call_llm(
                 PRACTICE_SYSTEM, PRACTICE_USER.format(module_name=self._current_module_name(progress))
             )
@@ -543,6 +552,7 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("error_diagnosis", source=self.manifest.name):
+            await stream.content("正在生成错误诊断...", source=self.manifest.name)
             response = await self._call_llm(ERROR_DIAGNOSIS_SYSTEM, ERROR_DIAGNOSIS_USER)
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.MODULE_TEST)
@@ -552,6 +562,7 @@ class GuidedLearningCapability(BaseCapability):
     ) -> None:
         async with stream.stage("module_test", source=self.manifest.name):
             prefix = f"{progress.current_module_id}_modtest" if progress.current_module_id else "modtest"
+            await stream.content("正在生成模块测试...", source=self.manifest.name)
             response = await self._call_llm(
                 MODULE_TEST_SYSTEM, MODULE_TEST_USER.format(module_name=self._current_module_name(progress))
             )
@@ -598,6 +609,7 @@ class GuidedLearningCapability(BaseCapability):
         async with stream.stage("review", source=self.manifest.name):
             self._init_repetition_states(progress)
             self._schedule_reviews(progress)
+            await stream.content("正在生成复习内容...", source=self.manifest.name)
             response = await self._call_llm(REVIEW_SYSTEM, REVIEW_USER)
             await stream.content(response)
             if self._advance_to_next_module(progress):
