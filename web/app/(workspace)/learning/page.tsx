@@ -17,6 +17,7 @@ import {
   redoProgress,
   type ProgressSummary,
 } from "@/lib/learning-api";
+import CreateModuleDialog from "@/components/learning/CreateModuleDialog";
 
 type Tab = "current" | "completed" | "all";
 
@@ -27,6 +28,7 @@ export default function LearningPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("all");
   const [toast, setToast] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const loadProgress = useCallback(async () => {
     try {
@@ -85,7 +87,7 @@ export default function LearningPage() {
           </p>
         </div>
         <button
-          onClick={() => router.push("/learning/default")}
+          onClick={() => setDialogOpen(true)}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] text-sm font-medium hover:opacity-90 transition-opacity"
         >
           <Plus className="w-4 h-4" />
@@ -203,6 +205,12 @@ export default function LearningPage() {
             ))}
         </div>
       )}
+
+      <CreateModuleDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onCreated={() => loadProgress()}
+      />
     </div>
   );
 }

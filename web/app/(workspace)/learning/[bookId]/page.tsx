@@ -141,7 +141,7 @@ export default function LearningBookPage() {
       return;
     }
     if (evt.type === "module_changed") {
-      const e = evt as Record<string, unknown>;
+      const e = evt as unknown as Record<string, unknown>;
       if (e.success !== false) {
         setCurrentModuleId(typeof e.module_id === "string" ? e.module_id : "");
       }

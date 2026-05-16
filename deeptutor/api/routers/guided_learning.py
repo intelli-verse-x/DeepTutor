@@ -259,3 +259,69 @@ async def redo_progress(book_id: str):
     if qpath.exists():
         qpath.unlink()
     return {"status": "ok"}
+
+
+class NotebookRecordInput(BaseModel):
+    id: str
+    type: str = "note"
+    title: str = ""
+    output: str = ""
+
+
+class GenerateFromNotebookRequest(BaseModel):
+    notebook_id: str
+    records: list[NotebookRecordInput]
+
+
+@router.post("/progress/{book_id}/generate-from-notebook")
+async def generate_from_notebook(book_id: str, body: GenerateFromNotebookRequest):
+    if not book_id or ".." in book_id or "/" in book_id or "\\" in book_id or ":" in book_id:
+        raise HTTPException(status_code=400, detail="Invalid book_id")
+    if not body.records:
+        raise HTTPException(status_code=400, detail="No records provided")
+
+    records_text = "\n\n".join(
+        f"[{r.type}] {r.title}: {r.output[:500]}"
+        for r in body.records[:20]
+    )
+    from deeptutor.services.llm import complete
+    prompt = f"""根据以下笔记本记录，提取知识点并组织为学习模块。
+每个模块包含：name（模块名）、knowledge_points（知识点列表，每个有 name 和 type）。
+type 可选：memory / concept / procedure / design。
+返回 JSON: {{"modules": [{{"name": "...", "knowledge_points": [{{"name": "...", "type": "concept"}}]}}]}}
+
+笔记本记录：
+{records_text}"""
+    response = await complete(prompt=prompt, system_prompt="你是学习模块规划助手。只输出 JSON。")
+    import json
+    try:
+        data = json.loads(response)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="LLM returned invalid JSON")
+
+    modules_raw = data.get("modules", [])
+    service = get_learning_service()
+    progress = service.get_or_create(book_id)
+    modules = []
+    for i, m in enumerate(modules_raw):
+        kps = [
+            KnowledgePoint(
+                id=f"{book_id}_nb{i}_kp{j}",
+                name=kp["name"],
+                type=kp.get("type", "concept"),
+                module_id=f"{book_id}_nb{i}",
+            )
+            for j, kp in enumerate(m.get("knowledge_points", []))
+        ]
+        modules.append(LearningModule(
+            id=f"{book_id}_nb{i}",
+            name=m.get("name", f"模块 {i+1}"),
+            order=i,
+            pass_threshold=0.7,
+            knowledge_points=kps,
+        ))
+    service.init_modules(progress, modules)
+    progress.current_module_id = modules[0].id if modules else ""
+    progress.current_kp_index = 0
+    service.save(progress)
+    return {"status": "ok", "module_count": len(modules), "modules": [m.model_dump() for m in modules]}
