@@ -113,6 +113,42 @@ class LearningService:
         progress.mastery_levels[kp_id] = level
         progress.updated_at = time.time()
 
+    def list_progress(self) -> list[dict]:
+        """Return summary of all book progress."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        book_ids = self._store.list_all()
+        summaries = []
+        for bid in book_ids:
+            try:
+                progress = self._store.load(bid)
+                if progress is None:
+                    continue
+                # Only count KPs from current modules (exclude stale IDs)
+                current_kp_ids = {
+                    kp.id
+                    for m in progress.modules
+                    for kp in m.knowledge_points
+                }
+                total_kps = len(current_kp_ids)
+                mastered = sum(
+                    1 for kp_id in current_kp_ids
+                    if progress.mastery_levels.get(kp_id, 0) >= 0.7
+                )
+                summaries.append({
+                    "book_id": progress.book_id,
+                    "modules_count": len(progress.modules),
+                    "kp_count": total_kps,
+                    "current_stage": progress.current_stage.value if progress.current_stage else "",
+                    "mastered_pct": round(mastered / total_kps * 100) if total_kps else 0,
+                    "updated_at": progress.updated_at,
+                })
+            except Exception:
+                logger.warning("Failed to load progress for book %s, skipping", bid, exc_info=True)
+                continue
+        return summaries
+
     def save(self, progress: LearningProgress) -> None:
         self._store.save(progress)
 

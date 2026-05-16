@@ -74,5 +74,13 @@ class LearningStore:
             return {}
         return json.loads(path.read_text(encoding="utf-8"))
 
+    def list_all(self) -> list[str]:
+        """Return all book_ids that have stored progress."""
+        return sorted(
+            p.stem
+            for p in self._root.glob("*.json")
+            if not p.name.startswith(".")
+        )
+
 
 __all__ = ["LearningStore"]

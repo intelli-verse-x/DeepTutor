@@ -65,6 +65,12 @@ class InitModulesRequest(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 
+@router.get("/progress")
+async def list_all_progress():
+    service = get_learning_service()
+    return service.list_progress()
+
+
 @router.get("/progress/{book_id}")
 async def get_progress(book_id: str):
     if not book_id or ".." in book_id or "/" in book_id or "\\" in book_id or ":" in book_id:
