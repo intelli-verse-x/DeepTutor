@@ -41,3 +41,30 @@ export async function initModules(bookId: string, modules: ModuleInit[]) {
   if (!res.ok) throw new Error(`Failed to init modules: ${res.status}`);
   return res.json();
 }
+
+export interface ProgressSummary {
+  book_id: string;
+  modules_count: number;
+  kp_count: number;
+  current_stage: string;
+  mastered_pct: number;
+  updated_at: number;
+}
+
+export async function fetchAllProgress(): Promise<ProgressSummary[]> {
+  const res = await apiFetch(apiUrl("/api/v1/learning/progress"));
+  if (!res.ok) throw new Error(`Failed to fetch all progress: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteProgress(bookId: string) {
+  const res = await apiFetch(apiUrl(`/api/v1/learning/progress/${encodeURIComponent(bookId)}`), { method: "DELETE" });
+  if (!res.ok) throw new Error(`Failed to delete progress: ${res.status}`);
+  return res.json();
+}
+
+export async function redoProgress(bookId: string) {
+  const res = await apiFetch(apiUrl(`/api/v1/learning/progress/${encodeURIComponent(bookId)}/redo`), { method: "POST" });
+  if (!res.ok) throw new Error(`Failed to redo progress: ${res.status}`);
+  return res.json();
+}
