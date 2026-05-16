@@ -1605,6 +1605,8 @@
   "Co-Writer tooltip": "AI-powered document editor.",
   "Book tooltip": "Create AI-powered books.",
   "Knowledge tooltip": "Manage learning personas.",
+  "Learning": "Learning",
+  "Learning tooltip": "Structured mastery-based guided learning.",
   "Space tooltip": "Your personal learning library.",
   "guidedLearning.title": "Guided Learning",
   "guidedLearning.description": "Framework v1.8.2 — structured mastery-based learning",

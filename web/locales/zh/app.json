@@ -1605,6 +1605,8 @@
   "Co-Writer tooltip": "AI 驱动的协作文档编辑器。",
   "Book tooltip": "生成交互式 AI 书籍。",
   "Knowledge tooltip": "管理文档与教学人设。",
+  "Learning": "学习",
+  "Learning tooltip": "结构化掌握式引导学习。",
   "Space tooltip": "你的个人学习空间。",
   "guidedLearning.title": "引导式学习",
   "guidedLearning.description": "框架 v1.8.2 — 结构化掌握式学习",
