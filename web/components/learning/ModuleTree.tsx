@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { ChevronRight, ChevronDown, Circle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface KnowledgePoint {
   id: string;
@@ -99,12 +100,13 @@ export default function ModuleTree({
   currentModuleId,
   currentStage,
 }: ModuleTreeProps) {
+  const { t } = useTranslation();
   const sorted = [...modules].sort((a, b) => a.order - b.order);
 
   if (sorted.length === 0) {
     return (
       <div className="text-sm text-[var(--muted-foreground)] px-2 py-1">
-        No modules loaded
+        {t("guidedLearning.noModulesLoaded")}
       </div>
     );
   }

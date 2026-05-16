@@ -22,22 +22,6 @@ interface StageProgress {
   content: string;
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  diagnostic_phase1: "Diagnostic Phase 1",
-  diagnostic_phase2: "Diagnostic Phase 2",
-  metacognitive_intro: "Metacognitive Intro",
-  plan: "Study Plan",
-  pretest: "Pretest",
-  explain: "Explain",
-  feynman_check: "Feynman Check",
-  practice_quiz: "Practice Quiz",
-  practice: "Practice",
-  error_diagnosis: "Error Diagnosis",
-  module_test: "Module Test",
-  review: "Review",
-  completed: "Completed",
-};
-
 export default function LearningBookPage() {
   const params = useParams<{ bookId: string }>();
   const { t } = useTranslation();
@@ -51,6 +35,9 @@ export default function LearningBookPage() {
   const activeTurnRetryRef = useRef<boolean>(false);
   const [toast, setToast] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const intentionalCloseRef = useRef(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   interface ModuleData {
     id: string;
@@ -86,12 +73,20 @@ export default function LearningBookPage() {
   const handleStreamEventRef = useRef<(evt: StreamEvent) => void>(() => {});
 
   const connect = useCallback(() => {
+    // Clear any pending reconnect timer
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    intentionalCloseRef.current = false;
+
     const ws = new WebSocket(wsUrl("/api/v1/ws"));
     wsRef.current = ws;
 
     ws.onopen = () => {
       setConnecting(false);
       setError(null);
+      reconnectAttemptsRef.current = 0;
       ws.send(JSON.stringify({
         type: "start_turn",
         session_id: params.bookId,
@@ -110,8 +105,19 @@ export default function LearningBookPage() {
     };
 
     ws.onerror = () => setError(t("guidedLearning.connectionError"));
-    ws.onclose = () => setConnecting(true);
-  }, [params.bookId]);
+    ws.onclose = () => {
+      if (intentionalCloseRef.current) return;
+      setConnecting(true);
+      if (reconnectAttemptsRef.current < 5) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+        reconnectAttemptsRef.current += 1;
+        reconnectTimerRef.current = setTimeout(() => connect(), delay);
+      } else {
+        setError(t("guidedLearning.connectionError"));
+        setConnecting(false);
+      }
+    };
+  }, [params.bookId, t]);
 
   const handleStreamEvent = (evt: StreamEvent) => {
     // Capture turn_id from any event that carries it
@@ -244,7 +250,14 @@ export default function LearningBookPage() {
 
   useEffect(() => {
     connect();
-    return () => { wsRef.current?.close(); };
+    return () => {
+      intentionalCloseRef.current = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      wsRef.current?.close();
+    };
   }, [connect]);
 
   return (
@@ -282,7 +295,7 @@ export default function LearningBookPage() {
                s.status === "completed" ? "✓" : s.status === "error" ? "✗" : "○"}
             </span>
             <span className={s.status === "active" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}>
-              {STAGE_LABELS[s.stage] || s.stage}
+              {t(`guidedLearning.stage.${s.stage}`, s.stage)}
             </span>
           </div>
         ))}
@@ -290,7 +303,21 @@ export default function LearningBookPage() {
       </div>
       {/* Content area */}
       <div className="flex-1 p-8 overflow-y-auto">
-        {error && <div className="text-red-500 mb-4">{error}</div>}
+        {error && (
+          <div className="text-red-500 mb-4 flex items-center gap-2">
+            <span>{error}</span>
+            <button
+              onClick={() => {
+                setError(null);
+                reconnectAttemptsRef.current = 0;
+                connect();
+              }}
+              className="px-3 py-1 text-sm rounded bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90"
+            >
+              {t("guidedLearning.reconnect", "Reconnect")}
+            </button>
+          </div>
+        )}
         {(stages.find(s => s.status === "active") || stages.find(s => s.status === "completed" && s.content))?.content ? (
           <div className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
             {(stages.find(s => s.status === "active") || stages.find(s => s.status === "completed" && s.content))?.content}
