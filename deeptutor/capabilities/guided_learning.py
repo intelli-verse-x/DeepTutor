@@ -39,6 +39,8 @@ from deeptutor.learning.prompts import (
     MODULE_TEST_USER,
     PLAN_SYSTEM,
     PLAN_USER,
+    PRACTICE_QUIZ_SYSTEM,
+    PRACTICE_QUIZ_USER,
     PRACTICE_SYSTEM,
     PRACTICE_USER,
     PRETEST_SYSTEM,
@@ -61,6 +63,7 @@ class GuidedLearningCapability(BaseCapability):
             "pretest",
             "explain",
             "feynman_check",
+            "practice_quiz",
             "practice",
             "error_diagnosis",
             "module_test",
@@ -322,12 +325,16 @@ class GuidedLearningCapability(BaseCapability):
     ) -> None:
         async with stream.stage("plan", source=self.manifest.name):
             if not progress.modules:
-                await stream.content("请先在 /learning 页面初始化学习模块，然后再开始引导学习。", source=self.manifest.name)
-                await stream.error(
-                    "模块未初始化，请先在 /learning 页面创建学习模块。",
+                await stream.content(
+                    "请先在 /learning 页面初始化学习模块，然后再开始引导学习。"
+                    "当前尚未创建学习模块，系统将跳过学习计划，进入下一阶段。",
                     source=self.manifest.name,
-                    metadata={"turn_terminal": True, "reason": "no_modules"},
                 )
+                # Advance stage so the state machine does not get permanently
+                # stuck on PLAN when modules are not initialized.  Downstream
+                # stages (PRETEST, EXPLAIN, …) gracefully handle empty
+                # knowledge-point lists via the "_current_kp_name" fallback.
+                self._service.advance_stage(progress, LearningStage.PRETEST)
                 return
             response = await self._call_llm(PLAN_SYSTEM, PLAN_USER)
             await stream.content(response)
@@ -383,7 +390,7 @@ class GuidedLearningCapability(BaseCapability):
                     self._after_knowledge_point(progress)
                     self._service.advance_stage(progress, LearningStage.PRETEST)
                 else:
-                    self._service.advance_stage(progress, LearningStage.PRACTICE)
+                    self._service.advance_stage(progress, LearningStage.PRACTICE_QUIZ)
                 return
 
             response = await self._call_llm(
@@ -400,7 +407,7 @@ class GuidedLearningCapability(BaseCapability):
                     self._after_knowledge_point(progress)
                     self._service.advance_stage(progress, LearningStage.PRETEST)
                 else:
-                    self._service.advance_stage(progress, LearningStage.PRACTICE)
+                    self._service.advance_stage(progress, LearningStage.PRACTICE_QUIZ)
             else:
                 await stream.content(f"反馈：{result.get('feedback', '请重新学习')}", source=self.manifest.name)
                 self._service.advance_stage(progress, LearningStage.EXPLAIN)
@@ -421,6 +428,72 @@ class GuidedLearningCapability(BaseCapability):
     def _after_knowledge_point(self, progress: LearningProgress) -> None:
         progress.current_kp_index += 1
         progress.updated_at = time.time()
+
+    # ── §5 Practice Quiz ──────────────────────────────────────────────────
+
+    async def _run_practice_quiz(
+        self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
+    ) -> None:
+        """Post-Feynman practice quiz — consolidates all knowledge points in the current module."""
+        async with stream.stage("practice_quiz", source=self.manifest.name):
+            kps = self._current_knowledge_points(progress)
+            if not kps:
+                self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+                return
+
+            kp_names = ", ".join(kp.name for kp in kps)
+            prefix = f"{progress.current_module_id}_pquiz" if progress.current_module_id else "pquiz"
+
+            response = await self._call_llm(
+                PRACTICE_QUIZ_SYSTEM,
+                PRACTICE_QUIZ_USER.format(knowledge_points=kp_names),
+            )
+            data = self._safe_json_parse(response, default={"questions": []})
+            book_id = self._resolve_book_id(context)
+            answers = self._extract_answers(data, prefix)
+            self._store.save_question_answers(book_id, answers)
+            self._inject_question_ids(data, prefix)
+
+            questions = data.get("questions", [])
+            qids = data.get("question_ids", [])
+            correct_count = 0
+            default_kp_id = kps[0].id if kps else ""
+
+            for i, q in enumerate(questions):
+                qid = qids[i] if i < len(qids) else f"{prefix}_{i}"
+                await stream.content(
+                    json.dumps({"question": self._strip_answer(q), "question_id": qid}, ensure_ascii=False),
+                    source=self.manifest.name,
+                )
+                user_answer = await stream.wait_for_input("请回答", source=self.manifest.name, timeout=120)
+                stored = self._store.load_question_answers(book_id)
+                expected = stored.get(qid, "")
+                is_correct = bool(expected) and user_answer.strip().lower() == expected.strip().lower()
+                if is_correct:
+                    correct_count += 1
+                self._service.record_quiz_attempt(
+                    progress,
+                    QuizAttempt(
+                        question_id=qid,
+                        knowledge_point_id=default_kp_id,
+                        module_id=progress.current_module_id or "",
+                        is_correct=is_correct,
+                        user_answer=user_answer,
+                        error_type=None if is_correct else ErrorType.APPLICATION_ERROR,
+                    ),
+                )
+
+            total = len(questions)
+            if total > 0:
+                pct = correct_count / total * 100
+                summary = f"练习测验完成！正确 {correct_count}/{total} 题（{pct:.0f}%）。"
+                if pct >= 70:
+                    summary += " 表现不错，继续加油！"
+                else:
+                    summary += " 建议回顾相关知识点。"
+                await stream.content(summary, source=self.manifest.name)
+
+            self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
 
     # ── §5 Per-module loop ───────────────────────────────────────────────
 
@@ -546,6 +619,7 @@ class GuidedLearningCapability(BaseCapability):
         LearningStage.PRETEST: _run_pretest,
         LearningStage.EXPLAIN: _run_explain,
         LearningStage.FEYNMAN_CHECK: _run_feynman_check,
+        LearningStage.PRACTICE_QUIZ: _run_practice_quiz,
         LearningStage.PRACTICE: _run_practice,
         LearningStage.ERROR_DIAGNOSIS: _run_error_diagnosis,
         LearningStage.MODULE_TEST: _run_module_test,

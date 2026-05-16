@@ -62,6 +62,7 @@ class LearningStage(str, Enum):
     PRETEST = "pretest"
     EXPLAIN = "explain"
     FEYNMAN_CHECK = "feynman_check"
+    PRACTICE_QUIZ = "practice_quiz"
     PRACTICE = "practice"
     ERROR_DIAGNOSIS = "error_diagnosis"
     MODULE_TEST = "module_test"

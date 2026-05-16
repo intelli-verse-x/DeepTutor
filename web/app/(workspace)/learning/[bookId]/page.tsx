@@ -30,6 +30,7 @@ const STAGE_LABELS: Record<string, string> = {
   pretest: "Pretest",
   explain: "Explain",
   feynman_check: "Feynman Check",
+  practice_quiz: "Practice Quiz",
   practice: "Practice",
   error_diagnosis: "Error Diagnosis",
   module_test: "Module Test",
@@ -80,6 +81,10 @@ export default function LearningBookPage() {
   const fetchProgressRef = useRef(fetchProgress);
   fetchProgressRef.current = fetchProgress;
 
+  // Use a ref for handleStreamEvent so the WebSocket onmessage handler
+  // always calls the latest version instead of a stale closure.
+  const handleStreamEventRef = useRef<(evt: StreamEvent) => void>(() => {});
+
   const connect = useCallback(() => {
     const ws = new WebSocket(wsUrl("/api/v1/ws"));
     wsRef.current = ws;
@@ -100,7 +105,7 @@ export default function LearningBookPage() {
     ws.onmessage = (event) => {
       try {
         const evt: StreamEvent = JSON.parse(event.data);
-        handleStreamEvent(evt);
+        handleStreamEventRef.current(evt);
       } catch { /* ignore parse errors */ }
     };
 
@@ -121,42 +126,59 @@ export default function LearningBookPage() {
     if (evt.type === "stage_start") {
       currentStageRef.current = evt.stage;
       setCurrentStage(evt.stage);
-      // Clear recoverable errors on new turn
-      if (activeTurnRetryRef.current) {
-        setError(null);
-        activeTurnRetryRef.current = false;
-      }
+      // Clear errors on new stage — previous turn's error should not block the next turn
+      errorRef.current = false;
+      setError(null);
+      activeTurnRetryRef.current = false;
       setStages(prev => {
         const updated = [...prev];
         const idx = updated.findIndex(s => s.stage === evt.stage);
         if (idx >= 0) {
-          updated[idx] = { ...updated[idx], status: "active" };
+          updated[idx] = { ...updated[idx], status: "active", content: "" };
         } else {
           updated.push({ stage: evt.stage, status: "active", content: "" });
         }
-        stagesRef.current = updated;
         return updated;
       });
+      // Update ref OUTSIDE setStages callback so it is always synchronous.
+      // This prevents a race where `done` reads a stale stagesRef before
+      // React processes the batched setState.
+      {
+        const idx = stagesRef.current.findIndex(s => s.stage === evt.stage);
+        if (idx >= 0) {
+          stagesRef.current = [...stagesRef.current];
+          stagesRef.current[idx] = { ...stagesRef.current[idx], status: "active", content: "" };
+        } else {
+          stagesRef.current = [...stagesRef.current, { stage: evt.stage, status: "active", content: "" }];
+        }
+      }
     } else if (evt.type === "content") {
       setStages(prev => prev.map(s =>
         s.stage === currentStageRef.current ? { ...s, content: s.content + evt.content } : s
       ));
     } else if (evt.type === "result" || evt.type === "stage_end") {
+      const endedStage = currentStageRef.current;
+      // Update ref OUTSIDE setStages callback so it is synchronous and
+      // visible to the `done` handler that may run in the very next message.
+      if (endedStage) {
+        stagesRef.current = stagesRef.current.map(s =>
+          s.stage === endedStage ? { ...s, status: "completed" as const } : s
+        );
+      }
       setStages(prev => {
         const updated = prev.map(s =>
-          s.stage === currentStageRef.current ? { ...s, status: "completed" as const } : s
+          s.stage === endedStage ? { ...s, status: "completed" as const } : s
         );
-        stagesRef.current = updated;
         return updated;
       });
-      const endedStage = currentStageRef.current;
       currentStageRef.current = "";
       setCurrentStage("");
-      if (["plan", "diagnostic_phase1", "diagnostic_phase2", "review", "module_test"].includes(endedStage)) {
+      if (["plan", "diagnostic_phase1", "diagnostic_phase2", "practice_quiz", "review", "module_test"].includes(endedStage)) {
         fetchProgressRef.current();
       }
     } else if (evt.type === "done") {
-      // Auto-advance after turn completes, skip if terminal completed stage exists or any error occurred
+      // Auto-advance after turn completes.
+      // Skip if: terminal "completed" stage exists, any error stage exists, or errorRef is set.
       const hasCompletedTerminal = stagesRef.current.some(s => s.stage === "completed" && s.status === "completed");
       const hasError = errorRef.current || stagesRef.current.some(s => s.status === "error" || s.stage === "error");
       if (!hasCompletedTerminal && !hasError && wsRef.current?.readyState === WebSocket.OPEN) {
@@ -191,15 +213,23 @@ export default function LearningBookPage() {
         activeTurnRetryRef.current = true;
       }
       setToast(t("guidedLearning.stageFailed"));
+      const stageToError = currentStageRef.current;
+      if (stageToError) {
+        stagesRef.current = stagesRef.current.map(s =>
+          s.stage === stageToError ? { ...s, status: "error" as const } : s
+        );
+      }
       setStages(prev => {
         const updated = prev.map(s =>
-          s.stage === currentStageRef.current ? { ...s, status: "error" as const } : s
+          s.stage === stageToError ? { ...s, status: "error" as const } : s
         );
-        stagesRef.current = updated;
         return updated;
       });
     }
   };
+
+  // Keep the ref always pointing at the latest handleStreamEvent
+  handleStreamEventRef.current = handleStreamEvent;
 
   useEffect(() => {
     if (!toast) return;

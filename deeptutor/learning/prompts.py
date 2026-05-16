@@ -72,6 +72,18 @@ FEYNMAN_SYSTEM = """判断学生是否能用费曼技巧解释清楚概念。
 
 FEYNMAN_USER = "检验对概念的费曼解释：{knowledge_point}"
 
+# ── Practice Quiz ──────────────────────────────────────────────────────
+
+PRACTICE_QUIZ_SYSTEM = """你是一个出题专家。请为以下知识点生成综合练习测验。
+要求：
+1. 生成 5-10 道题，覆盖所有列出的知识点
+2. 题型多样（选择、填空、简答）
+3. 难度适中，侧重理解和应用
+4. 每道题附带正确答案和简要解析
+返回 JSON：{"questions": [{"question": "...", "answer": "...", "explanation": "...", "knowledge_point": "..."}]}"""
+
+PRACTICE_QUIZ_USER = "为以下知识点生成综合练习测验：{knowledge_points}"
+
 # ── Practice ───────────────────────────────────────────────────────────
 
 PRACTICE_SYSTEM = """生成3-5道练习题，难度递进（识记→理解→应用→分析）。

@@ -1188,8 +1188,9 @@ export default function ChatPage() {
   }, []);
 
   const handleNewChat = useCallback(() => {
+    cancelStreamingTurn();
     router.push("/chat");
-  }, [router]);
+  }, [cancelStreamingTurn, router]);
 
   const handleDownloadMarkdown = useCallback(() => {
     if (!state.messages.length) return;

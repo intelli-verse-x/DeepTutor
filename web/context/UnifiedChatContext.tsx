@@ -1128,15 +1128,19 @@ export function UnifiedChatProvider({
     const key = currentState.selectedKey;
     if (!key) return;
     const session = currentState.sessions[key];
-    const turnId = session?.activeTurnId;
-    if (!session || !turnId) return;
+    if (!session) return;
+    const turnId = session.activeTurnId;
     const runner = runnersRef.current.get(key);
     if (runner?.client.connected) {
-      runner.client.send({ type: "cancel_turn", turn_id: turnId });
+      if (turnId) {
+        runner.client.send({ type: "cancel_turn", turn_id: turnId });
+      }
       runner.client.disconnect();
       runnersRef.current.delete(key);
     }
-    dispatch({ type: "STREAM_END", key, status: "cancelled" });
+    if (session.isStreaming) {
+      dispatch({ type: "STREAM_END", key, status: "cancelled" });
+    }
   }, []);
 
   const regenerateLastMessage = useCallback(() => {

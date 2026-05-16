@@ -19,6 +19,7 @@ export default function WorkspaceSidebar() {
   const router = useRouter();
   const {
     newSession,
+    cancelStreamingTurn,
     selectedSessionId,
     sessionStatuses,
     sidebarRefreshToken,
@@ -68,6 +69,7 @@ export default function WorkspaceSidebar() {
     .map(({ session }) => session);
 
   const handleNewChat = () => {
+    cancelStreamingTurn();
     newSession();
     router.push("/chat");
   };
@@ -105,11 +107,12 @@ export default function WorkspaceSidebar() {
         prev.filter((session) => session.session_id !== sessionId),
       );
       if (selectedSessionId === sessionId) {
+        cancelStreamingTurn();
         newSession();
         router.push("/chat");
       }
     },
-    [newSession, router, selectedSessionId, t],
+    [cancelStreamingTurn, newSession, router, selectedSessionId, t],
   );
 
   return (
