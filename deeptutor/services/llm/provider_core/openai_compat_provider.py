@@ -313,6 +313,15 @@ class OpenAICompatProvider(LLMProvider):
             if any(p.lower() in model_lower for p in spec.reasoning_model_patterns):
                 reasoning_effort = "high"
 
+        # Gemini 2.5+ models burn most of `max_tokens` on internal "thinking"
+        # by default, often leaving zero room for the actual response and
+        # truncating with finish_reason=length. Disable thinking unless the
+        # caller explicitly opted in.
+        if reasoning_effort is None and spec and spec.name == "gemini":
+            model_lower = model_name.lower()
+            if any(model_lower.startswith(p) for p in ("gemini-2.5", "gemini-3")):
+                reasoning_effort = "none"
+
         semantic_effort: str | None = None
         if isinstance(reasoning_effort, str):
             semantic_effort = reasoning_effort.lower()

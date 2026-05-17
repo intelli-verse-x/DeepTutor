@@ -178,6 +178,14 @@ async def sdk_complete(
 
     if reasoning_effort:
         payload["reasoning_effort"] = reasoning_effort
+    elif (provider_name or "").lower() == "gemini" and any(
+        (resolved_model or "").lower().startswith(p) for p in ("gemini-2.5", "gemini-3")
+    ):
+        # Gemini 2.5+ models burn most of `max_tokens` on internal "thinking"
+        # by default, often leaving zero room for the actual response and
+        # truncating with finish_reason=length. Disable thinking unless the
+        # caller explicitly opted in.
+        payload["reasoning_effort"] = "none"
     payload.update(kwargs)
 
     response = await _create_with_format_fallback(
@@ -246,6 +254,14 @@ async def sdk_stream(
 
     if reasoning_effort:
         payload["reasoning_effort"] = reasoning_effort
+    elif (provider_name or "").lower() == "gemini" and any(
+        (resolved_model or "").lower().startswith(p) for p in ("gemini-2.5", "gemini-3")
+    ):
+        # Gemini 2.5+ models burn most of `max_tokens` on internal "thinking"
+        # by default, often leaving zero room for the actual response and
+        # truncating with finish_reason=length. Disable thinking unless the
+        # caller explicitly opted in.
+        payload["reasoning_effort"] = "none"
     payload.update(kwargs)
 
     stream_response = await _create_with_format_fallback(

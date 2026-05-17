@@ -8,6 +8,7 @@ Produces SVG or Chart.js code from user requests and conversation context.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from deeptutor.capabilities.request_contracts import get_capability_request_schema
@@ -15,6 +16,8 @@ from deeptutor.core.capability_protocol import BaseCapability, CapabilityManifes
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.trace import merge_trace_metadata
+
+logger = logging.getLogger(__name__)
 
 
 class VisualizeCapability(BaseCapability):
@@ -135,24 +138,47 @@ class VisualizeCapability(BaseCapability):
                     source=self.name,
                     stage="reviewing",
                 )
-                review = await pipeline.run_review(
-                    user_input=context.user_message,
-                    analysis=analysis,
-                    code=code,
-                )
-                final_code = review.optimized_code
-                if review.changed:
+                from deeptutor.agents.visualize.models import ReviewResult
+
+                try:
+                    review = await pipeline.run_review(
+                        user_input=context.user_message,
+                        analysis=analysis,
+                        code=code,
+                    )
+                except Exception as exc:
+                    # Review wraps generated code inside a JSON string field;
+                    # large/complex SVGs trip JSON-mode escaping and crash the
+                    # whole turn. Fall back to the unreviewed draft so the user
+                    # still gets a rendered result.
+                    logger.warning(
+                        "Visualize review failed (%s); using unreviewed draft.", exc
+                    )
+                    review = ReviewResult(
+                        optimized_code=code,
+                        changed=False,
+                        review_notes=f"Review skipped due to error: {exc}",
+                    )
+                    final_code = code
                     await stream.progress(
-                        message=f"Code optimized: {review.review_notes}",
+                        message="Review skipped — using draft as-is.",
                         source=self.name,
                         stage="reviewing",
                     )
                 else:
-                    await stream.progress(
-                        message="Code looks good — no changes needed.",
-                        source=self.name,
-                        stage="reviewing",
-                    )
+                    final_code = review.optimized_code
+                    if review.changed:
+                        await stream.progress(
+                            message=f"Code optimized: {review.review_notes}",
+                            source=self.name,
+                            stage="reviewing",
+                        )
+                    else:
+                        await stream.progress(
+                            message="Code looks good — no changes needed.",
+                            source=self.name,
+                            stage="reviewing",
+                        )
 
         # Emit final content as a fenced code block for the chat area
         if analysis.render_type == "svg":
