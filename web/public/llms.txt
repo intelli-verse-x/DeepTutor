@@ -1,0 +1,31 @@
+# DeepTutor
+
+> DeepTutor is an AI-powered intelligent learning companion providing personalized tutoring, adaptive learning paths, and interactive lessons for students.
+
+Key characteristics:
+
+- **Purpose**: Educational technology platform for personalized AI tutoring
+- **Use cases**: Homework help, test preparation, concept mastery, interactive learning
+- **Technology**: Agent-native AI system with adaptive learning algorithms
+- **Features**: Personalized tutoring, step-by-step explanations, practice problems, progress tracking
+
+## Features
+
+- AI-powered personalized tutoring
+- Adaptive learning paths tailored to each student
+- Interactive lessons and practice problems
+- Step-by-step explanations for complex concepts
+- Homework help and test preparation
+- Progress tracking and performance analytics
+
+## Documentation
+
+- [Homepage](https://tutor.intelli-verse-x.ai): Learn about DeepTutor's intelligent tutoring features
+- [IntelliVerse X Platform](https://platform.intelli-verse-x.ai): User accounts and authentication
+
+## Related Services
+
+- [Quiz Platform](https://quiz.intelli-verse-x.ai): Interactive quizzes and assessments
+- [QuizX](https://quizx.intelli-verse-x.ai): Advanced quiz platform
+- [AI Chat v2](https://ai-chat-v2.intelli-verse-x.ai): AI chat assistance
+- [IntelliVerse X Home](https://intelli-verse-x.ai): Ecosystem overview
