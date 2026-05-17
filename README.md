@@ -635,6 +635,11 @@ DeepTutor stands on the shoulders of outstanding open-source projects:
 |:---:|:---:|:---:|:---:|
 | Simple & Fast RAG | Zero-Code Agent Framework | Automated Research | Ultra-Lightweight AI Agent |
 
+---
+
+## 📈 SEO
+
+**Backlink Strategy & Outreach**: See [docs/seo/backlinks.md](docs/seo/backlinks.md) for our comprehensive backlink acquisition playbook, including directory submissions, community outreach, and editorial campaigns.
 
 ## 🤝 Contributing
 
@@ -689,3 +694,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 </p>
 
 </div>
+
+## SEO
+
+See [Backlink Strategy](docs/seo/backlinks.md) for SEO and link-building guidance.
