@@ -694,3 +694,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 </p>
 
 </div>
+
+## SEO
+
+See [Backlink Strategy](docs/seo/backlinks.md) for SEO and link-building guidance.
