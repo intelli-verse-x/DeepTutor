@@ -26,5 +26,32 @@ export default function HomePage() {
     router.replace(target);
   }, [router]);
 
-  return null;
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "DeepTutor",
+    "applicationCategory": "EducationalApplication",
+    "description": "AI-powered intelligent learning companion for personalized tutoring and adaptive learning.",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "featureList": [
+      "Personalized tutoring",
+      "Adaptive learning paths",
+      "Interactive lessons",
+      "Homework help",
+      "Test preparation"
+    ]
+  };
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+      />
+    </>
+  );
 }

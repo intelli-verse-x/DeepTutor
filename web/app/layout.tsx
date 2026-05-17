@@ -18,8 +18,28 @@ const fontSerif = Lora({
 });
 
 export const metadata: Metadata = {
-  title: "DeepTutor",
-  description: "Agent-native intelligent learning companion",
+  title: 'DeepTutor | AI-Powered Intelligent Learning Companion',
+  description: 'Agent-native intelligent learning companion powered by AI. Personalized tutoring, adaptive learning paths, and interactive lessons for students. Get help with homework, test prep, and concept mastery.',
+  metadataBase: new URL('https://tutor.intelli-verse-x.ai'),
+  alternates: {
+    canonical: '/',
+  },
+  openGraph: {
+    title: 'DeepTutor | AI Learning Companion',
+    description: 'Intelligent tutoring system powered by AI for personalized education.',
+    url: 'https://tutor.intelli-verse-x.ai',
+    siteName: 'DeepTutor',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'DeepTutor | AI Learning Companion',
+    description: 'Personalized AI tutoring for students.',
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({
