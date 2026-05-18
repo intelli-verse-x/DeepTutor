@@ -136,8 +136,13 @@ class LearningService:
                     1 for kp_id in current_kp_ids
                     if progress.mastery_levels.get(kp_id, 0) >= 0.7
                 )
+                # Derive display name from first module, fall back to book_id
+                display_name = ""
+                if progress.modules:
+                    display_name = progress.modules[0].name or ""
                 summaries.append({
                     "book_id": progress.book_id,
+                    "name": display_name or progress.book_id,
                     "modules_count": len(progress.modules),
                     "kp_count": total_kps,
                     "current_stage": progress.current_stage.value if progress.current_stage else "",

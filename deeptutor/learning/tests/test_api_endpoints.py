@@ -39,11 +39,41 @@ class TestListProgress:
         client.post("/api/v1/learning/progress/testbook/init-modules",
                     json={"modules": [{"id": "m1", "name": "M1", "order": 0,
                                        "knowledge_points": [{"id": "kp1", "name": "KP1",
-                                                             "type": "concept", "module_id": "m1"}]}]})
+                                                            "type": "concept", "module_id": "m1"}]}]})
         resp = client.get("/api/v1/learning/progress")
         assert resp.status_code == 200
         book_ids = [p["book_id"] for p in resp.json()]
         assert "testbook" in book_ids
+
+    def test_list_name_from_first_module(self, client):
+        """Book with modules: name = first module name."""
+        client.post("/api/v1/learning/progress/named/init-modules",
+                    json={"modules": [
+                        {"id": "m1", "name": "线性代数", "order": 0,
+                         "knowledge_points": [{"id": "kp1", "name": "向量",
+                                               "type": "concept", "module_id": "m1"}]}
+                    ]})
+        resp = client.get("/api/v1/learning/progress")
+        assert resp.status_code == 200
+        for p in resp.json():
+            if p["book_id"] == "named":
+                assert p["name"] == "线性代数"
+                break
+        else:
+            pytest.fail("named book not found in progress list")
+
+    def test_list_name_fallback_empty_modules(self, client):
+        """Book with 0 modules: name falls back to book_id."""
+        client.post("/api/v1/learning/progress/empty_mods/init-modules",
+                    json={"modules": []})
+        resp = client.get("/api/v1/learning/progress")
+        assert resp.status_code == 200
+        for p in resp.json():
+            if p["book_id"] == "empty_mods":
+                assert p["name"] == "empty_mods", f"expected book_id fallback, got {p['name']}"
+                break
+        else:
+            pytest.fail("empty_mods book not found in progress list")
 
 
 # -- POST /progress/{book_id}/init-modules --------------------------------

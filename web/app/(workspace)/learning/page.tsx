@@ -129,7 +129,7 @@ export default function LearningPage() {
                 className="p-5 rounded-xl border border-[var(--border)] bg-[var(--card)]"
               >
                 <h3 className="font-semibold text-[var(--foreground)] truncate">
-                  {card.book_id}
+                  {card.name || card.book_id}
                 </h3>
                 <p className="text-sm text-[var(--muted-foreground)] mt-1">
                   {card.modules_count} {t("guidedLearning.modules")} ·{" "}

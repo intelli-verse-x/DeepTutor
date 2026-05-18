@@ -44,6 +44,7 @@ export async function initModules(bookId: string, modules: ModuleInit[]) {
 
 export interface ProgressSummary {
   book_id: string;
+  name: string;
   modules_count: number;
   kp_count: number;
   current_stage: string;
