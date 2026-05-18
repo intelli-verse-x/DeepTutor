@@ -26,8 +26,15 @@ def _build_messages(
 ) -> list[dict[str, object]]:
     if messages:
         return messages
+    # Ensure system_prompt is not empty to prevent API errors
+    effective_system = system_prompt if system_prompt and system_prompt.strip() else "You are a helpful assistant."
+    if not system_prompt or not system_prompt.strip():
+        logger.warning(
+            "Empty system_prompt detected in _build_messages(). "
+            "Using default fallback. This indicates a bug in the calling code."
+        )
     return [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": effective_system},
         {"role": "user", "content": prompt},
     ]
 

@@ -166,7 +166,7 @@ class VisionSolverAgent(BaseAgent):
         _chunks: list[str] = []
         async for _c in self.stream_llm(
             user_prompt="",
-            system_prompt="",
+            system_prompt="You are a helpful AI assistant.",
             messages=messages,
             temperature=temperature,
             model=self.vision_model or self.get_model(),

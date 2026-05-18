@@ -887,7 +887,7 @@ class AgenticChatPipeline:
         output_chars = 0
         async for chunk in llm_stream(
             prompt="",
-            system_prompt="",
+            system_prompt="You are a helpful AI assistant.",
             model=self.model,
             api_key=self.api_key,
             base_url=self.base_url,
