@@ -1614,6 +1614,7 @@
   "guidedLearning.startLearning": "Start Learning",
   "guidedLearning.modules": "Modules",
   "guidedLearning.knowledgePoints": "knowledge points",
+  "guidedLearning.knowledgePointsLabel": "Knowledge Points",
   "guidedLearning.mastered": "mastered",
   "guidedLearning.stages": "Learning Stages",
   "guidedLearning.ready": "Ready to start learning",

@@ -1614,6 +1614,7 @@
   "guidedLearning.startLearning": "开始学习",
   "guidedLearning.modules": "学习模块",
   "guidedLearning.knowledgePoints": "个知识点",
+  "guidedLearning.knowledgePointsLabel": "知识点",
   "guidedLearning.mastered": "已掌握",
   "guidedLearning.stages": "学习阶段",
   "guidedLearning.ready": "准备开始学习",

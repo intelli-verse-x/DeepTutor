@@ -43,7 +43,7 @@ export default function CreateModuleDialog({
   // ── Manual tab state ──
   const [moduleName, setModuleName] = useState("");
   const [kpRows, setKpRows] = useState<KpRow[]>([{ name: "", type: "concept" }]);
-  const [manualBookId, setManualBookId] = useState("manual");
+  const [manualBookId, setManualBookId] = useState("");
 
   // ── Book tab state ──
   const [books, setBooks] = useState<Book[]>([]);
@@ -281,7 +281,7 @@ export default function CreateModuleDialog({
               </div>
               <div>
                 <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-2">
-                  {t("guidedLearning.knowledgePoints")}
+                  {t("guidedLearning.knowledgePointsLabel")}
                 </label>
                 {kpRows.map((row, i) => (
                   <div key={i} className="flex items-center gap-2 mb-2">
