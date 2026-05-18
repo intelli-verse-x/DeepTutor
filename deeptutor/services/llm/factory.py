@@ -71,6 +71,9 @@ DEFAULT_MAX_RETRIES = settings.retry.max_retries
 DEFAULT_RETRY_DELAY = settings.retry.base_delay
 DEFAULT_EXPONENTIAL_BACKOFF = settings.retry.exponential_backoff
 
+# Default system prompt fallback
+DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
+
 CallKwargs = dict[str, object]
 
 
@@ -159,7 +162,8 @@ async def complete(
 
     Args:
         prompt: The user prompt
-        system_prompt: System prompt for context
+        system_prompt: System prompt for context. WARNING: Must not be empty string.
+            Empty strings will be replaced with default fallback to prevent API errors.
         model: Model name (optional, uses effective config if not provided)
         api_key: API key (optional)
         base_url: Base URL for the API (optional)
@@ -174,6 +178,14 @@ async def complete(
     Returns:
         str: The LLM response
     """
+    # Validate system_prompt is not empty to prevent API errors
+    if not system_prompt or not system_prompt.strip():
+        system_prompt = DEFAULT_SYSTEM_PROMPT
+        logger.warning(
+            "Empty system_prompt detected in complete(), using default fallback. "
+            "This may indicate a bug in the calling code."
+        )
+    
     provider_name = binding or "openai"
     provider_mode = "standard"
     extra_headers: dict[str, str] = {}
@@ -353,7 +365,34 @@ async def stream(
     exponential_backoff: bool = DEFAULT_EXPONENTIAL_BACKOFF,
     **kwargs: object,
 ) -> AsyncGenerator[str, None]:
-    """Stream LLM responses with retry handling."""
+    """Stream LLM responses with retry handling.
+    
+    Args:
+        prompt: The user prompt
+        system_prompt: System prompt for context. WARNING: Must not be empty string.
+            Empty strings will be replaced with default fallback to prevent API errors.
+        model: Model name (optional)
+        api_key: API key (optional)
+        base_url: Base URL for the API (optional)
+        api_version: API version for Azure OpenAI (optional)
+        binding: Provider binding type (optional)
+        messages: Pre-built messages array (optional, overrides prompt/system_prompt)
+        max_retries: Maximum number of retry attempts (default: 5)
+        retry_delay: Initial delay between retries in seconds (default: 2.0)
+        exponential_backoff: Whether to use exponential backoff (default: True)
+        **kwargs: Additional parameters (temperature, max_tokens, etc.)
+    
+    Yields:
+        str: Response chunks
+    """
+    # Validate system_prompt is not empty to prevent API errors
+    if not system_prompt or not system_prompt.strip():
+        system_prompt = DEFAULT_SYSTEM_PROMPT
+        logger.warning(
+            "Empty system_prompt detected in stream(), using default fallback. "
+            "This may indicate a bug in the calling code."
+        )
+    
     provider_name = binding or "openai"
     provider_mode = "standard"
     extra_headers: dict[str, str] = {}
