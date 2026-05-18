@@ -242,7 +242,7 @@ class WriterAgent(BaseAgent):
         async for chunk in self.stream_llm(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
-            max_tokens=self.get_max_tokens() or 8192,
+            max_tokens=self.get_max_tokens() or 4096,  # vLLM safe limit
             stage=f"write_iter_{iteration}",
             trace_meta=build_trace_metadata(
                 call_id=new_call_id(f"write-draft-{iteration}"),
