@@ -79,7 +79,7 @@ class WriterAgent(BaseAgent):
             async for chunk in self.stream_llm(
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=self.get_max_tokens() or 8192,
+                max_tokens=self.get_max_tokens() or 4096,  # vLLM safe limit
                 stage="write",
                 trace_meta=trace_meta,
             ):
@@ -90,7 +90,7 @@ class WriterAgent(BaseAgent):
             response = await self.call_llm(
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,
-                max_tokens=self.get_max_tokens() or 8192,
+                max_tokens=self.get_max_tokens() or 4096,  # vLLM safe limit
                 stage="write",
                 trace_meta=trace_meta,
             )

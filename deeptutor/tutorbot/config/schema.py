@@ -35,7 +35,7 @@ class AgentDefaults(Base):
     provider: str = (
         "auto"  # Provider name (e.g. "anthropic", "openrouter") or "auto" for auto-detection
     )
-    max_tokens: int = 8192
+    max_tokens: int = 4096  # vLLM max_model_len=8192, reserve space for prompt
     context_window_tokens: int = 65_536
     temperature: float = 0.1
     max_tool_iterations: int = 40
