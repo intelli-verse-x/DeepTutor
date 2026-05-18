@@ -200,7 +200,7 @@ class PlannerAgent(BaseAgent):
             parts: list[str] = []
             async for chunk in self.stream_llm(
                 user_prompt=user_prompt,
-                system_prompt="",
+                system_prompt="You are a helpful AI assistant that generates search queries.",
                 response_format={"type": "json_object"},
                 stage="plan_generate_queries",
                 trace_meta=build_trace_metadata(
