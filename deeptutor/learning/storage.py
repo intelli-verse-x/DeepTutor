@@ -69,13 +69,24 @@ class LearningStore:
         _atomic_write_text(path, text)
 
     def load_question_answers(self, book_id: str) -> dict[str, str]:
-        """Load question answers. Returns {} if none saved."""
+        """Load question answers. Returns {} if none saved.
+
+        Backward compatible: if a value is a dict (from save_question_meta),
+        extracts the \"answer\" key.
+        """
         import json
 
         path = self._questions_path(book_id)
         if not path.exists():
             return {}
-        return json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        result = {}
+        for qid, val in raw.items():
+            if isinstance(val, dict):
+                result[qid] = val.get("answer", "")
+            else:
+                result[qid] = val
+        return result
 
     def save_question_meta(self, book_id: str, meta: dict) -> None:
         """Save question metadata (answer, kp_id, module_id, question_type).
