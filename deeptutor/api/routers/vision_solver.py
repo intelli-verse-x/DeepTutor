@@ -4,6 +4,7 @@ WebSocket endpoint for real-time image analysis with GeoGebra visualization.
 """
 
 import asyncio
+import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
@@ -14,9 +15,12 @@ from deeptutor.logging import get_logger
 from deeptutor.services.llm import get_llm_config, get_vision_llm_config
 from deeptutor.services.settings.interface_settings import get_ui_language
 from deeptutor.tools.vision import ImageError, resolve_image_input
-from deeptutor.utils.image_validator import validate_image_for_api
+from deeptutor.utils.image_validator import prepare_image_for_vision_llm, validate_image_for_api
 
 logger = get_logger("VisionSolverAPI", level="INFO")
+
+# Vision LLM calls are slow on large images; allow override in production.
+VISION_ANALYSIS_TIMEOUT_SECONDS = float(os.getenv("VISION_ANALYSIS_TIMEOUT_SECONDS", "120"))
 
 router = APIRouter()
 
@@ -28,8 +32,9 @@ class VisionAnalyzeRequest(BaseModel):
     """Request for image analysis."""
 
     question: str = Field(..., min_length=1, max_length=5000, description="Question about the image")
-    image_base64: str | None = Field(None, description="Base64 encoded image")
+    image_base64: str | None = Field(None, description="Base64 encoded image (with or without data URI prefix)")
     image_url: str | None = Field(None, description="URL to image")
+    image: str | None = Field(None, description="Alternative field for image_base64 (for backward compatibility)")
     session_id: str | None = Field(None, description="Optional session identifier")
     
     @field_validator('question')
@@ -39,6 +44,16 @@ class VisionAnalyzeRequest(BaseModel):
         if not v or not v.strip():
             raise ValueError("Question cannot be empty")
         return v.strip()
+    
+    def model_post_init(self, __context):
+        """Merge image field into image_base64 if present."""
+        # If both 'image' and 'image_base64' are sent, prefer the one with data URI prefix
+        if self.image and not self.image_base64:
+            self.image_base64 = self.image
+        elif self.image and self.image_base64:
+            # Both provided, prefer the one that looks more complete (has data URI)
+            if self.image.startswith("data:image/") and not self.image_base64.startswith("data:image/"):
+                self.image_base64 = self.image
 
 
 
@@ -109,6 +124,10 @@ async def analyze_image(request: VisionAnalyzeRequest) -> VisionAnalyzeResponse:
                     detail=f"Image validation failed: {str(e)}"
                 )
 
+            image_base64, was_prepared = prepare_image_for_vision_llm(image_base64)
+            if was_prepared:
+                logger.info(f"[{session_id}] Image resized/compressed for vision LLM")
+
         if not image_base64:
             return VisionAnalyzeResponse(
                 session_id=session_id,
@@ -145,14 +164,16 @@ async def analyze_image(request: VisionAnalyzeRequest) -> VisionAnalyzeResponse:
                     question_text=request.question,
                     image_base64=image_base64,
                 ),
-                timeout=60.0  # 1 minute timeout
+                timeout=VISION_ANALYSIS_TIMEOUT_SECONDS,
             )
             result["session_id"] = session_id
         except asyncio.TimeoutError:
-            logger.error(f"[{session_id}] Vision analysis timeout")
+            logger.error(
+                f"[{session_id}] Vision analysis timeout after {VISION_ANALYSIS_TIMEOUT_SECONDS}s"
+            )
             raise HTTPException(
                 status_code=504,
-                detail="Analysis took too long. Please try with a simpler question or smaller image."
+                detail="Analysis took too long. Please try with a simpler question or smaller image.",
             )
         
         return VisionAnalyzeResponse(
@@ -256,6 +277,7 @@ async def websocket_vision_solve(websocket: WebSocket):
                         f"{validation_result['width']}x{validation_result['height']}px, "
                         f"{validation_result['size_mb']}MB"
                     )
+                    resolved_image, _ = prepare_image_for_vision_llm(resolved_image)
                 except Exception as e:
                     logger.error(f"[{session_id}] Image validation failed: {e}")
                     await safe_send_json({
