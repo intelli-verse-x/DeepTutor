@@ -103,15 +103,11 @@ export default function LearningBookPage() {
       setConnecting(false);
       setError(null);
       reconnectAttemptsRef.current = 0;
+      // Check for existing active turn before starting a new one
       ws.send(JSON.stringify({
-        type: "start_turn",
+        type: "check_active_turn",
         session_id: params.bookId,
-        capability: "guided_learning",
-        content: "Start learning",
-        book_references: [{ book_id: params.bookId, page_ids: [] }],
-        config: {},
       }));
-      setWaitingForLLM(true);
     };
 
     ws.onmessage = (event) => {
@@ -155,6 +151,30 @@ export default function LearningBookPage() {
       const e = evt as unknown as Record<string, unknown>;
       if (e.success !== false) {
         setCurrentModuleId(typeof e.module_id === "string" ? e.module_id : "");
+      }
+      return;
+    }
+    if (evt.type === "active_turn_info") {
+      const info = evt as unknown as { turn_id: string; status: string };
+      if (info.turn_id && info.status === "running") {
+        // Resume existing turn
+        currentTurnRef.current = info.turn_id;
+        wsRef.current?.send(JSON.stringify({
+          type: "subscribe_session",
+          session_id: params.bookId,
+        }));
+        setWaitingForLLM(true);
+      } else {
+        // No active turn — start a new one
+        wsRef.current?.send(JSON.stringify({
+          type: "start_turn",
+          session_id: params.bookId,
+          capability: "guided_learning",
+          content: "Start learning",
+          book_references: [{ book_id: params.bookId, page_ids: [] }],
+          config: {},
+        }));
+        setWaitingForLLM(true);
       }
       return;
     }

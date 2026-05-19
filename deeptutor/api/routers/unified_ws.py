@@ -159,6 +159,25 @@ async def unified_websocket(ws: WebSocket) -> None:
                 await subscribe_session(session_id, after_seq=int(msg.get("after_seq") or 0))
                 continue
 
+            if msg_type == "check_active_turn":
+                session_id = str(msg.get("session_id") or "").strip()
+                if not session_id:
+                    await safe_send({"type": "error", "content": "Missing session_id."})
+                    continue
+                from deeptutor.services.session import get_turn_runtime_manager
+
+                runtime = get_turn_runtime_manager()
+                active_turn = await runtime.store.get_active_turn(session_id)
+                if active_turn:
+                    await safe_send({
+                        "type": "active_turn_info",
+                        "turn_id": active_turn["id"],
+                        "status": active_turn.get("status", "running"),
+                    })
+                else:
+                    await safe_send({"type": "active_turn_info", "turn_id": "", "status": "none"})
+                continue
+
             if msg_type == "resume_from":
                 turn_id = str(msg.get("turn_id") or "").strip()
                 if not turn_id:
