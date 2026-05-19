@@ -58,7 +58,9 @@ def _is_openai_compatible_binding(binding: str | None) -> bool:
 def _set_openai_env_vars(api_key: str | None, base_url: str | None, *, source: str) -> None:
     if api_key and not os.getenv("OPENAI_API_KEY"):
         os.environ["OPENAI_API_KEY"] = api_key
-        logger.debug("Set OPENAI_API_KEY env var (%s)", source)
+        # Mask API key in logs
+        masked_key = f"{api_key[:8]}***{api_key[-4:]}" if len(api_key) > 12 else "***"
+        logger.debug("Set OPENAI_API_KEY env var: %s (%s)", masked_key, source)
 
     if base_url and not os.getenv("OPENAI_BASE_URL"):
         from .utils import sanitize_url
@@ -307,10 +309,50 @@ def get_token_limit_kwargs(model: str, max_tokens: int) -> dict[str, int]:
     return {"max_tokens": max_tokens}
 
 
+def get_vision_llm_config() -> LLMConfig:
+    """
+    Get LLM configuration specifically for vision tasks.
+    
+    Checks for VISION_LLM_* environment variables first, falls back to regular LLM config.
+    
+    Returns:
+        LLMConfig: Configuration dataclass for vision-capable models
+    
+    Raises:
+        LLMConfigError: If required configuration is missing
+    """
+    env_store = get_env_store()
+    
+    # Try to get vision-specific config first
+    vision_binding = _strip_value(env_store.get("VISION_LLM_BINDING"))
+    vision_model = _strip_value(env_store.get("VISION_LLM_MODEL"))
+    vision_api_key = _strip_value(env_store.get("VISION_LLM_API_KEY"))
+    vision_base_url = _strip_value(env_store.get("VISION_LLM_HOST"))
+    vision_api_version = _strip_value(env_store.get("VISION_LLM_API_VERSION"))
+    
+    # If vision-specific config exists, use it
+    if vision_model and vision_base_url:
+        # Mask API key in logs
+        masked_key = f"{vision_api_key[:8]}***{vision_api_key[-4:]}" if vision_api_key and len(vision_api_key) > 12 else "***"
+        logger.info(f"Using dedicated vision LLM config: model={vision_model}, url={vision_base_url}, key={masked_key}")
+        return LLMConfig(
+            binding=vision_binding or "openai",
+            model=vision_model,
+            api_key=vision_api_key or "",
+            base_url=vision_base_url,
+            api_version=vision_api_version,
+        )
+    
+    # Otherwise fall back to regular LLM config
+    logger.info("No dedicated vision config found, using standard LLM config")
+    return get_llm_config()
+
+
 __all__ = [
     "LLMConfig",
     "get_llm_config",
     "get_llm_config_async",
+    "get_vision_llm_config",
     "clear_llm_config_cache",
     "reload_config",
     "uses_max_completion_tokens",
