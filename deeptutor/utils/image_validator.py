@@ -249,3 +249,92 @@ def compress_image_if_needed(
     except Exception as e:
         logger.error(f"Failed to compress image: {e}")
         return image_base64, False
+
+
+def prepare_image_for_vision_llm(
+    image_base64: str,
+    max_dimension: int = 2048,
+    max_size_mb: float = 2.0,
+    jpeg_quality: int = 85,
+) -> tuple[str, bool]:
+    """
+    Resize and compress images before vision LLM calls (faster uploads + inference).
+
+    Returns:
+        Tuple of (data URI string, whether the image was modified)
+    """
+    if not image_base64:
+        return image_base64, False
+
+    try:
+        if image_base64.startswith("data:"):
+            _, _, clean_base64 = image_base64.partition(",")
+        else:
+            clean_base64 = image_base64
+
+        image_bytes = base64.b64decode(clean_base64)
+        image = Image.open(io.BytesIO(image_bytes))
+        original_size_mb = len(image_bytes) / (1024 * 1024)
+        width, height = image.size
+        modified = False
+
+        if max(width, height) > max_dimension:
+            image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
+            modified = True
+            logger.info(
+                "Resized image for vision: %sx%s -> %sx%s",
+                width,
+                height,
+                image.size[0],
+                image.size[1],
+            )
+
+        if image.mode in ("RGBA", "LA", "P"):
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            if image.mode == "P":
+                image = image.convert("RGBA")
+            background.paste(
+                image,
+                mask=image.split()[-1] if image.mode in ("RGBA", "LA") else None,
+            )
+            image = background
+            modified = True
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
+            modified = True
+
+        output = io.BytesIO()
+        image.save(output, format="JPEG", quality=jpeg_quality, optimize=True)
+        compressed_bytes = output.getvalue()
+        compressed_mb = len(compressed_bytes) / (1024 * 1024)
+
+        if compressed_mb > max_size_mb:
+            for quality in (75, 65, 55):
+                output = io.BytesIO()
+                image.save(output, format="JPEG", quality=quality, optimize=True)
+                compressed_bytes = output.getvalue()
+                compressed_mb = len(compressed_bytes) / (1024 * 1024)
+                if compressed_mb <= max_size_mb:
+                    break
+            modified = True
+
+        if (
+            not modified
+            and original_size_mb <= max_size_mb
+            and image_base64.startswith("data:image/jpeg")
+        ):
+            return image_base64, False
+
+        b64 = base64.b64encode(compressed_bytes).decode("utf-8")
+        logger.info(
+            "Prepared image for vision: %.2fMB -> %.2fMB (%sx%s)",
+            original_size_mb,
+            compressed_mb,
+            image.size[0],
+            image.size[1],
+        )
+        return f"data:image/jpeg;base64,{b64}", True
+
+    except Exception as e:
+        logger.warning("prepare_image_for_vision_llm failed, using original: %s", e)
+        return image_base64, False
