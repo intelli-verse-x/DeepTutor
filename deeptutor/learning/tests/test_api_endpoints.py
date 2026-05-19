@@ -4,6 +4,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from deeptutor.api.routers.guided_learning import router
+from deeptutor.learning.models import LearningModule, KnowledgePoint, KnowledgeType
 from deeptutor.learning.storage import LearningStore
 
 
@@ -224,3 +225,86 @@ class TestBookIdValidation:
         elif method == "DELETE":
             resp = client.delete(path, **kwargs)
         assert resp.status_code == 400, f"{method} {path} should return 400, got {resp.status_code}"
+
+
+# -- POST /progress/{book_id}/answer --------------------------------------
+
+class TestSubmitAnswer:
+
+    @pytest.fixture
+    def seeded(self, app, tmp_path):
+        """Return (client, store) with a book, module, and question meta pre-seeded."""
+        store = LearningStore(root=tmp_path)
+        # Init a book with one module and one KP
+        client = TestClient(app)
+        client.post("/api/v1/learning/progress/ans1/init-modules",
+                    json={"modules": [
+                        {"id": "m1", "name": "M1", "order": 0,
+                         "knowledge_points": [
+                             {"id": "kp1", "name": "KP1", "type": "concept", "module_id": "m1"}
+                         ]}
+                    ]})
+        # Pre-seed question meta
+        store.save_question_meta("ans1", {
+            "q1": {"answer": "photosynthesis", "knowledge_point_id": "kp1",
+                    "module_id": "m1", "question_type": "short"},
+        })
+        return client, store
+
+    def test_answer_no_stored_answer_returns_400(self, seeded):
+        client, _ = seeded
+        resp = client.post("/api/v1/learning/progress/ans1/answer",
+                           json={"question_id": "nonexistent", "user_answer": "x"})
+        assert resp.status_code == 400
+        assert "No stored answer" in resp.json()["detail"]
+
+    def test_answer_correct_records_attempt_and_mastery(self, seeded):
+        client, _ = seeded
+        resp = client.post("/api/v1/learning/progress/ans1/answer",
+                           json={"question_id": "q1", "user_answer": "photosynthesis"})
+        assert resp.status_code == 200
+        prog = resp.json()
+        assert len(prog["quiz_attempts"]) == 1
+        assert prog["quiz_attempts"][0]["is_correct"] is True
+        assert prog["mastery_levels"].get("kp1", 0) > 0
+
+    def test_answer_wrong_creates_error_record(self, seeded):
+        client, _ = seeded
+        resp = client.post("/api/v1/learning/progress/ans1/answer",
+                           json={"question_id": "q1", "user_answer": "wrong answer"})
+        assert resp.status_code == 200
+        prog = resp.json()
+        assert len(prog["error_records"]) == 1
+        assert prog["error_records"][0]["status"] == "active"
+
+    def test_answer_repeat_wrong_enters_retrying(self, seeded):
+        client, _ = seeded
+        client.post("/api/v1/learning/progress/ans1/answer",
+                    json={"question_id": "q1", "user_answer": "wrong1"})
+        resp = client.post("/api/v1/learning/progress/ans1/answer",
+                           json={"question_id": "q1", "user_answer": "wrong2"})
+        assert resp.status_code == 200
+        prog = resp.json()
+        assert prog["error_records"][0]["status"] == "retrying"
+
+    def test_answer_correct_after_error_graduates(self, seeded):
+        client, _ = seeded
+        client.post("/api/v1/learning/progress/ans1/answer",
+                    json={"question_id": "q1", "user_answer": "wrong"})
+        resp = client.post("/api/v1/learning/progress/ans1/answer",
+                           json={"question_id": "q1", "user_answer": "photosynthesis"})
+        assert resp.status_code == 200
+        prog = resp.json()
+        assert prog["error_records"][0]["status"] == "graduated"
+
+    def test_answer_rejects_forged_kp_module(self, seeded):
+        client, _ = seeded
+        # Client tries to forge knowledge_point_id — but AnswerRequest no longer accepts it
+        resp = client.post("/api/v1/learning/progress/ans1/answer",
+                           json={"question_id": "q1", "user_answer": "photosynthesis",
+                                 "knowledge_point_id": "forged_kp"})
+        assert resp.status_code == 200
+        prog = resp.json()
+        # Server used meta-mapped kp_id ("kp1"), not the forged value
+        attempt = prog["quiz_attempts"][-1]
+        assert attempt["knowledge_point_id"] == "kp1"
