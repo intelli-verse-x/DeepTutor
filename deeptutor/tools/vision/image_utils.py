@@ -59,6 +59,36 @@ def is_base64_image(data: str) -> bool:
     return data.startswith("data:image/") and ";base64," in data
 
 
+def detect_image_format_from_base64(base64_data: str) -> str:
+    """Detect image format from base64 data by checking magic bytes.
+    
+    Args:
+        base64_data: Raw base64 string (without data URI prefix)
+        
+    Returns:
+        Image format (png, jpeg, gif, webp) or 'png' as default
+    """
+    try:
+        # Decode first few bytes to check magic numbers
+        header = base64.b64decode(base64_data[:50])
+        
+        # Check magic bytes
+        if header.startswith(b'\x89PNG'):
+            return 'png'
+        elif header.startswith(b'\xff\xd8\xff'):
+            return 'jpeg'
+        elif header.startswith(b'GIF87a') or header.startswith(b'GIF89a'):
+            return 'gif'
+        elif header.startswith(b'RIFF') and b'WEBP' in header[:20]:
+            return 'webp'
+        else:
+            logger.warning(f"Unknown image format from magic bytes: {header[:20]}")
+            return 'png'  # Default
+    except Exception as e:
+        logger.warning(f"Failed to detect image format: {e}, defaulting to png")
+        return 'png'
+
+
 async def fetch_image_from_url(url: str) -> tuple[bytes, str]:
     """Download image from URL.
 
@@ -194,11 +224,15 @@ async def resolve_image_input(
     # Prefer base64
     if image_base64:
         if is_base64_image(image_base64):
-            logger.debug("Using provided base64 image")
+            logger.debug("Using provided base64 image with data URI")
             return image_base64
         else:
-            logger.error("Invalid base64 image format")
-            raise ImageError("Invalid base64 image format, should be data:image/...;base64,...")
+            # Try to auto-fix raw base64 by detecting format and adding data URI prefix
+            logger.warning("Base64 image missing data URI prefix, attempting to auto-fix")
+            image_format = detect_image_format_from_base64(image_base64)
+            fixed_image = f"data:image/{image_format};base64,{image_base64}"
+            logger.info(f"Auto-fixed base64 image as {image_format} format")
+            return fixed_image
 
     # Try to download from URL
     if image_url:
