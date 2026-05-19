@@ -408,6 +408,16 @@ class GuidedLearningCapability(BaseCapability):
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.FEYNMAN_CHECK)
 
+    _FEYNMAN_MAX_RETRIES = 3
+
+    def _advance_after_kp(self, progress: LearningProgress, kps: list) -> None:
+        """Advance to next KP's PRETEST or to PRACTICE_QUIZ if all KPs done."""
+        if progress.current_kp_index + 1 < len(kps):
+            self._after_knowledge_point(progress)
+            self._service.advance_stage(progress, LearningStage.PRETEST)
+        else:
+            self._service.advance_stage(progress, LearningStage.PRACTICE_QUIZ)
+
     async def _run_feynman_check(
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
@@ -415,17 +425,13 @@ class GuidedLearningCapability(BaseCapability):
             kps = self._current_knowledge_points(progress)
             kp = kps[progress.current_kp_index] if progress.current_kp_index < len(kps) else None
             kp_name = kp.name if kp else "当前知识点"
+            kp_id = kp.id if kp else ""
 
             await stream.content(f'请用自己的话解释"{kp_name}"，就像教一个高中生一样。', source=self.manifest.name)
             user_explanation = await stream.wait_for_input("请输入你的解释", source=self.manifest.name, timeout=120)
 
             if not user_explanation.strip():
-                # No input (timeout or headless mode) — skip grading, advance.
-                if progress.current_kp_index + 1 < len(kps):
-                    self._after_knowledge_point(progress)
-                    self._service.advance_stage(progress, LearningStage.PRETEST)
-                else:
-                    self._service.advance_stage(progress, LearningStage.PRACTICE_QUIZ)
+                self._advance_after_kp(progress, kps)
                 return
 
             await stream.content("正在评估你的解释...", source=self.manifest.name)
@@ -439,14 +445,21 @@ class GuidedLearningCapability(BaseCapability):
             passed = result.get("passed")
             is_passed = passed is True or str(passed).lower() in ("true", "1", "yes")
             if is_passed:
-                if progress.current_kp_index + 1 < len(kps):
-                    self._after_knowledge_point(progress)
-                    self._service.advance_stage(progress, LearningStage.PRETEST)
-                else:
-                    self._service.advance_stage(progress, LearningStage.PRACTICE_QUIZ)
+                progress.feynman_retries[kp_id] = 0
+                self._advance_after_kp(progress, kps)
             else:
-                await stream.content(f"反馈：{result.get('feedback', '请重新学习')}", source=self.manifest.name)
-                self._service.advance_stage(progress, LearningStage.EXPLAIN)
+                retries = progress.feynman_retries.get(kp_id, 0) + 1
+                progress.feynman_retries[kp_id] = retries
+                if retries >= self._FEYNMAN_MAX_RETRIES:
+                    progress.mastery_levels[kp_id] = 0.0
+                    await stream.content(
+                        f"该知识点已尝试 {retries} 次，标记为薄弱并跳过。",
+                        source=self.manifest.name,
+                    )
+                    self._advance_after_kp(progress, kps)
+                else:
+                    await stream.content(f"反馈：{result.get('feedback', '请重新学习')}（第 {retries}/{self._FEYNMAN_MAX_RETRIES} 次重试）", source=self.manifest.name)
+                    self._service.advance_stage(progress, LearningStage.EXPLAIN)
 
     def _current_kp_name(self, progress: LearningProgress) -> str:
         kps = self._current_knowledge_points(progress)

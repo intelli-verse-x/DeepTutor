@@ -176,6 +176,7 @@ class LearningProgress(BaseModel):
     repetition_states: dict[str, RepetitionState] = Field(default_factory=dict)
     review_queue: list[ReviewTask] = Field(default_factory=list)
     module_stage: dict[str, LearningStage] = Field(default_factory=dict)
+    feynman_retries: dict[str, int] = Field(default_factory=dict)
     learning_mode: Literal["mastery", "exam"] = "mastery"
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
