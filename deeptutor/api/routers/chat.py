@@ -281,12 +281,10 @@ async def chat_vision_analyze(request: dict):
         result_dict = result.model_dump() if hasattr(result, 'model_dump') else result.dict()
         
         return result_dict
-
-    except HTTPException:
-        raise
+        
     except Exception as e:
         logger.error(f"[VISION] Vision analysis error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================
