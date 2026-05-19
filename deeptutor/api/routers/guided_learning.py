@@ -50,8 +50,6 @@ def get_scheduler() -> SpacedRepetitionScheduler:
 
 class AnswerRequest(BaseModel):
     question_id: str
-    knowledge_point_id: str
-    module_id: str = ""
     user_answer: str = ""
     self_attribution: str = ""
 
@@ -96,15 +94,20 @@ async def submit_answer(book_id: str, body: AnswerRequest):
 
     progress = service.get_or_create(book_id)
 
-    # Look up expected answer from server-side store
+    # Look up question metadata from server-side store
     store = LearningStore()
-    all_answers = store.load_question_answers(book_id)
-    expected_answer = all_answers.get(body.question_id, "")
-    if not expected_answer:
+    meta = store.load_question_meta(book_id)
+    qmeta = meta.get(body.question_id)
+    if not qmeta:
         raise HTTPException(status_code=400, detail=f"No stored answer for question_id={body.question_id}")
 
+    expected_answer = qmeta.get("answer", "")
+    kp_id = qmeta.get("knowledge_point_id", "")
+    mod_id = qmeta.get("module_id", "")
+    q_type = qmeta.get("question_type", "short")
+
     # Server-side grading
-    is_correct = _grade_answer(body.user_answer, expected_answer)
+    is_correct = _grade_answer(body.user_answer, expected_answer, q_type)
 
     # Classify error type if wrong
     error_type = None
@@ -113,8 +116,8 @@ async def submit_answer(book_id: str, body: AnswerRequest):
 
     attempt = QuizAttempt(
         question_id=body.question_id,
-        knowledge_point_id=body.knowledge_point_id,
-        module_id=body.module_id,
+        knowledge_point_id=kp_id,
+        module_id=mod_id,
         is_correct=is_correct,
         user_answer=body.user_answer,
         error_type=error_type,

@@ -120,3 +120,28 @@ class TestListAll:
         store.save(LearningProgress(book_id="y"))
         store.delete("x")
         assert store.list_all() == ["y"]
+
+
+# ── question meta ────────────────────────────────────────────────────────
+
+class TestQuestionMeta:
+    def test_save_and_load_question_meta(self, store):
+        meta = {
+            "q1": {"answer": "A", "knowledge_point_id": "kp1", "module_id": "m1", "question_type": "choice"},
+            "q2": {"answer": "yes", "knowledge_point_id": "kp2", "module_id": "m1", "question_type": "short"},
+        }
+        store.save_question_meta("book1", meta)
+        loaded = store.load_question_meta("book1")
+        assert loaded["q1"]["answer"] == "A"
+        assert loaded["q1"]["knowledge_point_id"] == "kp1"
+        assert loaded["q1"]["question_type"] == "choice"
+        assert loaded["q2"]["answer"] == "yes"
+
+    def test_load_meta_backward_compat(self, store):
+        """Old format (str values) should be auto-wrapped into dict format."""
+        store.save_question_answers("book1", {"q_old": "expected_answer"})
+        loaded = store.load_question_meta("book1")
+        assert loaded["q_old"]["answer"] == "expected_answer"
+        assert loaded["q_old"]["knowledge_point_id"] == ""
+        assert loaded["q_old"]["module_id"] == ""
+        assert loaded["q_old"]["question_type"] == "short"

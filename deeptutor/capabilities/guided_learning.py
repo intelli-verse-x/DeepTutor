@@ -169,6 +169,30 @@ class GuidedLearningCapability(BaseCapability):
         data["question_ids"] = ids
         return data
 
+    def _build_question_meta(
+        self,
+        answers: dict[str, str],
+        data: dict,
+        kp_id: str,
+        module_id: str,
+        prefix: str,
+    ) -> dict:
+        """Build question metadata dict for server-side answer mapping."""
+        meta = {}
+        questions = data.get("questions") or data.get("exercises") or []
+        qids = data.get("question_ids", [])
+        for i, (qid, ans) in enumerate(answers.items()):
+            q_type = "short"
+            if i < len(questions) and isinstance(questions[i], dict):
+                q_type = questions[i].get("question_type", questions[i].get("type", "short"))
+            meta[qid] = {
+                "answer": ans,
+                "knowledge_point_id": kp_id,
+                "module_id": module_id,
+                "question_type": q_type,
+            }
+        return meta
+
     # ── RAG retrieval ───────────────────────────────────────────────────
 
     async def _retrieve_context(self, query: str) -> str:
@@ -237,6 +261,8 @@ class GuidedLearningCapability(BaseCapability):
             book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, "diag1")
             self._store.save_question_answers(book_id, answers)
+            meta = self._build_question_meta(answers, data, "", "", "diag1")
+            self._store.save_question_meta(book_id, meta)
             self._inject_question_ids(data, "diag1")
 
             questions = data.get("questions", [])
@@ -282,6 +308,8 @@ class GuidedLearningCapability(BaseCapability):
             book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, "diag2")
             self._store.save_question_answers(book_id, answers)
+            meta = self._build_question_meta(answers, data, "", "", "diag2")
+            self._store.save_question_meta(book_id, meta)
             self._inject_question_ids(data, "diag2")
 
             questions = data.get("questions", [])
@@ -461,12 +489,14 @@ class GuidedLearningCapability(BaseCapability):
             book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, prefix)
             self._store.save_question_answers(book_id, answers)
+            default_kp_id = kps[0].id if kps else ""
+            meta = self._build_question_meta(answers, data, default_kp_id, progress.current_module_id, prefix)
+            self._store.save_question_meta(book_id, meta)
             self._inject_question_ids(data, prefix)
 
             questions = data.get("questions", [])
             qids = data.get("question_ids", [])
             correct_count = 0
-            default_kp_id = kps[0].id if kps else ""
 
             for i, q in enumerate(questions):
                 qid = qids[i] if i < len(qids) else f"{prefix}_{i}"
@@ -518,13 +548,15 @@ class GuidedLearningCapability(BaseCapability):
             data = self._safe_json_parse(response, default={"exercises": []})
             book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, prefix)
+            kps = self._current_knowledge_points(progress)
+            default_kp_id = kps[0].id if kps else ""
             self._store.save_question_answers(book_id, answers)
+            meta = self._build_question_meta(answers, data, default_kp_id, progress.current_module_id, prefix)
+            self._store.save_question_meta(book_id, meta)
             self._inject_question_ids(data, prefix)
 
             exercises = data.get("exercises") or data.get("questions") or []
             qids = data.get("question_ids", [])
-            kps = self._current_knowledge_points(progress)
-            default_kp_id = kps[0].id if kps else ""
             for i, ex in enumerate(exercises):
                 qid = qids[i] if i < len(qids) else f"{prefix}_{i}"
                 await stream.content(
@@ -568,8 +600,13 @@ class GuidedLearningCapability(BaseCapability):
                 MODULE_TEST_SYSTEM, MODULE_TEST_USER.format(module_name=self._current_module_name(progress))
             )
             data = self._safe_json_parse(response, default={})
+            book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, prefix)
-            self._store.save_question_answers(self._resolve_book_id(context), answers)
+            kps = self._current_knowledge_points(progress)
+            default_kp_id = kps[0].id if kps else ""
+            self._store.save_question_answers(book_id, answers)
+            meta = self._build_question_meta(answers, data, default_kp_id, progress.current_module_id, prefix)
+            self._store.save_question_meta(book_id, meta)
             self._inject_question_ids(data, prefix)
             sanitized = {
                 k: [self._strip_answer(q) if isinstance(q, dict) else q for q in v] if isinstance(v, list) else v

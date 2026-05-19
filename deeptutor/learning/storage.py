@@ -77,6 +77,43 @@ class LearningStore:
             return {}
         return json.loads(path.read_text(encoding="utf-8"))
 
+    def save_question_meta(self, book_id: str, meta: dict) -> None:
+        """Save question metadata (answer, kp_id, module_id, question_type).
+
+        Merges into existing data. Values should be dicts like:
+        {"answer": str, "knowledge_point_id": str, "module_id": str, "question_type": str}
+        """
+        import json
+
+        path = self._questions_path(book_id)
+        existing = self._load_raw_questions(book_id)
+        existing.update(meta)
+        text = json.dumps(existing, ensure_ascii=False, indent=2)
+        _atomic_write_text(path, text)
+
+    def load_question_meta(self, book_id: str) -> dict[str, dict]:
+        """Load question metadata. Backward compatible with old str-value format.
+
+        Returns: {question_id: {"answer": ..., "knowledge_point_id": ..., ...}}
+        """
+        raw = self._load_raw_questions(book_id)
+        result = {}
+        for qid, val in raw.items():
+            if isinstance(val, str):
+                result[qid] = {"answer": val, "knowledge_point_id": "", "module_id": "", "question_type": "short"}
+            elif isinstance(val, dict):
+                result[qid] = val
+        return result
+
+    def _load_raw_questions(self, book_id: str) -> dict:
+        """Load raw questions JSON file. Returns {} if none saved."""
+        import json
+
+        path = self._questions_path(book_id)
+        if not path.exists():
+            return {}
+        return json.loads(path.read_text(encoding="utf-8"))
+
     def list_all(self) -> list[str]:
         """Return all book_ids that have stored progress."""
         return sorted(
