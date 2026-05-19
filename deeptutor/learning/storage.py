@@ -29,9 +29,24 @@ class LearningStore:
         import json
 
         progress.updated_at = time.time()
+        progress.version += 1
         data = progress.model_dump(mode="json")
         text = json.dumps(data, ensure_ascii=False, indent=2)
         _atomic_write_text(self._path(progress.book_id), text)
+
+    def save_cas(self, progress: LearningProgress, expected_version: int) -> bool:
+        """Compare-and-swap save. Returns True if version matched and save succeeded."""
+        import json
+
+        current = self.load(progress.book_id)
+        if current is None or current.version != expected_version:
+            return False
+        progress.version = expected_version + 1
+        progress.updated_at = time.time()
+        data = progress.model_dump(mode="json")
+        text = json.dumps(data, ensure_ascii=False, indent=2)
+        _atomic_write_text(self._path(progress.book_id), text)
+        return True
 
     def load(self, book_id: str) -> LearningProgress | None:
         import json

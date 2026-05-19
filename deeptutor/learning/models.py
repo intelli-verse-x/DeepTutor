@@ -178,6 +178,7 @@ class LearningProgress(BaseModel):
     module_stage: dict[str, LearningStage] = Field(default_factory=dict)
     feynman_retries: dict[str, int] = Field(default_factory=dict)
     learning_mode: Literal["mastery", "exam"] = "mastery"
+    version: int = 0
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
 

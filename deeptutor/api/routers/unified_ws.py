@@ -247,6 +247,14 @@ async def unified_websocket(ws: WebSocket) -> None:
                 from deeptutor.learning.service import LearningService
                 from deeptutor.learning.storage import LearningStore
                 from deeptutor.learning.models import LearningStage
+                from deeptutor.services.session import get_turn_runtime_manager
+
+                # Cancel any active turn to prevent its finally block from
+                # overwriting the module change with stale progress.
+                runtime = get_turn_runtime_manager()
+                active_turn = await runtime.store.get_active_turn(session_id)
+                if active_turn:
+                    await runtime.cancel_turn(active_turn["id"])
 
                 store = LearningStore()
                 service = LearningService(store)
@@ -258,7 +266,6 @@ async def unified_websocket(ws: WebSocket) -> None:
                     progress.current_stage = LearningStage.PRETEST
                     service.save(progress)
                 await safe_send({"type": "module_changed", "module_id": module_id, "success": found})
-                continue
 
             await safe_send({"type": "error", "content": f"Unknown type: {msg_type}"})
 

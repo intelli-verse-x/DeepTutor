@@ -39,6 +39,7 @@ export default function LearningBookPage() {
   const reconnectAttemptsRef = useRef(0);
   const intentionalCloseRef = useRef(false);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   interface ModuleData {
     id: string;
@@ -133,7 +134,7 @@ export default function LearningBookPage() {
         setConnecting(false);
       }
     };
-  }, [params.bookId, t]);
+  }, [params.bookId, t, modules.length, moduleSelected, currentModuleId]);
 
   const handleStreamEvent = (evt: StreamEvent) => {
     // Capture turn_id from any event that carries it
@@ -146,6 +147,11 @@ export default function LearningBookPage() {
       return;
     }
     if (evt.type === "module_changed") {
+      // Cancel any pending auto-advance timer from the previous turn
+      if (autoAdvanceTimerRef.current) {
+        clearTimeout(autoAdvanceTimerRef.current);
+        autoAdvanceTimerRef.current = null;
+      }
       const e = evt as unknown as Record<string, unknown>;
       if (e.success !== false) {
         setCurrentModuleId(typeof e.module_id === "string" ? e.module_id : "");
@@ -233,7 +239,7 @@ export default function LearningBookPage() {
             }, 2000);
           }
         };
-        setTimeout(() => sendContinue(3), 500);
+        autoAdvanceTimerRef.current = setTimeout(() => sendContinue(3), 500);
       }
     } else if (evt.type === "error") {
       setError(evt.content);

@@ -600,6 +600,12 @@ class TurnRuntimeManager:
             await self.store.update_turn_status(turn_id, "cancelled", "Turn cancelled")
             return True
         execution.task.cancel()
+        # Wait for the task to finish so its finally block (including save)
+        # completes before the caller proceeds.
+        try:
+            await execution.task
+        except asyncio.CancelledError:
+            pass
         return True
 
     async def subscribe_turn(
