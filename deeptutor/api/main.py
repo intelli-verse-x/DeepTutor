@@ -190,7 +190,8 @@ async def selective_access_log(request, call_next):
 import os
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
-    "https://tutor.intelli-verse-x.ai,http://localhost:3000,http://localhost:5173"
+    "https://tutor.intelli-verse-x.ai,https://quiz.intelli-verse-x.ai,"
+    "http://localhost:3000,http://localhost:5173",
 ).split(",")
 
 app.add_middleware(
