@@ -241,6 +241,7 @@ async def redo_progress(book_id: str):
     progress.error_records = []
     progress.repetition_states = {}
     progress.review_queue = []
+    progress.feynman_retries = {}
     progress.diagnostic = None
     progress.current_kp_index = 0
     progress.current_module_id = progress.modules[0].id if progress.modules else ""

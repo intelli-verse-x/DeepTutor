@@ -59,12 +59,20 @@ class LearningStore:
         return self._root / "questions" / f"{book_id}.json"
 
     def save_question_answers(self, book_id: str, answers: dict[str, str]) -> None:
-        """Save generated question answers for server-side grading."""
+        """Save generated question answers for server-side grading.
+
+        Merges into existing data. Preserves metadata (kp_id, module_id, etc.)
+        from previous save_question_meta() calls for questions not overwritten.
+        """
         import json
 
         path = self._questions_path(book_id)
-        existing = self.load_question_answers(book_id)
-        existing.update(answers)
+        existing = self._load_raw_questions(book_id)
+        for qid, ans in answers.items():
+            if isinstance(existing.get(qid), dict):
+                existing[qid]["answer"] = ans
+            else:
+                existing[qid] = ans
         text = json.dumps(existing, ensure_ascii=False, indent=2)
         _atomic_write_text(path, text)
 
