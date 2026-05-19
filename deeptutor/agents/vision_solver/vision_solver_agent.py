@@ -206,14 +206,19 @@ Even though the following template may contain Chinese instructions (for referen
 
             return response
         
+        import os
+
+        llm_timeout = float(os.getenv("VISION_LLM_TIMEOUT_SECONDS", "90"))
+        max_retries = int(os.getenv("VISION_LLM_MAX_RETRIES", "2"))
+
         # Retry with exponential backoff
         try:
             return await retry_with_exponential_backoff(
                 _make_vision_call,
-                max_retries=3,
+                max_retries=max_retries,
                 initial_delay=2.0,
                 max_delay=10.0,
-                timeout=60.0,  # 60 second timeout per attempt
+                timeout=llm_timeout,
                 on_retry=lambda attempt, error: self.logger.warning(
                     f"Vision LLM call failed (attempt {attempt}): {str(error)[:100]}"
                 ),
