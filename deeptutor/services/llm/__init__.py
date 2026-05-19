@@ -68,6 +68,7 @@ from .config import (
     LLMConfig,
     clear_llm_config_cache,
     get_llm_config,
+    get_vision_llm_config,
     get_token_limit_kwargs,
     reload_config,
     uses_max_completion_tokens,
@@ -110,6 +111,7 @@ __all__ = [
     # Config
     "LLMConfig",
     "get_llm_config",
+    "get_vision_llm_config",
     "clear_llm_config_cache",
     "reload_config",
     "uses_max_completion_tokens",
