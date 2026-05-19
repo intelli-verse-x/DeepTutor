@@ -26,16 +26,50 @@ class LearningService:
         self._store.save(progress)  # persist immediately to prevent race
         return progress
 
-    def init_modules(
+    def merge_modules(
         self, progress: LearningProgress, modules: list[LearningModule]
     ) -> None:
-        # Incremental merge: keep existing modules, add/update by id
+        """Incremental merge: keep existing modules, add/update by id."""
         existing_by_id = {m.id: m for m in progress.modules}
         for mod in modules:
             existing_by_id[mod.id] = mod  # add new or replace with updated
             for kp in mod.knowledge_points:
                 progress.knowledge_types[kp.id] = kp.type
         progress.modules = list(existing_by_id.values())
+
+    # Backward compat alias
+    init_modules = merge_modules
+
+    def replace_modules(
+        self, progress: LearningProgress, modules: list[LearningModule]
+    ) -> None:
+        """Replace all modules and clean stale KP state."""
+        new_kp_ids = {kp.id for m in modules for kp in m.knowledge_points}
+
+        # Clean stale KP state
+        for key in list(progress.mastery_levels.keys()):
+            if key not in new_kp_ids:
+                del progress.mastery_levels[key]
+        for key in list(progress.knowledge_types.keys()):
+            if key not in new_kp_ids:
+                del progress.knowledge_types[key]
+        for key in list(progress.repetition_states.keys()):
+            if key not in new_kp_ids:
+                del progress.repetition_states[key]
+        progress.error_records = [
+            r for r in progress.error_records
+            if r.knowledge_point_id in new_kp_ids
+        ]
+        progress.feynman_retries = {
+            k: v for k, v in progress.feynman_retries.items()
+            if k in new_kp_ids
+        }
+
+        # Set new modules
+        progress.modules = list(modules)
+        for mod in modules:
+            for kp in mod.knowledge_points:
+                progress.knowledge_types[kp.id] = kp.type
 
     def advance_stage(
         self, progress: LearningProgress, next_stage: LearningStage

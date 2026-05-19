@@ -190,6 +190,39 @@ async def init_modules(book_id: str, body: InitModulesRequest):
     return {"status": "ok", "module_count": len(modules)}
 
 
+@router.post("/progress/{book_id}/replace-modules")
+async def replace_modules(book_id: str, body: InitModulesRequest):
+    """Replace all modules and clean stale KP state (mastery, errors, etc)."""
+    if not book_id or ".." in book_id or "/" in book_id or "\\" in book_id or ":" in book_id:
+        raise HTTPException(status_code=400, detail="Invalid book_id")
+    service = get_learning_service()
+    progress = service.get_or_create(book_id)
+    modules = []
+    for i, m in enumerate(body.modules):
+        kps_data = m.get("knowledge_points", [])
+        try:
+            kps = [KnowledgePoint(**kp) for kp in kps_data]
+        except PydanticValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid knowledge_point data in modules[{i}]: {exc.errors()}",
+            ) from exc
+        m_clean = {k: v for k, v in m.items() if k != "knowledge_points"}
+        try:
+            modules.append(LearningModule(knowledge_points=kps, **m_clean))
+        except PydanticValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid module data in modules[{i}]: {exc.errors()}",
+            ) from exc
+    service.replace_modules(progress, modules)
+    progress.current_module_id = modules[0].id if modules else ""
+    progress.current_kp_index = 0
+    progress.current_stage = LearningStage.DIAGNOSTIC_PHASE1
+    service.save(progress)
+    return {"status": "ok", "module_count": len(modules)}
+
+
 @router.post("/progress/{book_id}/import-from-book")
 async def import_from_book(book_id: str, body: ImportFromBookRequest):
     if not book_id or ".." in book_id or "/" in book_id or "\\" in book_id or ":" in book_id:
