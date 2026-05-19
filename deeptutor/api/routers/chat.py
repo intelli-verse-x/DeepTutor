@@ -15,7 +15,7 @@ from deeptutor.agents.chat import ChatAgent, SessionManager
 from deeptutor.logging import get_logger
 from deeptutor.services.config import PROJECT_ROOT, load_config_with_main
 from deeptutor.services.kb import push_user_chat
-from deeptutor.services.llm.config import get_llm_config
+from deeptutor.services.llm.config import get_llm_config, get_vision_llm_config
 from deeptutor.services.settings.interface_settings import get_ui_language
 
 # Initialize logger
@@ -229,6 +229,62 @@ async def http_chat(body: ChatHttpRequest):
     except Exception as e:
         logger.error(f"HTTP chat processing error: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# =============================================================================
+# Vision Analysis Endpoint
+# =============================================================================
+
+
+@router.post("/chat/vision")
+async def chat_vision_analyze(request: dict):
+    """
+    Vision analysis endpoint for chat interface.
+    Forwards to the vision solver service.
+    
+    Expected request format:
+    {
+        "question": str,              // Standard field name
+        "prompt": str,                // Alternative field name (frontend uses this)
+        "image": str | null,          // Frontend sends as "image"
+        "image_base64": str | null,   // Alternative field name
+        "image_url": str | null,
+        "session_id": str | null
+    }
+    """
+    # Frontend sends "image" but backend expects "image_base64"
+    # Accept both field names for compatibility
+    image_data = request.get("image") or request.get("image_base64")
+    image_url = request.get("image_url")
+    
+    # Frontend sends "prompt" but backend expects "question"
+    # Accept both field names for compatibility
+    question = request.get("question") or request.get("prompt", "")
+    
+    try:
+        # Import vision solver function
+        from deeptutor.api.routers.vision_solver import analyze_image
+        from deeptutor.api.routers.vision_solver import VisionAnalyzeRequest
+        
+        # Convert dict to VisionAnalyzeRequest model
+        vision_request = VisionAnalyzeRequest(
+            question=question,
+            image_base64=image_data,
+            image_url=image_url,
+            session_id=request.get("session_id")
+        )
+        
+        # Call the vision analyze function
+        result = await analyze_image(vision_request)
+        
+        # Convert result to dict
+        result_dict = result.model_dump() if hasattr(result, 'model_dump') else result.dict()
+        
+        return result_dict
+        
+    except Exception as e:
+        logger.error(f"[VISION] Vision analysis error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================
