@@ -64,6 +64,10 @@ class LearningService:
             k: v for k, v in progress.feynman_retries.items()
             if k in new_kp_ids
         }
+        progress.review_queue = [
+            t for t in progress.review_queue
+            if t.knowledge_point_id in new_kp_ids
+        ]
 
         # Set new modules
         progress.modules = list(modules)

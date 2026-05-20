@@ -11,6 +11,7 @@ from deeptutor.learning.models import (
     LearningProgress,
     LearningStage,
     RepetitionState,
+    ReviewTask,
 )
 from deeptutor.learning.service import LearningService
 from deeptutor.learning.storage import LearningStore
@@ -146,6 +147,28 @@ class TestReplaceModules:
 
         service.replace_modules(progress, [_make_module("m2", ["kp2"])])
         assert "kp1" not in progress.feynman_retries
+
+    def test_replace_cleans_stale_review_queue(self, tmp_path: Path):
+        store = LearningStore(root=tmp_path)
+        service = LearningService(store)
+        progress = LearningProgress(book_id="test")
+
+        service.merge_modules(progress, [_make_module("m1", ["kp1"])])
+        progress.review_queue.append(
+            ReviewTask(
+                id="rt1",
+                knowledge_point_id="kp1",
+                knowledge_type=KnowledgeType.CONCEPT,
+                due_at=0,
+                priority=1,
+                state=RepetitionState(
+                    interval_index=0, consecutive_correct=0, consecutive_wrong=0, next_review_at=0
+                ),
+            )
+        )
+
+        service.replace_modules(progress, [_make_module("m2", ["kp2"])])
+        assert len(progress.review_queue) == 0
 
     def test_replace_preserves_new_module_kps(self, tmp_path: Path):
         store = LearningStore(root=tmp_path)
