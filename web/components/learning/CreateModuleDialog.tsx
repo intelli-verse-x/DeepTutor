@@ -129,7 +129,7 @@ export default function CreateModuleDialog({
 
   const handleManualSubmit = async () => {
     const validKps = kpRows.filter((r) => r.name.trim());
-    if (!moduleName.trim() && validKps.length === 0) {
+    if (validKps.length === 0) {
       setError(t("guidedLearning.moduleNameRequired"));
       return;
     }

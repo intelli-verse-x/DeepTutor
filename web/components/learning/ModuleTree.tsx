@@ -46,14 +46,16 @@ function ModuleNode({
   const [expanded, setExpanded] = useState(isCurrent);
 
   useEffect(() => {
-    if (isCurrent) setExpanded(true);
+    if (!isCurrent) return;
+    const timer = setTimeout(() => setExpanded(true), 0);
+    return () => clearTimeout(timer);
   }, [isCurrent]);
 
-  const mastered = module.knowledge_points.filter(
-    (kp) => (masteryLevels[kp.id] ?? 0) >= module.pass_threshold
-  ).length;
   const total = module.knowledge_points.length;
-  const passRate = total > 0 ? Math.round((mastered / total) * 100) : 0;
+  const averageMastery = total > 0
+    ? module.knowledge_points.reduce((sum, kp) => sum + (masteryLevels[kp.id] ?? 0), 0) / total
+    : 0;
+  const masteryPercent = Math.round(averageMastery * 100);
 
   return (
     <div>
@@ -75,7 +77,7 @@ function ModuleNode({
         )}
         <span className="truncate flex-1">{module.name}</span>
         <span className="text-xs text-[var(--muted-foreground)] shrink-0">
-          {passRate}%
+          {masteryPercent}%
         </span>
       </button>
       {expanded && (

@@ -1681,7 +1681,7 @@
   "guidedLearning.cancel": "Cancel",
   "guidedLearning.create": "Create",
   "guidedLearning.generateModules": "Generate Modules",
-  "guidedLearning.moduleNameRequired": "Please enter a module name or at least one knowledge point.",
+  "guidedLearning.moduleNameRequired": "Please enter at least one knowledge point.",
   "guidedLearning.untitledModule": "Untitled Module",
   "guidedLearning.createModuleFailed": "Failed to create module",
   "guidedLearning.importBookFailed": "Failed to import from book",

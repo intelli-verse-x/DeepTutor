@@ -1681,7 +1681,7 @@
   "guidedLearning.cancel": "取消",
   "guidedLearning.create": "创建",
   "guidedLearning.generateModules": "生成模块",
-  "guidedLearning.moduleNameRequired": "请输入模块名称或至少一个知识点。",
+  "guidedLearning.moduleNameRequired": "请至少输入一个知识点。",
   "guidedLearning.untitledModule": "未命名模块",
   "guidedLearning.createModuleFailed": "创建模块失败",
   "guidedLearning.importBookFailed": "从书籍导入失败",
