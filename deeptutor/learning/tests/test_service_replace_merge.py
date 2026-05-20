@@ -57,13 +57,17 @@ class TestMergeModules:
         assert len(progress.modules) == 1
         assert len(progress.modules[0].knowledge_points) == 2
 
-    def test_init_modules_is_alias(self, tmp_path: Path):
+    def test_init_modules_replaces_existing_modules(self, tmp_path: Path):
         store = LearningStore(root=tmp_path)
         service = LearningService(store)
         progress = LearningProgress(book_id="test")
 
         service.init_modules(progress, [_make_module("m1", ["kp1"])])
         assert len(progress.modules) == 1
+        service.init_modules(progress, [_make_module("m2", ["kp2"])])
+        assert [m.id for m in progress.modules] == ["m2"]
+        assert "kp1" not in progress.knowledge_types
+        assert "kp2" in progress.knowledge_types
 
 
 # ── replace_modules ──────────────────────────────────────────────────────

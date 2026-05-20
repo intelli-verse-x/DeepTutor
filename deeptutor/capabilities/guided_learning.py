@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import asyncio
 import json
 import time
 from typing import Any
@@ -115,7 +116,7 @@ class GuidedLearningCapability(BaseCapability):
         """Parse JSON with graceful fallback on failure."""
         try:
             return json.loads(text)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             return default or {}
 
     # ── Answer extraction ───────────────────────────────────────────────
@@ -212,17 +213,38 @@ class GuidedLearningCapability(BaseCapability):
 
     @staticmethod
     def _resolve_kp_id_map(data: dict, kps: list, answers: dict[str, str], prefix: str) -> dict[str, str]:
-        """Build {question_id: kp_id} from LLM-returned knowledge_point_id names."""
-        name_to_id = {kp.name: kp.id for kp in kps}
+        """Build {question_id: kp_id} from LLM-returned KP labels.
+
+        The model may return a KP id, a KP name, or omit attribution.  Missing
+        attribution is distributed across module KPs instead of biasing every
+        question toward the first KP.
+        """
+        def norm(value: Any) -> str:
+            return str(value or "").strip().lower()
+
+        label_to_id = {}
+        for kp in kps:
+            label_to_id[norm(kp.id)] = kp.id
+            label_to_id[norm(kp.name)] = kp.id
         questions = data.get("questions") or data.get("exercises") or []
         qids = list(answers.keys())
         result = {}
         for i, qid in enumerate(qids):
+            resolved = ""
             if i < len(questions) and isinstance(questions[i], dict):
-                kp_name = questions[i].get("knowledge_point_id", "")
-                result[qid] = name_to_id.get(kp_name, "")
-            else:
-                result[qid] = ""
+                q = questions[i]
+                raw = (
+                    q.get("knowledge_point_id")
+                    or q.get("knowledge_point")
+                    or q.get("knowledge_point_name")
+                    or q.get("kp_id")
+                    or q.get("kp")
+                    or ""
+                )
+                resolved = label_to_id.get(norm(raw), "")
+            if not resolved and kps:
+                resolved = kps[i % len(kps)].id
+            result[qid] = resolved
         return result
 
     # ── RAG retrieval ───────────────────────────────────────────────────
@@ -246,15 +268,22 @@ class GuidedLearningCapability(BaseCapability):
 
     # ── Real LLM call ───────────────────────────────────────────────────
 
-    async def _call_llm(self, system_prompt: str, user_message: str) -> tuple[str, str]:
-        """Call real LLM. Returns (response, rag_error). rag_error is '' on success."""
+    async def _call_llm(self, system_prompt: str, user_message: str) -> str:
+        """Call real LLM and return only the response text."""
         tracked = _turn_call_llm.get()
         if tracked is not None:
             return await tracked(self, system_prompt, user_message)
-        return await self._call_llm_impl(system_prompt, user_message)
+        response, _ = await self._call_llm_impl(system_prompt, user_message)
+        return response
 
     async def _call_llm_impl(self, system_prompt: str, user_message: str) -> tuple[str, str]:
-        rag_context, rag_error = await self._retrieve_context(user_message)
+        try:
+            rag_context, rag_error = await asyncio.wait_for(
+                self._retrieve_context(user_message),
+                timeout=self._RAG_TIMEOUT_SECONDS,
+            )
+        except (Exception, asyncio.TimeoutError):
+            rag_context, rag_error = "", "RAG retrieval timed out"
         if rag_context:
             system_prompt = system_prompt + rag_context
         response = await complete(
@@ -263,6 +292,40 @@ class GuidedLearningCapability(BaseCapability):
         )
         return (response, rag_error)
 
+    async def _call_llm_with_timeout(self, system_prompt: str, user_message: str, timeout: float | None = None) -> str:
+        """Call LLM with timeout covering the full RAG+LLM chain."""
+        effective_timeout = timeout if timeout is not None else self._LLM_CHAIN_TIMEOUT_SECONDS
+        return await asyncio.wait_for(
+            self._call_llm(system_prompt, user_message),
+            timeout=effective_timeout,
+        )
+
+    async def _call_llm_with_degradation(
+        self,
+        system_prompt: str,
+        user_message: str,
+        progress: LearningProgress,
+        stage_name: str,
+        stream: StreamBus,
+        timeout: float | None = None,
+    ) -> str | None:
+        """Call LLM with bounded retry. Returns None if all retries exhausted."""
+        for attempt in range(self._STAGE_MAX_FAILURES):
+            try:
+                return await self._call_llm_with_timeout(system_prompt, user_message, timeout=timeout)
+            except (Exception, asyncio.TimeoutError) as exc:
+                progress.stage_failure_counts[stage_name] = progress.stage_failure_counts.get(stage_name, 0) + 1
+                progress.stage_failure_notes[stage_name] = str(exc)
+                if attempt < self._STAGE_MAX_FAILURES - 1:
+                    continue
+                await stream.content(
+                    f"阶段 {stage_name} 暂时不可用，已记录并跳过。",
+                    source=self.manifest.name,
+                    metadata={"type": "stage_degraded", "stage": stage_name},
+                )
+                return None
+        return None
+
     # ── State machine entry ──────────────────────────────────────────────
 
     async def run(self, context: UnifiedContext, stream: StreamBus) -> None:
@@ -270,6 +333,14 @@ class GuidedLearningCapability(BaseCapability):
         progress = self._service.get_or_create(book_id)
 
         stage = progress.current_stage
+        if stage != LearningStage.COMPLETED and not any(mod.knowledge_points for mod in progress.modules):
+            async with stream.stage("blocked", source=self.manifest.name):
+                await stream.content(
+                    "Please create at least one learning module with knowledge points before starting guided learning.",
+                    source=self.manifest.name,
+                )
+            return
+
         handler = self._STAGE_HANDLERS.get(stage)
         if handler is None:
             if stage == LearningStage.COMPLETED:
@@ -279,11 +350,11 @@ class GuidedLearningCapability(BaseCapability):
 
         rag_warnings: list[str] = []
 
-        async def _tracked_call_llm(cap, system_prompt: str, user_message: str) -> tuple[str, str]:
+        async def _tracked_call_llm(cap, system_prompt: str, user_message: str) -> str:
             response, rag_err = await cap._call_llm_impl(system_prompt, user_message)
             if rag_err:
                 rag_warnings.append(rag_err)
-            return (response, rag_err)
+            return response
 
         token = _turn_call_llm.set(_tracked_call_llm)
         try:
@@ -307,7 +378,14 @@ class GuidedLearningCapability(BaseCapability):
     ) -> None:
         async with stream.stage("diagnostic_phase1", source=self.manifest.name):
             await stream.content("正在生成诊断题...", source=self.manifest.name)
-            response = await self._call_llm(DIAGNOSTIC_PHASE1_SYSTEM, DIAGNOSTIC_PHASE1_USER)
+            response = await self._call_llm_with_degradation(
+                DIAGNOSTIC_PHASE1_SYSTEM, DIAGNOSTIC_PHASE1_USER,
+                progress, "diagnostic_phase1", stream,
+            )
+            if response is None:
+                progress.diagnostic = DiagnosticResult()
+                self._service.advance_stage(progress, LearningStage.DIAGNOSTIC_PHASE2)
+                return
             data = self._safe_json_parse(response, default={"questions": [], "answers": []})
             book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, "diag1")
@@ -354,7 +432,16 @@ class GuidedLearningCapability(BaseCapability):
     ) -> None:
         async with stream.stage("diagnostic_phase2", source=self.manifest.name):
             await stream.content("正在生成深度诊断题...", source=self.manifest.name)
-            response = await self._call_llm(DIAGNOSTIC_PHASE2_SYSTEM, DIAGNOSTIC_PHASE2_USER)
+            response = await self._call_llm_with_degradation(
+                DIAGNOSTIC_PHASE2_SYSTEM, DIAGNOSTIC_PHASE2_USER,
+                progress, "diagnostic_phase2", stream,
+            )
+            if response is None:
+                if progress.diagnostic is not None:
+                    progress.diagnostic.phase2_results = {}
+                    progress.diagnostic.phase2_correct_count = 0
+                self._service.advance_stage(progress, LearningStage.METACOGNITIVE_INTRO)
+                return
             data = self._safe_json_parse(response, default={})
             book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, "diag2")
@@ -399,8 +486,11 @@ class GuidedLearningCapability(BaseCapability):
     ) -> None:
         async with stream.stage("metacognitive_intro", source=self.manifest.name):
             await stream.content("正在生成元认知介绍...", source=self.manifest.name)
-            response = await self._call_llm(METACOGNITIVE_SYSTEM, METACOGNITIVE_USER)
-            await stream.content(response)
+            response = await self._call_llm_with_degradation(
+                METACOGNITIVE_SYSTEM, METACOGNITIVE_USER,
+                progress, "metacognitive_intro", stream,
+            )
+            await stream.content(response or "元认知介绍生成失败，将直接进入学习计划。")
             self._service.advance_stage(progress, LearningStage.PLAN)
 
     async def _run_plan(
@@ -420,8 +510,10 @@ class GuidedLearningCapability(BaseCapability):
                 self._service.advance_stage(progress, LearningStage.PRETEST)
                 return
             await stream.content("正在生成学习计划...", source=self.manifest.name)
-            response = await self._call_llm(PLAN_SYSTEM, PLAN_USER)
-            await stream.content(response)
+            response = await self._call_llm_with_degradation(
+                PLAN_SYSTEM, PLAN_USER, progress, "plan", stream,
+            )
+            await stream.content(response or "学习计划生成失败，将直接进入预测试。")
             self._service.advance_stage(progress, LearningStage.PRETEST)
 
     # ── §5 Per-knowledge-point loop ──────────────────────────────────────
@@ -445,9 +537,13 @@ class GuidedLearningCapability(BaseCapability):
                 self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
                 return
             await stream.content("正在生成预测试题...", source=self.manifest.name)
-            response = await self._call_llm(
-                PRETEST_SYSTEM, PRETEST_USER.format(knowledge_point=self._current_kp_name(progress))
+            response = await self._call_llm_with_degradation(
+                PRETEST_SYSTEM, PRETEST_USER.format(knowledge_point=self._current_kp_name(progress)),
+                progress, "pretest", stream,
             )
+            if response is None:
+                self._service.advance_stage(progress, LearningStage.EXPLAIN)
+                return
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.EXPLAIN)
 
@@ -459,13 +555,22 @@ class GuidedLearningCapability(BaseCapability):
                 self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
                 return
             await stream.content("正在生成讲解内容...", source=self.manifest.name)
-            response = await self._call_llm(
-                EXPLAIN_SYSTEM, EXPLAIN_USER.format(knowledge_point=self._current_kp_name(progress))
+            response = await self._call_llm_with_degradation(
+                EXPLAIN_SYSTEM, EXPLAIN_USER.format(knowledge_point=self._current_kp_name(progress)),
+                progress, "explain", stream,
             )
+            if response is None:
+                kps = self._current_knowledge_points(progress)
+                self._advance_after_kp(progress, kps)
+                return
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.FEYNMAN_CHECK)
 
     _FEYNMAN_MAX_RETRIES = 3
+    _RAG_TIMEOUT_SECONDS = 10
+    _LLM_CHAIN_TIMEOUT_SECONDS = 60
+    _STAGE_MAX_FAILURES = 2
+    _ERROR_DIAGNOSIS_TIMEOUT_SECONDS = 45
 
     def _advance_after_kp(self, progress: LearningProgress, kps: list) -> None:
         """Advance to next KP's PRETEST or to PRACTICE_QUIZ if all KPs done."""
@@ -495,17 +600,23 @@ class GuidedLearningCapability(BaseCapability):
                 return
 
             await stream.content("正在评估你的解释...", source=self.manifest.name)
-            response = await self._call_llm(
+            response = await self._call_llm_with_degradation(
                 FEYNMAN_SYSTEM,
                 FEYNMAN_USER.format(knowledge_point=kp_name) + f"\n学生解释：{user_explanation}",
+                progress, "feynman_check", stream,
             )
-            result = self._safe_json_parse(response, default={"passed": False, "feedback": "", "gap": ""})
+            if response is None:
+                result = {"passed": False, "feedback": "未评估（评估服务暂时不可用）", "gap": ""}
+            else:
+                result = self._safe_json_parse(response, default={"passed": False, "feedback": "", "gap": ""})
 
             await stream.content(json.dumps(result, ensure_ascii=False), source=self.manifest.name)
             passed = result.get("passed")
             is_passed = passed is True or str(passed).lower() in ("true", "1", "yes")
             if is_passed:
                 progress.feynman_retries[kp_id] = 0
+                if kp_id:
+                    progress.mastery_levels[kp_id] = max(progress.mastery_levels.get(kp_id, 0.0), 0.6)
                 self._advance_after_kp(progress, kps)
             else:
                 retries = progress.feynman_retries.get(kp_id, 0) + 1
@@ -538,6 +649,91 @@ class GuidedLearningCapability(BaseCapability):
         progress.current_kp_index += 1
         progress.updated_at = time.time()
 
+    def _record_attempt_and_update_mastery(self, progress: LearningProgress, attempt: QuizAttempt) -> None:
+        self._service.record_quiz_attempt(progress, attempt)
+        kp_id = attempt.knowledge_point_id
+        if kp_id:
+            mastery = self._service.calculate_mastery(progress, kp_id)
+            self._service.update_mastery(progress, kp_id, mastery)
+            kp_type = progress.knowledge_types.get(kp_id)
+            if kp_type is not None and self._scheduler is not None:
+                state = progress.repetition_states.get(kp_id)
+                if state is None:
+                    state = self._scheduler.get_initial_state(kp_type)
+                    progress.repetition_states[kp_id] = state
+                self._scheduler.schedule_next(state, kp_type, attempt.is_correct)
+                progress.review_queue = self._scheduler.build_review_queue(progress)
+        # Save after every interactive answer so reconnects, cancellations, and
+        # later stage failures do not lose student attempts or mastery updates.
+        self._service.save(progress)
+
+    # ── §5 Interactive quiz loop (shared by practice_quiz and practice) ──
+
+    async def _run_interactive_quiz_loop(
+        self,
+        progress: LearningProgress,
+        context: UnifiedContext,
+        stream: StreamBus,
+        *,
+        data: dict,
+        prefix: str,
+        payload_key: str,
+        next_stage: LearningStage,
+        show_summary: bool = False,
+        kps_override: list | None = None,
+    ) -> None:
+        """Shared loop for practice_quiz and practice: stream questions, grade, record attempts."""
+        kps = kps_override or self._current_knowledge_points(progress)
+        book_id = self._resolve_book_id(context)
+        answers = self._extract_answers(data, prefix)
+        self._store.save_question_answers(book_id, answers)
+        kp_id_map = self._resolve_kp_id_map(data, kps, answers, prefix)
+        default_kp_id = kps[0].id if kps else ""
+        meta = self._build_question_meta(answers, data, kp_id_map, progress.current_module_id, prefix, default_kp_id)
+        self._store.save_question_meta(book_id, meta)
+        self._inject_question_ids(data, prefix)
+
+        items = data.get(payload_key) or data.get("questions") or data.get("exercises") or []
+        qids = data.get("question_ids", [])
+        correct_count = 0
+
+        for i, q in enumerate(items):
+            qid = qids[i] if i < len(qids) else f"{prefix}_{i}"
+            await stream.content(
+                json.dumps({"question": self._strip_answer(q), "question_id": qid}, ensure_ascii=False),
+                source=self.manifest.name,
+            )
+            user_answer = await stream.wait_for_input("请回答", source=self.manifest.name, timeout=120)
+            stored = self._store.load_question_answers(book_id)
+            expected = stored.get(qid, "")
+            is_correct = bool(expected) and grade_answer(user_answer, expected)
+            if is_correct:
+                correct_count += 1
+            self._record_attempt_and_update_mastery(
+                progress,
+                QuizAttempt(
+                    question_id=qid,
+                    knowledge_point_id=kp_id_map.get(qid, "") or default_kp_id,
+                    module_id=progress.current_module_id or "",
+                    is_correct=is_correct,
+                    user_answer=user_answer,
+                    error_type=None if is_correct else ErrorType.APPLICATION_ERROR,
+                ),
+            )
+
+        if show_summary:
+            total = len(items)
+            if total > 0:
+                pct = correct_count / total * 100
+                summary = f"练习测验完成！正确 {correct_count}/{total} 题（{pct:.0f}%）。"
+                if pct >= 70:
+                    summary += " 表现不错，继续加油！"
+                else:
+                    summary += " 建议回顾相关知识点。"
+                await stream.content(summary, source=self.manifest.name)
+
+        self._service.advance_stage(progress, next_stage)
+
     # ── §5 Practice Quiz ──────────────────────────────────────────────────
 
     async def _run_practice_quiz(
@@ -554,59 +750,21 @@ class GuidedLearningCapability(BaseCapability):
             prefix = f"{progress.current_module_id}_pquiz" if progress.current_module_id else "pquiz"
 
             await stream.content("正在生成练习测验...", source=self.manifest.name)
-            response = await self._call_llm(
+            response = await self._call_llm_with_degradation(
                 PRACTICE_QUIZ_SYSTEM,
                 PRACTICE_QUIZ_USER.format(knowledge_points=kp_names),
+                progress, "practice_quiz", stream,
             )
+            if response is None:
+                self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+                return
             data = self._safe_json_parse(response, default={"questions": []})
-            book_id = self._resolve_book_id(context)
-            answers = self._extract_answers(data, prefix)
-            self._store.save_question_answers(book_id, answers)
-            kp_id_map = self._resolve_kp_id_map(data, kps, answers, prefix)
-            default_kp_id = kps[0].id if kps else ""
-            meta = self._build_question_meta(answers, data, kp_id_map, progress.current_module_id, prefix, default_kp_id)
-            self._store.save_question_meta(book_id, meta)
-            self._inject_question_ids(data, prefix)
-
-            questions = data.get("questions", [])
-            qids = data.get("question_ids", [])
-            correct_count = 0
-
-            for i, q in enumerate(questions):
-                qid = qids[i] if i < len(qids) else f"{prefix}_{i}"
-                await stream.content(
-                    json.dumps({"question": self._strip_answer(q), "question_id": qid}, ensure_ascii=False),
-                    source=self.manifest.name,
-                )
-                user_answer = await stream.wait_for_input("请回答", source=self.manifest.name, timeout=120)
-                stored = self._store.load_question_answers(book_id)
-                expected = stored.get(qid, "")
-                is_correct = bool(expected) and grade_answer(user_answer, expected)
-                if is_correct:
-                    correct_count += 1
-                self._service.record_quiz_attempt(
-                    progress,
-                    QuizAttempt(
-                        question_id=qid,
-                        knowledge_point_id=kp_id_map.get(qid, "") or default_kp_id,
-                        module_id=progress.current_module_id or "",
-                        is_correct=is_correct,
-                        user_answer=user_answer,
-                        error_type=None if is_correct else ErrorType.APPLICATION_ERROR,
-                    ),
-                )
-
-            total = len(questions)
-            if total > 0:
-                pct = correct_count / total * 100
-                summary = f"练习测验完成！正确 {correct_count}/{total} 题（{pct:.0f}%）。"
-                if pct >= 70:
-                    summary += " 表现不错，继续加油！"
-                else:
-                    summary += " 建议回顾相关知识点。"
-                await stream.content(summary, source=self.manifest.name)
-
-            self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+            await self._run_interactive_quiz_loop(
+                progress, context, stream,
+                data=data, prefix=prefix, payload_key="questions",
+                next_stage=LearningStage.ERROR_DIAGNOSIS,
+                show_summary=True, kps_override=kps,
+            )
 
     # ── §5 Per-module loop ───────────────────────────────────────────────
 
@@ -619,45 +777,20 @@ class GuidedLearningCapability(BaseCapability):
                 return
             prefix = f"{progress.current_module_id}_practice" if progress.current_module_id else "practice"
             await stream.content("正在生成练习题...", source=self.manifest.name)
-            response = await self._call_llm(
-                PRACTICE_SYSTEM, PRACTICE_USER.format(module_name=self._current_module_name(progress))
+            response = await self._call_llm_with_degradation(
+                PRACTICE_SYSTEM, PRACTICE_USER.format(module_name=self._current_module_name(progress)),
+                progress, "practice", stream,
             )
+            if response is None:
+                self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+                return
             data = self._safe_json_parse(response, default={"exercises": []})
-            book_id = self._resolve_book_id(context)
-            answers = self._extract_answers(data, prefix)
-            kps = self._current_knowledge_points(progress)
-            kp_id_map = self._resolve_kp_id_map(data, kps, answers, prefix)
-            default_kp_id = kps[0].id if kps else ""
-            self._store.save_question_answers(book_id, answers)
-            meta = self._build_question_meta(answers, data, kp_id_map, progress.current_module_id, prefix, default_kp_id)
-            self._store.save_question_meta(book_id, meta)
-            self._inject_question_ids(data, prefix)
-
-            exercises = data.get("exercises") or data.get("questions") or []
-            qids = data.get("question_ids", [])
-            for i, ex in enumerate(exercises):
-                qid = qids[i] if i < len(qids) else f"{prefix}_{i}"
-                await stream.content(
-                    json.dumps({"question": self._strip_answer(ex), "question_id": qid}, ensure_ascii=False),
-                    source=self.manifest.name,
-                )
-                user_answer = await stream.wait_for_input("请回答", source=self.manifest.name, timeout=120)
-                stored = self._store.load_question_answers(book_id)
-                expected = stored.get(qid, "")
-                is_correct = bool(expected) and grade_answer(user_answer, expected)
-                self._service.record_quiz_attempt(
-                    progress,
-                    QuizAttempt(
-                        question_id=qid,
-                        knowledge_point_id=kp_id_map.get(qid, "") or default_kp_id,
-                        module_id=progress.current_module_id or "",
-                        is_correct=is_correct,
-                        user_answer=user_answer,
-                        error_type=None if is_correct else ErrorType.APPLICATION_ERROR,
-                    ),
-                )
-
-            self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+            await self._run_interactive_quiz_loop(
+                progress, context, stream,
+                data=data, prefix=prefix, payload_key="exercises",
+                next_stage=LearningStage.ERROR_DIAGNOSIS,
+                show_summary=False,
+            )
 
     async def _run_error_diagnosis(
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
@@ -674,7 +807,26 @@ class GuidedLearningCapability(BaseCapability):
                 [{"question_id": r.question_id, "error_type": r.error_type.value if r.error_type else "", "self_attribution": r.self_attribution} for r in active_errors],
                 ensure_ascii=False,
             )
-            response = await self._call_llm(ERROR_DIAGNOSIS_SYSTEM, ERROR_DIAGNOSIS_USER + f"\n错题记录：{error_context}")
+            # error_diagnosis uses its own timeout + fail-open pattern (no retry)
+            # instead of _call_llm_with_degradation, because the fallback behavior
+            # (preserve error records, advance to module_test) is specific to this stage.
+            try:
+                response = await asyncio.wait_for(
+                    self._call_llm(ERROR_DIAGNOSIS_SYSTEM, ERROR_DIAGNOSIS_USER + f"\n错题记录：{error_context}"),
+                    timeout=self._ERROR_DIAGNOSIS_TIMEOUT_SECONDS,
+                )
+            except (Exception, asyncio.TimeoutError) as exc:
+                progress.stage_failure_counts["error_diagnosis"] = progress.stage_failure_counts.get("error_diagnosis", 0) + 1
+                progress.stage_failure_notes["error_diagnosis"] = str(exc)
+                for rec in active_errors:
+                    rec.ai_confirmation = f"error_diagnosis_unavailable: {exc}"
+                await stream.content(
+                    "错因诊断暂时不可用，已保留现有错误分类并继续后续模块测试。",
+                    source=self.manifest.name,
+                    metadata={"type": "error_diagnosis_unavailable", "error": str(exc)},
+                )
+                self._service.advance_stage(progress, LearningStage.MODULE_TEST)
+                return
             data = self._safe_json_parse(response, default={"diagnoses": []})
             diagnoses = data.get("diagnoses", [])
             for diag in diagnoses:
@@ -705,9 +857,14 @@ class GuidedLearningCapability(BaseCapability):
                 return
             prefix = f"{progress.current_module_id}_modtest" if progress.current_module_id else "modtest"
             await stream.content("正在生成模块测试...", source=self.manifest.name)
-            response = await self._call_llm(
-                MODULE_TEST_SYSTEM, MODULE_TEST_USER.format(module_name=self._current_module_name(progress))
+            response = await self._call_llm_with_degradation(
+                MODULE_TEST_SYSTEM, MODULE_TEST_USER.format(module_name=self._current_module_name(progress)),
+                progress, "module_test", stream,
             )
+            if response is None:
+                self._init_repetition_states(progress)
+                self._service.advance_stage(progress, LearningStage.REVIEW)
+                return
             data = self._safe_json_parse(response, default={})
             book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, prefix)
@@ -757,8 +914,10 @@ class GuidedLearningCapability(BaseCapability):
             self._init_repetition_states(progress)
             self._schedule_reviews(progress)
             await stream.content("正在生成复习内容...", source=self.manifest.name)
-            response = await self._call_llm(REVIEW_SYSTEM, REVIEW_USER)
-            await stream.content(response)
+            response = await self._call_llm_with_degradation(
+                REVIEW_SYSTEM, REVIEW_USER, progress, "review", stream,
+            )
+            await stream.content(response or "复习内容生成失败。请回顾之前的学习内容，重点复习薄弱知识点。")
             if self._advance_to_next_module(progress):
                 self._service.advance_stage(progress, LearningStage.PRETEST)
             else:

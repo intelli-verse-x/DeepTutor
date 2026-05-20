@@ -31,6 +31,17 @@ def client(app):
     return TestClient(app)
 
 
+def _module_payload(module_id: str = "m1", kp_id: str = "kp1") -> dict:
+    return {
+        "id": module_id,
+        "name": module_id.upper(),
+        "order": 0,
+        "knowledge_points": [
+            {"id": kp_id, "name": kp_id.upper(), "type": "concept", "module_id": module_id}
+        ],
+    }
+
+
 # -- GET /progress (list_all) --------------------------------------------
 
 class TestListProgress:
@@ -71,8 +82,7 @@ class TestListProgress:
 
     def test_list_name_fallback_empty_modules(self, client):
         """Book with 0 modules: name falls back to book_id."""
-        client.post("/api/v1/learning/progress/empty_mods/init-modules",
-                    json={"modules": []})
+        client.get("/api/v1/learning/progress/empty_mods")
         resp = client.get("/api/v1/learning/progress")
         assert resp.status_code == 200
         for p in resp.json()["summaries"]:
@@ -96,11 +106,16 @@ class TestInitModules:
         assert resp.status_code == 200
         assert resp.json()["module_count"] == 1
 
-    def test_init_empty_modules(self, client):
+    def test_init_empty_modules_returns_400(self, client):
         resp = client.post("/api/v1/learning/progress/init2/init-modules",
                            json={"modules": []})
-        assert resp.status_code == 200
-        assert resp.json()["module_count"] == 0
+        assert resp.status_code == 400
+
+    def test_init_empty_knowledge_points_returns_400(self, client):
+        resp = client.post("/api/v1/learning/progress/init_empty_kps/init-modules",
+                           json={"modules": [{"id": "m1", "name": "M1", "order": 0,
+                                              "knowledge_points": []}]})
+        assert resp.status_code == 400
 
     def test_init_invalid_kp_returns_422(self, client):
         resp = client.post("/api/v1/learning/progress/init3/init-modules",
@@ -129,7 +144,7 @@ class TestGetProgress:
 class TestDeleteProgress:
     def test_delete_success(self, client):
         client.post("/api/v1/learning/progress/del1/init-modules",
-                    json={"modules": []})
+                    json={"modules": [_module_payload()]})
         resp = client.delete("/api/v1/learning/progress/del1")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
@@ -140,7 +155,7 @@ class TestDeleteProgress:
 
     def test_delete_twice_returns_404(self, client):
         client.post("/api/v1/learning/progress/del2/init-modules",
-                    json={"modules": []})
+                    json={"modules": [_module_payload()]})
         client.delete("/api/v1/learning/progress/del2")
         resp = client.delete("/api/v1/learning/progress/del2")
         assert resp.status_code == 404
@@ -156,7 +171,8 @@ class TestRedoProgress:
     def test_redo_resets_stage(self, client):
         client.post("/api/v1/learning/progress/redo1/init-modules",
                     json={"modules": [{"id": "m1", "name": "M1", "order": 0,
-                                       "knowledge_points": []}]})
+                                       "knowledge_points": [{"id": "kp1", "name": "KP1",
+                                                             "type": "concept", "module_id": "m1"}]}]})
         resp = client.post("/api/v1/learning/progress/redo1/redo")
         assert resp.status_code == 200
         prog = client.get("/api/v1/learning/progress/redo1").json()
@@ -187,8 +203,12 @@ class TestImportFromBook:
     def test_import_empty_chapters(self, client):
         resp = client.post("/api/v1/learning/progress/import2/import-from-book",
                            json={"chapters": []})
-        assert resp.status_code == 200
-        assert resp.json()["module_count"] == 0
+        assert resp.status_code == 400
+
+    def test_import_empty_chapter_kps_returns_400(self, client):
+        resp = client.post("/api/v1/learning/progress/import_empty_kps/import-from-book",
+                           json={"chapters": [{"title": "Ch1", "knowledge_points": []}]})
+        assert resp.status_code == 400
 
 
 # -- POST /progress/{book_id}/generate-from-notebook ----------------------
@@ -218,6 +238,15 @@ class TestGenerateFromNotebook:
                                               "title": "Biology", "output": "Plants use sunlight"}]})
         assert resp.status_code == 200
         assert resp.json()["module_count"] == 1
+
+    @patch("deeptutor.services.llm.complete", new_callable=AsyncMock)
+    def test_generate_no_usable_modules_returns_502(self, mock_complete, client):
+        mock_complete.return_value = json.dumps({"modules": [{"name": "Empty", "knowledge_points": []}]})
+        resp = client.post("/api/v1/learning/progress/nb_empty/generate-from-notebook",
+                           json={"notebook_id": "nb",
+                                 "records": [{"id": "r1", "type": "note",
+                                              "title": "Biology", "output": "Plants use sunlight"}]})
+        assert resp.status_code == 502
 
     @patch("deeptutor.services.llm.complete", new_callable=AsyncMock)
     def test_generate_injection_ignored(self, mock_complete, client):

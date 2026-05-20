@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 
@@ -37,8 +38,15 @@ class LearningService:
                 progress.knowledge_types[kp.id] = kp.type
         progress.modules = list(existing_by_id.values())
 
-    # Backward compat alias
-    init_modules = merge_modules
+    def init_modules(
+        self, progress: LearningProgress, modules: list[LearningModule]
+    ) -> None:
+        """Initialize the runnable module set.
+
+        This is intentionally replace semantics.  Call merge_modules() for
+        incremental additions.
+        """
+        self.replace_modules(progress, modules)
 
     def replace_modules(
         self, progress: LearningProgress, modules: list[LearningModule]
@@ -153,7 +161,6 @@ class LearningService:
 
     def list_progress(self) -> dict:
         """Return summary of all book progress with per-book error info."""
-        import logging
         logger = logging.getLogger(__name__)
 
         book_ids = self._store.list_all()

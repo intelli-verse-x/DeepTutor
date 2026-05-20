@@ -6,6 +6,7 @@ import { Lightbulb, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { apiUrl, wsUrl } from "@/lib/api";
 import ModuleTree from "@/components/learning/ModuleTree";
+import { StructuredStageContent, latestQuestionIdFromContent } from "@/components/learning/StructuredStageContent";
 
 interface StreamEvent {
   type: string;
@@ -30,6 +31,7 @@ export default function LearningBookPage() {
   const [currentStage, setCurrentStage] = useState<string>("");
   const currentStageRef = useRef<string>("");
   const [connecting, setConnecting] = useState(true);
+  const [progressLoaded, setProgressLoaded] = useState(false);
   const [waitingForLLM, setWaitingForLLM] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorRef = useRef<boolean>(false);
@@ -56,14 +58,20 @@ export default function LearningBookPage() {
   const [waitingForInput, setWaitingForInput] = useState(false);
   const [inputPrompt, setInputPrompt] = useState("");
   const [userInput, setUserInput] = useState("");
+  const [submittingAnswer, setSubmittingAnswer] = useState(false);
   const currentTurnRef = useRef<string>("");
   const modulesLengthRef = useRef(0);
   const moduleSelectedRef = useRef(false);
   const currentModuleIdRef = useRef("");
+  const userSelectedModuleRef = useRef(false);
   const submittingRef = useRef(false);
+  const currentQuestionIdRef = useRef("");
 
   const handleModuleClick = useCallback((moduleId: string) => {
     if (moduleId === currentModuleId) return;
+    userSelectedModuleRef.current = true;
+    setCurrentModuleId(moduleId);
+    setModuleSelected(true);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: "change_module",
@@ -71,36 +79,69 @@ export default function LearningBookPage() {
         module_id: moduleId,
       }));
     }
-  }, [currentModuleId]);
+  }, [currentModuleId, params.bookId]);
 
   const fetchProgress = useCallback(() => {
     fetch(apiUrl(`/api/v1/learning/progress/${params.bookId}`), { credentials: "include" })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to fetch progress: ${r.status}`);
+        return r.json();
+      })
       .then((data) => {
         setModules(data.modules ?? []);
         setMasteryLevels(data.mastery_levels ?? {});
-        setCurrentModuleId(data.current_module_id ?? "");
+        const restoredModuleId = data.current_module_id ?? "";
+        const restoredStage = data.current_stage ?? "";
+        if (restoredModuleId && restoredStage && restoredStage !== "diagnostic_phase1") {
+          setCurrentModuleId(restoredModuleId);
+          setModuleSelected(true);
+        } else {
+          setCurrentModuleId("");
+          setModuleSelected(false);
+        }
       })
       .catch((err) => {
         console.warn("Failed to fetch progress:", err);
+      })
+      .finally(() => {
+        setProgressLoaded(true);
       });
   }, [params.bookId]);
 
   const fetchProgressRef = useRef(fetchProgress);
-  fetchProgressRef.current = fetchProgress;
 
-  // Keep refs in sync so connect() reads latest values without being recreated.
-  modulesLengthRef.current = modules.length;
-  moduleSelectedRef.current = moduleSelected;
-  currentModuleIdRef.current = currentModuleId;
+  useEffect(() => {
+    fetchProgressRef.current = fetchProgress;
+  }, [fetchProgress]);
+
+  useEffect(() => {
+    modulesLengthRef.current = modules.length;
+    moduleSelectedRef.current = moduleSelected;
+    currentModuleIdRef.current = currentModuleId;
+  }, [currentModuleId, moduleSelected, modules.length]);
 
   // Use a ref for handleStreamEvent so the WebSocket onmessage handler
   // always calls the latest version instead of a stale closure.
   const handleStreamEventRef = useRef<(evt: StreamEvent) => void>(() => {});
+  const connectRef = useRef<() => void>(() => {});
 
   const connect = useCallback(() => {
+    if (!progressLoaded) return;
+    if (modulesLengthRef.current === 0) {
+      setConnecting(false);
+      return;
+    }
     // Skip auto-connect when multiple modules exist and none selected yet
-    if (modulesLengthRef.current > 1 && !moduleSelectedRef.current && !currentModuleIdRef.current) return;
+    if (modulesLengthRef.current > 1 && !moduleSelectedRef.current && !currentModuleIdRef.current) {
+      setConnecting(false);
+      return;
+    }
+    if (
+      wsRef.current?.readyState === WebSocket.OPEN ||
+      wsRef.current?.readyState === WebSocket.CONNECTING
+    ) {
+      return;
+    }
     // Clear any pending reconnect timer
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
@@ -115,6 +156,14 @@ export default function LearningBookPage() {
       setConnecting(false);
       setError(null);
       reconnectAttemptsRef.current = 0;
+      if (userSelectedModuleRef.current && currentModuleIdRef.current) {
+        ws.send(JSON.stringify({
+          type: "change_module",
+          session_id: params.bookId,
+          module_id: currentModuleIdRef.current,
+        }));
+        userSelectedModuleRef.current = false;
+      }
       // Check for existing active turn before starting a new one
       ws.send(JSON.stringify({
         type: "check_active_turn",
@@ -126,7 +175,9 @@ export default function LearningBookPage() {
       try {
         const evt: StreamEvent = JSON.parse(event.data);
         handleStreamEventRef.current(evt);
-      } catch { /* ignore parse errors */ }
+      } catch (err) {
+        console.warn("Failed to parse WebSocket message:", err, event.data);
+      }
     };
 
     ws.onerror = () => setError(t("guidedLearning.connectionError"));
@@ -136,13 +187,17 @@ export default function LearningBookPage() {
       if (reconnectAttemptsRef.current < 5) {
         const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
         reconnectAttemptsRef.current += 1;
-        reconnectTimerRef.current = setTimeout(() => connect(), delay);
+        reconnectTimerRef.current = setTimeout(() => connectRef.current(), delay);
       } else {
         setError(t("guidedLearning.connectionError"));
         setConnecting(false);
       }
     };
-  }, [params.bookId, t]);
+  }, [params.bookId, progressLoaded, t]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   const handleStreamEvent = (evt: StreamEvent) => {
     // Capture turn_id from any event that carries it
@@ -150,6 +205,7 @@ export default function LearningBookPage() {
       currentTurnRef.current = evt.turn_id;
     }
     if (evt.type === "wait_for_input") {
+      setSubmittingAnswer(false);
       setWaitingForInput(true);
       setInputPrompt(evt.content || "Please enter your answer");
       return;
@@ -195,6 +251,8 @@ export default function LearningBookPage() {
       return;
     }
     if (evt.type === "stage_start") {
+      submittingRef.current = false;
+      setSubmittingAnswer(false);
       setWaitingForLLM(false);
       currentStageRef.current = evt.stage;
       setCurrentStage(evt.stage);
@@ -225,9 +283,12 @@ export default function LearningBookPage() {
         }
       }
     } else if (evt.type === "content") {
-      setStages(prev => prev.map(s =>
-        s.stage === currentStageRef.current ? { ...s, content: s.content + evt.content } : s
-      ));
+      setStages(prev => prev.map(s => {
+        if (s.stage !== currentStageRef.current) return s;
+        const content = s.content ? `${s.content}\n${evt.content}` : evt.content;
+        currentQuestionIdRef.current = latestQuestionIdFromContent(content) || currentQuestionIdRef.current;
+        return { ...s, content };
+      }));
     } else if (evt.type === "result" || evt.type === "stage_end") {
       const endedStage = currentStageRef.current;
       // Update ref OUTSIDE setStages callback so it is synchronous and
@@ -249,6 +310,8 @@ export default function LearningBookPage() {
         fetchProgressRef.current();
       }
     } else if (evt.type === "done") {
+      submittingRef.current = false;
+      setSubmittingAnswer(false);
       moduleSwitchRef.current = false;
       // Auto-advance after turn completes.
       // Skip if: terminal "completed" stage exists, any error stage exists, or errorRef is set.
@@ -279,6 +342,8 @@ export default function LearningBookPage() {
         autoAdvanceTimerRef.current = setTimeout(() => sendContinue(3), 500);
       }
     } else if (evt.type === "error") {
+      submittingRef.current = false;
+      setSubmittingAnswer(false);
       // Ignore cancellation errors from the old turn during module switch.
       if (moduleSwitchRef.current && evt.content?.includes("cancelled")) {
         return;
@@ -305,8 +370,9 @@ export default function LearningBookPage() {
     }
   };
 
-  // Keep the ref always pointing at the latest handleStreamEvent
-  handleStreamEventRef.current = handleStreamEvent;
+  useEffect(() => {
+    handleStreamEventRef.current = handleStreamEvent;
+  });
 
   useEffect(() => {
     if (!toast) return;
@@ -316,12 +382,14 @@ export default function LearningBookPage() {
 
   // Fetch learning progress for module tree
   useEffect(() => {
-    fetchProgress();
+    const timer = setTimeout(() => fetchProgress(), 0);
+    return () => clearTimeout(timer);
   }, [fetchProgress]);
 
   useEffect(() => {
-    connect();
+    const timer = setTimeout(() => connect(), 0);
     return () => {
+      clearTimeout(timer);
       intentionalCloseRef.current = true;
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
@@ -331,8 +399,15 @@ export default function LearningBookPage() {
     };
   }, [connect]);
 
+  useEffect(() => {
+    if (progressLoaded && moduleSelected) {
+      const timer = setTimeout(() => connect(), 0);
+      return () => clearTimeout(timer);
+    }
+  }, [connect, moduleSelected, progressLoaded]);
+
   // Module picker: show when multiple modules exist and none selected
-  if (!connecting && !moduleSelected && modules.length > 1) {
+  if (!connecting && !moduleSelected && !currentModuleId && modules.length > 1) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center max-w-md">
@@ -352,6 +427,19 @@ export default function LearningBookPage() {
               </button>
             ))}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!connecting && modules.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center max-w-md">
+          <h2 className="text-xl font-bold mb-2">{t("guidedLearning.noModulesLoaded")}</h2>
+          <p className="text-sm text-[var(--muted-foreground)]">
+            {t("guidedLearning.createModule")}
+          </p>
         </div>
       </div>
     );
@@ -417,8 +505,8 @@ export default function LearningBookPage() {
           </div>
         )}
         {(stages.find(s => s.status === "active") || stages.find(s => s.status === "completed" && s.content))?.content ? (
-          <div className="prose dark:prose-invert max-w-none whitespace-pre-wrap">
-            {(stages.find(s => s.status === "active") || stages.find(s => s.status === "completed" && s.content))?.content}
+          <div className="prose dark:prose-invert max-w-none">
+            <StructuredStageContent content={(stages.find(s => s.status === "active") || stages.find(s => s.status === "completed" && s.content))?.content ?? ""} />
           </div>
         ) : (
           !waitingForInput && (
@@ -449,6 +537,7 @@ export default function LearningBookPage() {
               onClick={() => {
                 if (!currentTurnRef.current || submittingRef.current) return;
                 submittingRef.current = true;
+                setSubmittingAnswer(true);
                 wsRef.current?.send(JSON.stringify({
                   type: "user_input",
                   turn_id: currentTurnRef.current,
@@ -456,9 +545,9 @@ export default function LearningBookPage() {
                 }));
                 setWaitingForInput(false);
                 setUserInput("");
-                setTimeout(() => { submittingRef.current = false; }, 500);
               }}
-              className="mt-2 px-4 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] text-sm hover:opacity-90"
+              disabled={submittingAnswer}
+              className="mt-2 px-4 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] text-sm hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {t("guidedLearning.submit", "Submit")}
             </button>
