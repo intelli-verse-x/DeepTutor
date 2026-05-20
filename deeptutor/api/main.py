@@ -191,6 +191,7 @@ import os
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "https://tutor.intelli-verse-x.ai,https://quiz.intelli-verse-x.ai,"
+    "https://tutorx.quizverse.world,"
     "http://localhost:3000,http://localhost:5173",
 ).split(",")
 
