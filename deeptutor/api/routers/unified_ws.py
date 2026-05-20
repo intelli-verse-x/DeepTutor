@@ -169,11 +169,19 @@ async def unified_websocket(ws: WebSocket) -> None:
                 runtime = get_turn_runtime_manager()
                 active_turn = await runtime.store.get_active_turn(session_id)
                 if active_turn:
-                    await safe_send({
-                        "type": "active_turn_info",
-                        "turn_id": active_turn["id"],
-                        "status": active_turn.get("status", "running"),
-                    })
+                    # Verify the turn has a live execution; stale persisted
+                    # "running" rows (e.g. after server restart) have none.
+                    turn_id = active_turn["id"]
+                    async with runtime._lock:
+                        has_live = turn_id in runtime._executions
+                    if has_live:
+                        await safe_send({
+                            "type": "active_turn_info",
+                            "turn_id": turn_id,
+                            "status": active_turn.get("status", "running"),
+                        })
+                    else:
+                        await safe_send({"type": "active_turn_info", "turn_id": "", "status": "none"})
                 else:
                     await safe_send({"type": "active_turn_info", "turn_id": "", "status": "none"})
                 continue
@@ -268,13 +276,6 @@ async def unified_websocket(ws: WebSocket) -> None:
                 from deeptutor.learning.models import LearningStage
                 from deeptutor.services.session import get_turn_runtime_manager
 
-                # Cancel any active turn to prevent its finally block from
-                # overwriting the module change with stale progress.
-                runtime = get_turn_runtime_manager()
-                active_turn = await runtime.store.get_active_turn(session_id)
-                if active_turn:
-                    await runtime.cancel_turn(active_turn["id"])
-
                 store = LearningStore()
                 service = LearningService(store)
                 progress = service.get_or_create(session_id)
@@ -283,8 +284,20 @@ async def unified_websocket(ws: WebSocket) -> None:
                     progress.current_module_id = module_id
                     progress.current_kp_index = 0
                     progress.current_stage = LearningStage.PRETEST
-                    service.save(progress)
+
+                # Send module_changed BEFORE cancelling so the frontend
+                # processes the module switch before any cancellation error.
                 await safe_send({"type": "module_changed", "module_id": module_id, "success": found})
+
+                # Cancel any active turn to prevent its finally block from
+                # overwriting the module change with stale progress.
+                runtime = get_turn_runtime_manager()
+                active_turn = await runtime.store.get_active_turn(session_id)
+                if active_turn:
+                    await runtime.cancel_turn(active_turn["id"])
+
+                if found:
+                    service.save(progress)
                 continue
 
             await safe_send({"type": "error", "content": f"Unknown type: {msg_type}"})
