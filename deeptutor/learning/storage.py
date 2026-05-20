@@ -8,6 +8,9 @@ from pathlib import Path
 from deeptutor.learning.models import LearningProgress
 from deeptutor.services.path_service import get_path_service
 
+# Module-level lock so CAS semantics hold across all store instances.
+_cas_lock = threading.Lock()
+
 
 def _atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -20,7 +23,6 @@ class LearningStore:
     def __init__(self, root: Path | None = None) -> None:
         self._root = root or (get_path_service().get_workspace_dir() / "learning")
         self._root.mkdir(parents=True, exist_ok=True)
-        self._cas_lock = threading.Lock()
 
     def _path(self, book_id: str) -> Path:
         if "/" in book_id or "\\" in book_id or ".." in book_id or ":" in book_id:
@@ -30,17 +32,18 @@ class LearningStore:
     def save(self, progress: LearningProgress) -> None:
         import json
 
-        progress.updated_at = time.time()
-        progress.version += 1
-        data = progress.model_dump(mode="json")
-        text = json.dumps(data, ensure_ascii=False, indent=2)
-        _atomic_write_text(self._path(progress.book_id), text)
+        with _cas_lock:
+            progress.updated_at = time.time()
+            progress.version += 1
+            data = progress.model_dump(mode="json")
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            _atomic_write_text(self._path(progress.book_id), text)
 
     def save_cas(self, progress: LearningProgress, expected_version: int) -> bool:
         """Compare-and-swap save. Returns True if version matched and save succeeded."""
         import json
 
-        with self._cas_lock:
+        with _cas_lock:
             current = self.load(progress.book_id)
             if current is None or current.version != expected_version:
                 return False
