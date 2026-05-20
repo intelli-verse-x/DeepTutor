@@ -33,6 +33,7 @@ export default function LearningBookPage() {
   const [waitingForLLM, setWaitingForLLM] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const errorRef = useRef<boolean>(false);
+  const moduleSwitchRef = useRef<boolean>(false);
   const activeTurnRetryRef = useRef<boolean>(false);
   const [toast, setToast] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
@@ -156,6 +157,10 @@ export default function LearningBookPage() {
         clearTimeout(autoAdvanceTimerRef.current);
         autoAdvanceTimerRef.current = null;
       }
+      // Suppress the "Turn cancelled" error that follows cancel_turn.
+      moduleSwitchRef.current = true;
+      errorRef.current = false;
+      setError(null);
       const e = evt as unknown as Record<string, unknown>;
       if (e.success !== false) {
         setCurrentModuleId(typeof e.module_id === "string" ? e.module_id : "");
@@ -241,6 +246,7 @@ export default function LearningBookPage() {
         fetchProgressRef.current();
       }
     } else if (evt.type === "done") {
+      moduleSwitchRef.current = false;
       // Auto-advance after turn completes.
       // Skip if: terminal "completed" stage exists, any error stage exists, or errorRef is set.
       const hasCompletedTerminal = stagesRef.current.some(s => s.stage === "completed" && s.status === "completed");
@@ -270,6 +276,10 @@ export default function LearningBookPage() {
         autoAdvanceTimerRef.current = setTimeout(() => sendContinue(3), 500);
       }
     } else if (evt.type === "error") {
+      // Ignore cancellation errors from the old turn during module switch.
+      if (moduleSwitchRef.current && evt.content?.includes("cancelled")) {
+        return;
+      }
       setError(evt.content);
       errorRef.current = true;
       // Check if this is a recoverable "active turn" error
