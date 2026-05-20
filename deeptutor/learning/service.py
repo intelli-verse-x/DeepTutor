@@ -151,13 +151,14 @@ class LearningService:
         progress.mastery_levels[kp_id] = level
         progress.updated_at = time.time()
 
-    def list_progress(self) -> list[dict]:
-        """Return summary of all book progress."""
+    def list_progress(self) -> dict:
+        """Return summary of all book progress with per-book error info."""
         import logging
         logger = logging.getLogger(__name__)
 
         book_ids = self._store.list_all()
         summaries = []
+        errors = []
         for bid in book_ids:
             try:
                 progress = self._store.load(bid)
@@ -189,8 +190,9 @@ class LearningService:
                 })
             except Exception:
                 logger.warning("Failed to load progress for book %s, skipping", bid, exc_info=True)
+                errors.append({"book_id": bid, "error": "Failed to load"})
                 continue
-        return summaries
+        return {"summaries": summaries, "errors": errors}
 
     def save(self, progress: LearningProgress) -> None:
         self._store.save(progress)

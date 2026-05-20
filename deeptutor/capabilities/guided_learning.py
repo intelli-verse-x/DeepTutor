@@ -420,6 +420,9 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("pretest", source=self.manifest.name):
+            if not progress.modules:
+                self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+                return
             await stream.content("正在生成预测试题...", source=self.manifest.name)
             response = await self._call_llm(
                 PRETEST_SYSTEM, PRETEST_USER.format(knowledge_point=self._current_kp_name(progress))
@@ -431,6 +434,9 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("explain", source=self.manifest.name):
+            if not progress.modules:
+                self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+                return
             await stream.content("正在生成讲解内容...", source=self.manifest.name)
             response = await self._call_llm(
                 EXPLAIN_SYSTEM, EXPLAIN_USER.format(knowledge_point=self._current_kp_name(progress))
@@ -452,6 +458,9 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("feynman_check", source=self.manifest.name):
+            if not progress.modules:
+                self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+                return
             kps = self._current_knowledge_points(progress)
             kp = kps[progress.current_kp_index] if progress.current_kp_index < len(kps) else None
             kp_name = kp.name if kp else "当前知识点"
@@ -584,6 +593,9 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("practice", source=self.manifest.name):
+            if not progress.modules:
+                self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+                return
             prefix = f"{progress.current_module_id}_practice" if progress.current_module_id else "practice"
             await stream.content("正在生成练习题...", source=self.manifest.name)
             response = await self._call_llm(
@@ -663,6 +675,9 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("module_test", source=self.manifest.name):
+            if not progress.modules:
+                self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+                return
             prefix = f"{progress.current_module_id}_modtest" if progress.current_module_id else "modtest"
             await stream.content("正在生成模块测试...", source=self.manifest.name)
             response = await self._call_llm(

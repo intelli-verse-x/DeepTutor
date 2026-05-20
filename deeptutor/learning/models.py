@@ -161,7 +161,7 @@ class ReviewTask(BaseModel):
 
 
 class LearningProgress(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="ignore")
 
     book_id: str
     diagnostic: DiagnosticResult | None = None
