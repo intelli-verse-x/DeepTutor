@@ -91,7 +91,6 @@ class GuidedLearningCapability(BaseCapability):
         self._scheduler = scheduler or SpacedRepetitionScheduler()
         self._kb_name = kb_name
         self._kb_base_dir = kb_base_dir
-        self._last_rag_error: str = ""
 
     def _resolve_book_id(self, context: UnifiedContext) -> str:
         book_id = getattr(context, "book_id", None)
@@ -177,11 +176,13 @@ class GuidedLearningCapability(BaseCapability):
         kp_id: str | dict[str, str],
         module_id: str,
         prefix: str,
+        default_kp_id: str = "",
     ) -> dict:
         """Build question metadata dict for server-side answer mapping.
 
         kp_id can be a single string (applied to all questions) or a dict
         mapping question_id -> knowledge_point_id for per-question attribution.
+        Falls back to default_kp_id when resolution yields empty string.
         """
         meta = {}
         questions = data.get("questions") or data.get("exercises") or []
@@ -196,6 +197,8 @@ class GuidedLearningCapability(BaseCapability):
                 resolved_kp = kp_id.get(qid, "") or per_q_kp
             else:
                 resolved_kp = per_q_kp or kp_id
+            if not resolved_kp:
+                resolved_kp = default_kp_id
             meta[qid] = {
                 "answer": ans,
                 "knowledge_point_id": resolved_kp,
@@ -240,16 +243,16 @@ class GuidedLearningCapability(BaseCapability):
 
     # ── Real LLM call ───────────────────────────────────────────────────
 
-    async def _call_llm(self, system_prompt: str, user_message: str) -> str:
-        """Call real LLM via DeepTutor's complete() function. Raises on failure."""
-        rag_context, self._last_rag_error = await self._retrieve_context(user_message)
+    async def _call_llm(self, system_prompt: str, user_message: str) -> tuple[str, str]:
+        """Call real LLM. Returns (response, rag_error). rag_error is '' on success."""
+        rag_context, rag_error = await self._retrieve_context(user_message)
         if rag_context:
             system_prompt = system_prompt + rag_context
         response = await complete(
             prompt=user_message,
             system_prompt=system_prompt,
         )
-        return response
+        return (response, rag_error)
 
     # ── State machine entry ──────────────────────────────────────────────
 
@@ -265,18 +268,28 @@ class GuidedLearningCapability(BaseCapability):
                     await stream.content("学习流程已完成。进入复习阶段。")
             return
 
+        rag_warnings: list[str] = []
+        _orig_call_llm = self._call_llm
+
+        async def _tracked_call_llm(system_prompt: str, user_message: str) -> str:
+            response, rag_err = await _orig_call_llm(system_prompt, user_message)
+            if rag_err:
+                rag_warnings.append(rag_err)
+            return response
+
+        self._call_llm = _tracked_call_llm  # type: ignore[assignment]
         try:
-            self._last_rag_error = ""
             await handler(self, progress, context, stream)
-            if self._last_rag_error:
+            for w in rag_warnings:
                 async with stream.stage("warning", source=self.manifest.name):
-                    await stream.content(self._last_rag_error, metadata={"type": "rag_error"})
+                    await stream.content(w, metadata={"type": "rag_error"})
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Stage {stage} failed: {e}")
             async with stream.stage("error", source=self.manifest.name):
                 await stream.content(f"阶段执行失败: {e}。进度已保存，下次将继续此阶段。")
         finally:
+            self._call_llm = _orig_call_llm  # type: ignore[assignment]
             self._service.save(progress)
 
     # ── §2 Diagnostic ────────────────────────────────────────────────────
@@ -543,7 +556,7 @@ class GuidedLearningCapability(BaseCapability):
             self._store.save_question_answers(book_id, answers)
             kp_id_map = self._resolve_kp_id_map(data, kps, answers, prefix)
             default_kp_id = kps[0].id if kps else ""
-            meta = self._build_question_meta(answers, data, kp_id_map, progress.current_module_id, prefix)
+            meta = self._build_question_meta(answers, data, kp_id_map, progress.current_module_id, prefix, default_kp_id)
             self._store.save_question_meta(book_id, meta)
             self._inject_question_ids(data, prefix)
 
@@ -608,7 +621,7 @@ class GuidedLearningCapability(BaseCapability):
             kp_id_map = self._resolve_kp_id_map(data, kps, answers, prefix)
             default_kp_id = kps[0].id if kps else ""
             self._store.save_question_answers(book_id, answers)
-            meta = self._build_question_meta(answers, data, kp_id_map, progress.current_module_id, prefix)
+            meta = self._build_question_meta(answers, data, kp_id_map, progress.current_module_id, prefix, default_kp_id)
             self._store.save_question_meta(book_id, meta)
             self._inject_question_ids(data, prefix)
 

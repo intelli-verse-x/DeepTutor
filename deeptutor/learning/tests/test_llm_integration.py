@@ -18,7 +18,7 @@ class TestLLMIntegration:
             mock_complete.return_value = "LLM response"
             result = await cap._call_llm("system", "user")
             mock_complete.assert_called_once()
-            assert result == "LLM response"
+            assert result == ("LLM response", "")
 
     @pytest.mark.asyncio
     async def test_call_llm_network_error(self):
