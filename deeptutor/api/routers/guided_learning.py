@@ -365,10 +365,12 @@ type 可选：memory / concept / procedure / design。
     modules_raw = data.get("modules", [])
     if not isinstance(modules_raw, list):
         raise HTTPException(status_code=502, detail="LLM returned invalid structure: modules is not a list")
+    _ALLOWED_KP_TYPES = {"memory", "concept", "procedure", "design"}
     modules = []
     for i, m in enumerate(modules_raw):
         if not isinstance(m, dict) or "name" not in m:
             continue
+        module_name = str(m.get("name") or f"模块 {i+1}").strip()[:200] or f"模块 {i+1}"
         kps = []
         for j, kp in enumerate(m.get("knowledge_points", [])):
             if not isinstance(kp, dict) or "name" not in kp:
@@ -376,15 +378,18 @@ type 可选：memory / concept / procedure / design。
             kp_name = str(kp["name"]).strip()[:200]
             if len(kp_name) < 2:
                 continue
+            kp_type = str(kp.get("type", "concept")).strip()
+            if kp_type not in _ALLOWED_KP_TYPES:
+                kp_type = "concept"
             kps.append(KnowledgePoint(
                 id=f"{book_id}_nb{i}_kp{j}",
                 name=kp_name,
-                type=kp.get("type", "concept"),
+                type=kp_type,
                 module_id=f"{book_id}_nb{i}",
             ))
         modules.append(LearningModule(
             id=f"{book_id}_nb{i}",
-            name=m.get("name", f"模块 {i+1}"),
+            name=module_name,
             order=i,
             pass_threshold=0.7,
             knowledge_points=kps,
