@@ -183,6 +183,30 @@ class TestReplaceModules:
         assert "kp1" in progress.knowledge_types
         assert progress.modules[0].knowledge_points[0].id == "kp1"
 
+    def test_replace_cleans_stale_feynman_explanations(self, tmp_path: Path):
+        store = LearningStore(root=tmp_path)
+        service = LearningService(store)
+        progress = LearningProgress(book_id="test")
+
+        service.merge_modules(progress, [_make_module("m1", ["kp1"])])
+        progress.feynman_explanations["kp1"] = "user explanation text"
+
+        service.replace_modules(progress, [_make_module("m2", ["kp2"])])
+        assert "kp1" not in progress.feynman_explanations
+
+    def test_replace_clears_stage_failure_records(self, tmp_path: Path):
+        store = LearningStore(root=tmp_path)
+        service = LearningService(store)
+        progress = LearningProgress(book_id="test")
+
+        service.merge_modules(progress, [_make_module("m1", ["kp1"])])
+        progress.stage_failure_counts["explain"] = 4
+        progress.stage_failure_notes["explain"] = "timeout"
+
+        service.replace_modules(progress, [_make_module("m2", ["kp2"])])
+        assert progress.stage_failure_counts == {}
+        assert progress.stage_failure_notes == {}
+
 
 # ── CAS save ─────────────────────────────────────────────────────────────
 
