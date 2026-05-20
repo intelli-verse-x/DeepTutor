@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -19,6 +20,7 @@ class LearningStore:
     def __init__(self, root: Path | None = None) -> None:
         self._root = root or (get_path_service().get_workspace_dir() / "learning")
         self._root.mkdir(parents=True, exist_ok=True)
+        self._cas_lock = threading.Lock()
 
     def _path(self, book_id: str) -> Path:
         if "/" in book_id or "\\" in book_id or ".." in book_id or ":" in book_id:
@@ -38,15 +40,16 @@ class LearningStore:
         """Compare-and-swap save. Returns True if version matched and save succeeded."""
         import json
 
-        current = self.load(progress.book_id)
-        if current is None or current.version != expected_version:
-            return False
-        progress.version = expected_version + 1
-        progress.updated_at = time.time()
-        data = progress.model_dump(mode="json")
-        text = json.dumps(data, ensure_ascii=False, indent=2)
-        _atomic_write_text(self._path(progress.book_id), text)
-        return True
+        with self._cas_lock:
+            current = self.load(progress.book_id)
+            if current is None or current.version != expected_version:
+                return False
+            progress.version = expected_version + 1
+            progress.updated_at = time.time()
+            data = progress.model_dump(mode="json")
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            _atomic_write_text(self._path(progress.book_id), text)
+            return True
 
     def load(self, book_id: str) -> LearningProgress | None:
         import json
