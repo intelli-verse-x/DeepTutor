@@ -56,6 +56,9 @@ export default function LearningBookPage() {
   const [inputPrompt, setInputPrompt] = useState("");
   const [userInput, setUserInput] = useState("");
   const currentTurnRef = useRef<string>("");
+  const modulesLengthRef = useRef(0);
+  const moduleSelectedRef = useRef(false);
+  const currentModuleIdRef = useRef("");
 
   const handleModuleClick = useCallback((moduleId: string) => {
     if (moduleId === currentModuleId) return;
@@ -82,13 +85,18 @@ export default function LearningBookPage() {
   const fetchProgressRef = useRef(fetchProgress);
   fetchProgressRef.current = fetchProgress;
 
+  // Keep refs in sync so connect() reads latest values without being recreated.
+  modulesLengthRef.current = modules.length;
+  moduleSelectedRef.current = moduleSelected;
+  currentModuleIdRef.current = currentModuleId;
+
   // Use a ref for handleStreamEvent so the WebSocket onmessage handler
   // always calls the latest version instead of a stale closure.
   const handleStreamEventRef = useRef<(evt: StreamEvent) => void>(() => {});
 
   const connect = useCallback(() => {
     // Skip auto-connect when multiple modules exist and none selected yet
-    if (modules.length > 1 && !moduleSelected && !currentModuleId) return;
+    if (modulesLengthRef.current > 1 && !moduleSelectedRef.current && !currentModuleIdRef.current) return;
     // Clear any pending reconnect timer
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
