@@ -80,15 +80,16 @@ PRACTICE_QUIZ_SYSTEM = """你是一个出题专家。请为以下知识点生成
 2. 题型多样（选择、填空、简答）
 3. 难度适中，侧重理解和应用
 4. 每道题附带正确答案和简要解析
-返回 JSON：{"questions": [{"question": "...", "answer": "...", "explanation": "...", "knowledge_point": "..."}]}"""
+5. 每道题必须指定 knowledge_point_id，值为该题对应的知识点名称
+返回 JSON：{"questions": [{"question": "...", "answer": "...", "explanation": "...", "knowledge_point_id": "..."}]}"""
 
 PRACTICE_QUIZ_USER = "为以下知识点生成综合练习测验：{knowledge_points}"
 
 # ── Practice ───────────────────────────────────────────────────────────
 
 PRACTICE_SYSTEM = """生成3-5道练习题，难度递进（识记→理解→应用→分析）。
-要求：覆盖不同认知层次，支持交叉练习。
-返回 JSON：{"exercises": [{"question": "...", "answer": "...", "bloom_level": "..."}]}"""
+要求：覆盖不同认知层次，支持交叉练习。每道题必须指定 knowledge_point_id。
+返回 JSON：{"exercises": [{"question": "...", "answer": "...", "bloom_level": "...", "knowledge_point_id": "..."}]}"""
 
 PRACTICE_USER = "为模块生成练习题：{module_name}"
 
@@ -96,9 +97,10 @@ PRACTICE_USER = "为模块生成练习题：{module_name}"
 
 ERROR_DIAGNOSIS_SYSTEM = """分析学生做错的题目属于什么错误类型。
 错误类型：structural / deviation / application / metacognitive
-返回 JSON：{"error_type": "...", "analysis": "...", "remediation": "..."}"""
+返回 JSON：{"diagnoses": [{"question_id": "...", "error_type": "...", "ai_confirmation": "...", "remediation": "..."}]}
+如果没有错题记录，返回空 diagnoses 列表。"""
 
-ERROR_DIAGNOSIS_USER = "分析这道题的答题错误"
+ERROR_DIAGNOSIS_USER = "分析以下错题并给出诊断"
 
 # ── Module Test ────────────────────────────────────────────────────────
 

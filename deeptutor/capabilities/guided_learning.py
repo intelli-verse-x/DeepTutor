@@ -91,6 +91,7 @@ class GuidedLearningCapability(BaseCapability):
         self._scheduler = scheduler or SpacedRepetitionScheduler()
         self._kb_name = kb_name
         self._kb_base_dir = kb_base_dir
+        self._last_rag_error: str = ""
 
     def _resolve_book_id(self, context: UnifiedContext) -> str:
         book_id = getattr(context, "book_id", None)
@@ -173,50 +174,75 @@ class GuidedLearningCapability(BaseCapability):
         self,
         answers: dict[str, str],
         data: dict,
-        kp_id: str,
+        kp_id: str | dict[str, str],
         module_id: str,
         prefix: str,
     ) -> dict:
-        """Build question metadata dict for server-side answer mapping."""
+        """Build question metadata dict for server-side answer mapping.
+
+        kp_id can be a single string (applied to all questions) or a dict
+        mapping question_id -> knowledge_point_id for per-question attribution.
+        """
         meta = {}
         questions = data.get("questions") or data.get("exercises") or []
-        qids = data.get("question_ids", [])
         for i, (qid, ans) in enumerate(answers.items()):
             q_type = "short"
+            per_q_kp = ""
             if i < len(questions) and isinstance(questions[i], dict):
-                q_type = questions[i].get("question_type", questions[i].get("type", "short"))
+                q = questions[i]
+                q_type = q.get("question_type", q.get("type", "short"))
+                per_q_kp = q.get("knowledge_point_id", "")
+            if isinstance(kp_id, dict):
+                resolved_kp = kp_id.get(qid, "") or per_q_kp
+            else:
+                resolved_kp = per_q_kp or kp_id
             meta[qid] = {
                 "answer": ans,
-                "knowledge_point_id": kp_id,
+                "knowledge_point_id": resolved_kp,
                 "module_id": module_id,
                 "question_type": q_type,
             }
         return meta
 
+    @staticmethod
+    def _resolve_kp_id_map(data: dict, kps: list, answers: dict[str, str], prefix: str) -> dict[str, str]:
+        """Build {question_id: kp_id} from LLM-returned knowledge_point_id names."""
+        name_to_id = {kp.name: kp.id for kp in kps}
+        questions = data.get("questions") or data.get("exercises") or []
+        qids = list(answers.keys())
+        result = {}
+        for i, qid in enumerate(qids):
+            if i < len(questions) and isinstance(questions[i], dict):
+                kp_name = questions[i].get("knowledge_point_id", "")
+                result[qid] = name_to_id.get(kp_name, "")
+            else:
+                result[qid] = ""
+        return result
+
     # ── RAG retrieval ───────────────────────────────────────────────────
 
-    async def _retrieve_context(self, query: str) -> str:
-        """Retrieve relevant content from knowledge base. Returns '' if no KB configured."""
+    async def _retrieve_context(self, query: str) -> tuple[str, str]:
+        """Retrieve relevant content from knowledge base. Returns (content, error)."""
         if not self._kb_name:
-            return ""
+            return ("", "")
         try:
             from deeptutor.services.rag.service import RAGService
             rag = RAGService(kb_base_dir=self._kb_base_dir)
             result = await rag.search(query=query, kb_name=self._kb_name)
             content = result.get("content") or result.get("answer") or ""
             if content:
-                return f"\n\n参考教材内容：\n{content}"
-            return ""
+                return (f"\n\n参考教材内容：\n{content}", "")
+            return ("", "")
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"RAG retrieval failed: {e}")
-            return ""
+            return ("", f"RAG 检索失败: {e}")
 
     # ── Real LLM call ───────────────────────────────────────────────────
 
     async def _call_llm(self, system_prompt: str, user_message: str) -> str:
         """Call real LLM via DeepTutor's complete() function. Raises on failure."""
-        rag_context = await self._retrieve_context(user_message)
+        rag_context, self._last_rag_error = await self._retrieve_context(user_message)
         if rag_context:
             system_prompt = system_prompt + rag_context
         response = await complete(
@@ -240,7 +266,11 @@ class GuidedLearningCapability(BaseCapability):
             return
 
         try:
+            self._last_rag_error = ""
             await handler(self, progress, context, stream)
+            if self._last_rag_error:
+                async with stream.stage("warning", source=self.manifest.name):
+                    await stream.content(self._last_rag_error, metadata={"type": "rag_error"})
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Stage {stage} failed: {e}")
@@ -502,8 +532,9 @@ class GuidedLearningCapability(BaseCapability):
             book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, prefix)
             self._store.save_question_answers(book_id, answers)
+            kp_id_map = self._resolve_kp_id_map(data, kps, answers, prefix)
             default_kp_id = kps[0].id if kps else ""
-            meta = self._build_question_meta(answers, data, default_kp_id, progress.current_module_id, prefix)
+            meta = self._build_question_meta(answers, data, kp_id_map, progress.current_module_id, prefix)
             self._store.save_question_meta(book_id, meta)
             self._inject_question_ids(data, prefix)
 
@@ -527,7 +558,7 @@ class GuidedLearningCapability(BaseCapability):
                     progress,
                     QuizAttempt(
                         question_id=qid,
-                        knowledge_point_id=default_kp_id,
+                        knowledge_point_id=kp_id_map.get(qid, "") or default_kp_id,
                         module_id=progress.current_module_id or "",
                         is_correct=is_correct,
                         user_answer=user_answer,
@@ -562,9 +593,10 @@ class GuidedLearningCapability(BaseCapability):
             book_id = self._resolve_book_id(context)
             answers = self._extract_answers(data, prefix)
             kps = self._current_knowledge_points(progress)
+            kp_id_map = self._resolve_kp_id_map(data, kps, answers, prefix)
             default_kp_id = kps[0].id if kps else ""
             self._store.save_question_answers(book_id, answers)
-            meta = self._build_question_meta(answers, data, default_kp_id, progress.current_module_id, prefix)
+            meta = self._build_question_meta(answers, data, kp_id_map, progress.current_module_id, prefix)
             self._store.save_question_meta(book_id, meta)
             self._inject_question_ids(data, prefix)
 
@@ -584,7 +616,7 @@ class GuidedLearningCapability(BaseCapability):
                     progress,
                     QuizAttempt(
                         question_id=qid,
-                        knowledge_point_id=default_kp_id,
+                        knowledge_point_id=kp_id_map.get(qid, "") or default_kp_id,
                         module_id=progress.current_module_id or "",
                         is_correct=is_correct,
                         user_answer=user_answer,
@@ -598,8 +630,32 @@ class GuidedLearningCapability(BaseCapability):
         self, progress: LearningProgress, context: UnifiedContext, stream: StreamBus
     ) -> None:
         async with stream.stage("error_diagnosis", source=self.manifest.name):
+            active_errors = [r for r in progress.error_records if r.status in ("active", "retrying")]
+            if not active_errors:
+                await stream.content("没有待诊断的错题，跳过。", source=self.manifest.name)
+                self._service.advance_stage(progress, LearningStage.MODULE_TEST)
+                return
+
             await stream.content("正在生成错误诊断...", source=self.manifest.name)
-            response = await self._call_llm(ERROR_DIAGNOSIS_SYSTEM, ERROR_DIAGNOSIS_USER)
+            error_context = json.dumps(
+                [{"question_id": r.question_id, "error_type": r.error_type.value if r.error_type else "", "self_attribution": r.self_attribution} for r in active_errors],
+                ensure_ascii=False,
+            )
+            response = await self._call_llm(ERROR_DIAGNOSIS_SYSTEM, ERROR_DIAGNOSIS_USER + f"\n错题记录：{error_context}")
+            data = self._safe_json_parse(response, default={"diagnoses": []})
+            diagnoses = data.get("diagnoses", [])
+            for diag in diagnoses:
+                qid = diag.get("question_id", "")
+                for rec in progress.error_records:
+                    if rec.question_id == qid and rec.status in ("active", "retrying"):
+                        new_type = diag.get("error_type", "")
+                        if new_type:
+                            try:
+                                rec.error_type = ErrorType(new_type)
+                            except (ValueError, KeyError):
+                                pass
+                        rec.ai_confirmation = diag.get("ai_confirmation", "")
+                        break
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.MODULE_TEST)
 
