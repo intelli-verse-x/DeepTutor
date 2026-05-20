@@ -151,9 +151,10 @@ class TestLearningProgress:
         assert lp.modules == []
         assert isinstance(lp.created_at, float)
 
-    def test_extra_allowed(self):
+    def test_extra_ignored(self):
         lp = LearningProgress(book_id="b1", custom_field="hello")
-        assert lp.model_extra.get("custom_field") == "hello"
+        assert not hasattr(lp, "custom_field")
+        assert lp.book_id == "b1"
 
 
 # ── Serialization roundtrip ─────────────────────────────────────────────

@@ -64,7 +64,7 @@ class TestRAGIntegration:
         """_call_llm should call _retrieve_context and inject results."""
         cap = GuidedLearningCapability(kb_name="test_kb")
         with patch.object(cap, "_retrieve_context", new_callable=AsyncMock,
-                         return_value="\n\n参考教材内容：\nSome content") as mock_rag:
+                         return_value=("\n\n参考教材内容：\nSome content", "")) as mock_rag:
             with patch("deeptutor.capabilities.guided_learning.complete",
                       new_callable=AsyncMock) as mock_complete:
                 mock_complete.return_value = "response"
