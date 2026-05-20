@@ -285,6 +285,7 @@ async def unified_websocket(ws: WebSocket) -> None:
                     progress.current_stage = LearningStage.PRETEST
                     service.save(progress)
                 await safe_send({"type": "module_changed", "module_id": module_id, "success": found})
+                continue
 
             await safe_send({"type": "error", "content": f"Unknown type: {msg_type}"})
 
