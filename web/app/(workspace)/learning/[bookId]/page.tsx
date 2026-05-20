@@ -130,7 +130,7 @@ export default function LearningBookPage() {
         setConnecting(false);
       }
     };
-  }, [params.bookId, t, modules.length, moduleSelected, currentModuleId]);
+  }, [params.bookId, t]);
 
   const handleStreamEvent = (evt: StreamEvent) => {
     // Capture turn_id from any event that carries it
