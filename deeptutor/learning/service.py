@@ -178,9 +178,8 @@ class LearningService:
                     for kp in m.knowledge_points
                 }
                 total_kps = len(current_kp_ids)
-                mastered = sum(
-                    1 for kp_id in current_kp_ids
-                    if progress.mastery_levels.get(kp_id, 0) >= 0.7
+                total_mastery = sum(
+                    progress.mastery_levels.get(kp_id, 0) for kp_id in current_kp_ids
                 )
                 # Derive display name from first module, fall back to book_id
                 display_name = ""
@@ -192,7 +191,7 @@ class LearningService:
                     "modules_count": len(progress.modules),
                     "kp_count": total_kps,
                     "current_stage": progress.current_stage.value if progress.current_stage else "",
-                    "mastered_pct": round(mastered / total_kps * 100) if total_kps else 0,
+                    "mastered_pct": round(total_mastery / total_kps * 100) if total_kps else 0,
                     "updated_at": progress.updated_at,
                 })
             except Exception:
