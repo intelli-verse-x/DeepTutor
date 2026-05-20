@@ -32,7 +32,11 @@ export default function LearningPage() {
 
   const loadProgress = useCallback(async () => {
     try {
-      setItems(await fetchAllProgress());
+      const result = await fetchAllProgress();
+      setItems(result.summaries ?? []);
+      if (result.errors?.length) {
+        console.warn("Some progress failed to load:", result.errors);
+      }
     } catch {
       setToast(t("guidedLearning.connectionError"));
     } finally {

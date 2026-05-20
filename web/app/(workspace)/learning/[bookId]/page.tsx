@@ -60,6 +60,7 @@ export default function LearningBookPage() {
   const modulesLengthRef = useRef(0);
   const moduleSelectedRef = useRef(false);
   const currentModuleIdRef = useRef("");
+  const submittingRef = useRef(false);
 
   const handleModuleClick = useCallback((moduleId: string) => {
     if (moduleId === currentModuleId) return;
@@ -80,7 +81,9 @@ export default function LearningBookPage() {
         setMasteryLevels(data.mastery_levels ?? {});
         setCurrentModuleId(data.current_module_id ?? "");
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.warn("Failed to fetch progress:", err);
+      });
   }, [params.bookId]);
 
   const fetchProgressRef = useRef(fetchProgress);
@@ -333,8 +336,8 @@ export default function LearningBookPage() {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center max-w-md">
-          <h2 className="text-xl font-bold mb-2">Select a Module</h2>
-          <p className="text-sm text-[var(--muted-foreground)] mb-6">Choose a module to start guided learning</p>
+          <h2 className="text-xl font-bold mb-2">{t("guidedLearning.selectModule")}</h2>
+          <p className="text-sm text-[var(--muted-foreground)] mb-6">{t("guidedLearning.selectModuleDesc")}</p>
           <div className="flex flex-col gap-3">
             {modules.map(m => (
               <button
@@ -344,7 +347,7 @@ export default function LearningBookPage() {
               >
                 <div className="font-medium">{m.name}</div>
                 <div className="text-xs text-[var(--muted-foreground)] mt-1">
-                  {m.knowledge_points.length} knowledge points
+                  {m.knowledge_points.length} {t("guidedLearning.knowledgePoints")}
                 </div>
               </button>
             ))}
@@ -425,7 +428,7 @@ export default function LearningBookPage() {
               ) : waitingForLLM ? (
                 <div className="flex flex-col items-center gap-2">
                   <Loader2 className="w-8 h-8 animate-spin" />
-                  <p className="text-sm">Generating diagnostic questions...</p>
+                  <p className="text-sm">{t("guidedLearning.generatingDiagnostic")}</p>
                 </div>
               ) : (
                 t("guidedLearning.ready")
@@ -444,7 +447,8 @@ export default function LearningBookPage() {
             />
             <button
               onClick={() => {
-                if (!currentTurnRef.current) return;
+                if (!currentTurnRef.current || submittingRef.current) return;
+                submittingRef.current = true;
                 wsRef.current?.send(JSON.stringify({
                   type: "user_input",
                   turn_id: currentTurnRef.current,
@@ -452,6 +456,7 @@ export default function LearningBookPage() {
                 }));
                 setWaitingForInput(false);
                 setUserInput("");
+                setTimeout(() => { submittingRef.current = false; }, 500);
               }}
               className="mt-2 px-4 py-2 rounded bg-[var(--primary)] text-[var(--primary-foreground)] text-sm hover:opacity-90"
             >

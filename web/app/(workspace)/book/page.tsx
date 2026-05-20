@@ -243,7 +243,7 @@ function BookPageInner() {
   const handleLearn = useCallback(async (book: Book) => {
     try {
       const allProgress = await fetchAllProgress();
-      const existing = allProgress.find((p: { book_id: string }) => p.book_id === book.id);
+      const existing = allProgress.summaries.find((p: { book_id: string }) => p.book_id === book.id);
       if (existing && existing.modules_count > 0) {
         router.push(`/learning/${book.id}`);
         return;

@@ -52,7 +52,12 @@ export interface ProgressSummary {
   updated_at: number;
 }
 
-export async function fetchAllProgress(): Promise<ProgressSummary[]> {
+export interface ProgressListResult {
+  summaries: ProgressSummary[];
+  errors: { book_id: string; error: string }[];
+}
+
+export async function fetchAllProgress(): Promise<ProgressListResult> {
   const res = await apiFetch(apiUrl("/api/v1/learning/progress"));
   if (!res.ok) throw new Error(`Failed to fetch all progress: ${res.status}`);
   return res.json();
