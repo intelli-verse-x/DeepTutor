@@ -264,7 +264,7 @@ class GuidedLearningCapability(BaseCapability):
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"RAG retrieval failed: {e}")
-            return ("", f"RAG 检索失败: {e}")
+            return ("", "RAG 检索失败")
 
     # ── Real LLM call ───────────────────────────────────────────────────
 
@@ -372,9 +372,9 @@ class GuidedLearningCapability(BaseCapability):
                     await stream.content(w, metadata={"type": "rag_error"})
         except Exception as e:
             import logging
-            logging.getLogger(__name__).error(f"Stage {stage} failed: {e}")
+            logging.getLogger(__name__).error(f"Stage {stage} failed: {e}", exc_info=True)
             async with stream.stage("error", source=self.manifest.name):
-                await stream.content(f"阶段执行失败: {e}。进度已保存，下次将继续此阶段。")
+                await stream.content("阶段执行失败，进度已保存，下次将继续此阶段。")
         finally:
             _turn_call_llm.reset(token)
             self._service.save(progress)
@@ -829,14 +829,16 @@ class GuidedLearningCapability(BaseCapability):
                     timeout=self._ERROR_DIAGNOSIS_TIMEOUT_SECONDS,
                 )
             except (Exception, asyncio.TimeoutError) as exc:
+                import logging
+                logging.getLogger(__name__).warning("error_diagnosis failed: %s", exc, exc_info=True)
                 progress.stage_failure_counts["error_diagnosis"] = progress.stage_failure_counts.get("error_diagnosis", 0) + 1
                 progress.stage_failure_notes["error_diagnosis"] = str(exc)
                 for rec in active_errors:
-                    rec.ai_confirmation = f"error_diagnosis_unavailable: {exc}"
+                    rec.ai_confirmation = "error_diagnosis_unavailable"
                 await stream.content(
                     "错因诊断暂时不可用，已保留现有错误分类并继续后续模块测试。",
                     source=self.manifest.name,
-                    metadata={"type": "error_diagnosis_unavailable", "error": str(exc)},
+                    metadata={"type": "error_diagnosis_unavailable"},
                 )
                 self._service.advance_stage(progress, LearningStage.MODULE_TEST)
                 return

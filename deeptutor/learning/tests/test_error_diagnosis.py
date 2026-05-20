@@ -82,7 +82,7 @@ async def test_error_diagnosis_llm_failure_advances_to_module_test():
 
     assert progress.current_stage == LearningStage.MODULE_TEST
     assert progress.error_records[0].error_type == ErrorType.APPLICATION_ERROR
-    assert progress.error_records[0].ai_confirmation.startswith("error_diagnosis_unavailable:")
+    assert progress.error_records[0].ai_confirmation == "error_diagnosis_unavailable"
     assert any("错因诊断暂时不可用" in text for kind, text in stream.events if kind == "content")
 
 
@@ -102,7 +102,7 @@ async def test_error_diagnosis_llm_timeout_advances_to_module_test():
     await cap._run_error_diagnosis(progress, None, stream)
 
     assert progress.current_stage == LearningStage.MODULE_TEST
-    assert progress.error_records[0].ai_confirmation.startswith("error_diagnosis_unavailable:")
+    assert progress.error_records[0].ai_confirmation == "error_diagnosis_unavailable"
 
 
 @pytest.mark.asyncio
