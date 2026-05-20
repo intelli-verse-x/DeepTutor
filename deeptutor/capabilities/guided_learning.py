@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
 import time
 from typing import Any
+
+_turn_call_llm: contextvars.ContextVar = contextvars.ContextVar("_turn_call_llm", default=None)
 
 from deeptutor.core.capability_protocol import BaseCapability, CapabilityManifest
 from deeptutor.core.context import UnifiedContext
@@ -245,6 +248,12 @@ class GuidedLearningCapability(BaseCapability):
 
     async def _call_llm(self, system_prompt: str, user_message: str) -> tuple[str, str]:
         """Call real LLM. Returns (response, rag_error). rag_error is '' on success."""
+        tracked = _turn_call_llm.get()
+        if tracked is not None:
+            return await tracked(self, system_prompt, user_message)
+        return await self._call_llm_impl(system_prompt, user_message)
+
+    async def _call_llm_impl(self, system_prompt: str, user_message: str) -> tuple[str, str]:
         rag_context, rag_error = await self._retrieve_context(user_message)
         if rag_context:
             system_prompt = system_prompt + rag_context
@@ -269,15 +278,14 @@ class GuidedLearningCapability(BaseCapability):
             return
 
         rag_warnings: list[str] = []
-        _orig_call_llm = self._call_llm
 
-        async def _tracked_call_llm(system_prompt: str, user_message: str) -> str:
-            response, rag_err = await _orig_call_llm(system_prompt, user_message)
+        async def _tracked_call_llm(cap, system_prompt: str, user_message: str) -> tuple[str, str]:
+            response, rag_err = await cap._call_llm_impl(system_prompt, user_message)
             if rag_err:
                 rag_warnings.append(rag_err)
-            return response
+            return (response, rag_err)
 
-        self._call_llm = _tracked_call_llm  # type: ignore[assignment]
+        token = _turn_call_llm.set(_tracked_call_llm)
         try:
             await handler(self, progress, context, stream)
             for w in rag_warnings:
@@ -289,7 +297,7 @@ class GuidedLearningCapability(BaseCapability):
             async with stream.stage("error", source=self.manifest.name):
                 await stream.content(f"阶段执行失败: {e}。进度已保存，下次将继续此阶段。")
         finally:
-            self._call_llm = _orig_call_llm  # type: ignore[assignment]
+            _turn_call_llm.reset(token)
             self._service.save(progress)
 
     # ── §2 Diagnostic ────────────────────────────────────────────────────
@@ -689,7 +697,11 @@ class GuidedLearningCapability(BaseCapability):
     ) -> None:
         async with stream.stage("module_test", source=self.manifest.name):
             if not progress.modules:
-                self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+                active_errors = [r for r in progress.error_records if r.status in ("active", "retrying")]
+                if active_errors:
+                    self._service.advance_stage(progress, LearningStage.ERROR_DIAGNOSIS)
+                else:
+                    self._service.advance_stage(progress, LearningStage.COMPLETED)
                 return
             prefix = f"{progress.current_module_id}_modtest" if progress.current_module_id else "modtest"
             await stream.content("正在生成模块测试...", source=self.manifest.name)
