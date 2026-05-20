@@ -215,6 +215,14 @@ async def replace_modules(book_id: str, body: InitModulesRequest):
                 status_code=422,
                 detail=f"Invalid module data in modules[{i}]: {exc.errors()}",
             ) from exc
+    # Cancel any active turn to prevent its finally block from
+    # overwriting the replacement with stale progress.
+    from deeptutor.services.session import get_turn_runtime_manager
+    runtime = get_turn_runtime_manager()
+    active_turn = await runtime.store.get_active_turn(book_id)
+    if active_turn:
+        await runtime.cancel_turn(active_turn["id"])
+
     service.replace_modules(progress, modules)
     progress.current_module_id = modules[0].id if modules else ""
     progress.current_kp_index = 0
