@@ -37,7 +37,9 @@ class TestListProgress:
     def test_list_empty(self, client):
         resp = client.get("/api/v1/learning/progress")
         assert resp.status_code == 200
-        assert resp.json() == []
+        data = resp.json()
+        assert data["summaries"] == []
+        assert data["errors"] == []
 
     def test_list_with_data(self, client):
         client.post("/api/v1/learning/progress/testbook/init-modules",
@@ -46,7 +48,8 @@ class TestListProgress:
                                                             "type": "concept", "module_id": "m1"}]}]})
         resp = client.get("/api/v1/learning/progress")
         assert resp.status_code == 200
-        book_ids = [p["book_id"] for p in resp.json()]
+        data = resp.json()
+        book_ids = [p["book_id"] for p in data["summaries"]]
         assert "testbook" in book_ids
 
     def test_list_name_from_first_module(self, client):
@@ -59,7 +62,7 @@ class TestListProgress:
                     ]})
         resp = client.get("/api/v1/learning/progress")
         assert resp.status_code == 200
-        for p in resp.json():
+        for p in resp.json()["summaries"]:
             if p["book_id"] == "named":
                 assert p["name"] == "线性代数"
                 break
@@ -72,7 +75,7 @@ class TestListProgress:
                     json={"modules": []})
         resp = client.get("/api/v1/learning/progress")
         assert resp.status_code == 200
-        for p in resp.json():
+        for p in resp.json()["summaries"]:
             if p["book_id"] == "empty_mods":
                 assert p["name"] == "empty_mods", f"expected book_id fallback, got {p['name']}"
                 break

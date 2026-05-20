@@ -42,10 +42,10 @@ class TestRAGIntegration:
 
     @pytest.mark.asyncio
     async def test_retrieve_context_no_kb(self):
-        """Without kb_name, _retrieve_context returns empty string."""
+        """Without kb_name, _retrieve_context returns (content, error) tuple with empty strings."""
         cap = GuidedLearningCapability()
         result = await cap._retrieve_context("test query")
-        assert result == ""
+        assert result == ("", "")
 
     def test_kb_params_stored(self):
         """kb_name and kb_base_dir should be stored as instance attrs."""
