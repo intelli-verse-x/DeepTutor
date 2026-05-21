@@ -355,3 +355,24 @@ async def test_feynman_success_clears_explanation():
 
     # Should have cleared the previous unevaluated explanation
     assert "kp1" not in progress.feynman_explanations
+
+
+# ── Success clears stage failure count ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_success_clears_stage_failure_count():
+    """When LLM succeeds after prior failures, stage failure counts should be cleared."""
+    cap = _make_capability()
+    cap._call_llm = AsyncMock(return_value="success response")
+    progress = _make_progress_with_module()
+    progress.current_stage = LearningStage.EXPLAIN
+    progress.stage_failure_counts["explain"] = 2
+    progress.stage_failure_notes["explain"] = "previous timeout"
+    stream = FakeStream()
+
+    await cap._run_explain(progress, None, stream)
+
+    # Failure count and note should be cleared after success
+    assert "explain" not in progress.stage_failure_counts
+    assert "explain" not in progress.stage_failure_notes

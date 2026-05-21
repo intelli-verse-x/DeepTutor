@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 
 from fastapi import APIRouter, HTTPException
@@ -336,7 +337,11 @@ async def generate_from_notebook(book_id: str, body: GenerateFromNotebookRequest
         raise HTTPException(status_code=400, detail="No records provided")
 
     records_data = [
-        {"type": r.type, "title": r.title[:200], "output": r.output[:500]}
+        {
+            "type": html.escape(r.type[:50], quote=False),
+            "title": html.escape(r.title[:200], quote=False),
+            "output": html.escape(r.output[:500], quote=False),
+        }
         for r in body.records[:20]
     ]
     records_json = json.dumps(records_data, ensure_ascii=False)

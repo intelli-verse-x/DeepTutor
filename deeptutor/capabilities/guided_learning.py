@@ -282,7 +282,7 @@ class GuidedLearningCapability(BaseCapability):
                 self._retrieve_context(user_message),
                 timeout=self._RAG_TIMEOUT_SECONDS,
             )
-        except (Exception, asyncio.TimeoutError):
+        except Exception:
             rag_context, rag_error = "", "RAG retrieval timed out"
         if rag_context:
             system_prompt = system_prompt + rag_context
@@ -320,8 +320,11 @@ class GuidedLearningCapability(BaseCapability):
             return None
         for attempt in range(self._STAGE_MAX_FAILURES):
             try:
-                return await self._call_llm_with_timeout(system_prompt, user_message, timeout=timeout)
-            except (Exception, asyncio.TimeoutError) as exc:
+                result = await self._call_llm_with_timeout(system_prompt, user_message, timeout=timeout)
+                progress.stage_failure_counts.pop(stage_name, None)
+                progress.stage_failure_notes.pop(stage_name, None)
+                return result
+            except Exception as exc:
                 progress.stage_failure_counts[stage_name] = progress.stage_failure_counts.get(stage_name, 0) + 1
                 progress.stage_failure_notes[stage_name] = str(exc)
                 if attempt < self._STAGE_MAX_FAILURES - 1:
@@ -828,7 +831,7 @@ class GuidedLearningCapability(BaseCapability):
                     self._call_llm(ERROR_DIAGNOSIS_SYSTEM, ERROR_DIAGNOSIS_USER + f"\n错题记录：{error_context}"),
                     timeout=self._ERROR_DIAGNOSIS_TIMEOUT_SECONDS,
                 )
-            except (Exception, asyncio.TimeoutError) as exc:
+            except Exception as exc:
                 import logging
                 logging.getLogger(__name__).warning("error_diagnosis failed: %s", exc, exc_info=True)
                 progress.stage_failure_counts["error_diagnosis"] = progress.stage_failure_counts.get("error_diagnosis", 0) + 1
