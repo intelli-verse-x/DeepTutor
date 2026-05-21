@@ -203,6 +203,9 @@ $RECYCLE.BIN/
 *.swp
 *.swo
 
+# Local scripts
+启动 DeepTutor.bat
+
 # ============================================
 # Testing and Coverage
 # ============================================
@@ -210,6 +213,7 @@ $RECYCLE.BIN/
 .coverage.*
 htmlcov/
 .pytest_cache/
+.pytest_tmp/
 .tox/
 nosetests.xml
 coverage.xml
