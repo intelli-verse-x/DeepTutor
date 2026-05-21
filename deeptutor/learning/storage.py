@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 import threading
 import time
 import uuid
-from pathlib import Path
 
 from deeptutor.learning.models import LearningProgress
 from deeptutor.services.path_service import get_path_service

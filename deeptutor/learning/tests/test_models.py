@@ -16,7 +16,6 @@ from deeptutor.learning.models import (
     ReviewTask,
 )
 
-
 # ── Enums ────────────────────────────────────────────────────────────────
 
 class TestKnowledgeType:

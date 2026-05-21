@@ -1,7 +1,13 @@
 """Tests for Guided Learning mastery updates from in-turn answers."""
 
 from deeptutor.capabilities.guided_learning import GuidedLearningCapability
-from deeptutor.learning.models import KnowledgePoint, KnowledgeType, LearningModule, LearningProgress, QuizAttempt
+from deeptutor.learning.models import (
+    KnowledgePoint,
+    KnowledgeType,
+    LearningModule,
+    LearningProgress,
+    QuizAttempt,
+)
 from deeptutor.learning.service import LearningService
 from deeptutor.learning.storage import LearningStore
 

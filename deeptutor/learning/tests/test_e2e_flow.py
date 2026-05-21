@@ -1,7 +1,7 @@
 """End-to-end flow test: PRETEST → EXPLAIN → FEYNMAN_CHECK → PRACTICE_QUIZ → ERROR_DIAGNOSIS → MODULE_TEST → REVIEW → COMPLETED."""
 
-import json
 from contextlib import asynccontextmanager
+import json
 from unittest.mock import AsyncMock
 
 import pytest

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import contextvars
 import asyncio
+import contextvars
 import json
 import time
 from typing import Any
@@ -17,16 +17,11 @@ from deeptutor.learning.grading import grade_answer
 from deeptutor.learning.models import (
     DiagnosticResult,
     ErrorType,
-    KnowledgePoint,
     KnowledgeType,
-    LearningModule,
     LearningProgress,
     LearningStage,
     QuizAttempt,
 )
-from deeptutor.learning.scheduler import SpacedRepetitionScheduler
-from deeptutor.learning.service import LearningService
-from deeptutor.learning.storage import LearningStore
 from deeptutor.learning.prompts import (
     DIAGNOSTIC_PHASE1_SYSTEM,
     DIAGNOSTIC_PHASE1_USER,
@@ -53,6 +48,9 @@ from deeptutor.learning.prompts import (
     REVIEW_SYSTEM,
     REVIEW_USER,
 )
+from deeptutor.learning.scheduler import SpacedRepetitionScheduler
+from deeptutor.learning.service import LearningService
+from deeptutor.learning.storage import LearningStore
 from deeptutor.services.llm import complete
 
 

@@ -1,8 +1,8 @@
 """Unified grading function for guided learning."""
 from __future__ import annotations
 
-import re
 from difflib import SequenceMatcher
+import re
 
 
 def grade_answer(user_answer: str, expected_answer: str, question_type: str = "short") -> bool:

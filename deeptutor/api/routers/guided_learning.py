@@ -13,6 +13,7 @@ from deeptutor.learning.grading import grade_answer
 from deeptutor.learning.models import (
     ErrorType,
     KnowledgePoint,
+    KnowledgeType,
     LearningModule,
     LearningStage,
     QuizAttempt,
@@ -256,7 +257,7 @@ async def import_from_book(book_id: str, body: ImportFromBookRequest):
     modules = []
     for i, ch in enumerate(body.chapters):
         kps = [
-            KnowledgePoint(id=f"{book_id}_ch{i}_kp{j}", name=kp_name, type="concept", module_id=f"{book_id}_ch{i}")
+            KnowledgePoint(id=f"{book_id}_ch{i}_kp{j}", name=kp_name, type=KnowledgeType("concept"), module_id=f"{book_id}_ch{i}")
             for j, kp_name in enumerate(ch.knowledge_points)
         ]
         modules.append(LearningModule(
@@ -389,7 +390,7 @@ type 可选：memory / concept / procedure / design。
             kps.append(KnowledgePoint(
                 id=f"{book_id}_nb{i}_kp{j}",
                 name=kp_name,
-                type=kp_type,
+                type=KnowledgeType(kp_type),
                 module_id=f"{book_id}_nb{i}",
             ))
         modules.append(LearningModule(

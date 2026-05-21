@@ -262,9 +262,9 @@ async def unified_websocket(ws: WebSocket) -> None:
                 if not session_id or not module_id:
                     await safe_send({"type": "error", "content": "Missing session_id or module_id for change_module."})
                     continue
+                from deeptutor.learning.models import LearningStage
                 from deeptutor.learning.service import LearningService
                 from deeptutor.learning.storage import LearningStore
-                from deeptutor.learning.models import LearningStage
                 from deeptutor.services.session import get_turn_runtime_manager
 
                 store = LearningStore()

@@ -1,7 +1,9 @@
 """Integration tests for guided_learning LLM + RAG integration."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+
 from deeptutor.capabilities.guided_learning import GuidedLearningCapability
 from deeptutor.learning.models import LearningProgress, LearningStage
 

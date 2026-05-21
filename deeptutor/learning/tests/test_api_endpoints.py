@@ -3,11 +3,12 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
+
 from deeptutor.api.routers.guided_learning import router
-from deeptutor.learning.models import LearningModule, KnowledgePoint, KnowledgeType
+from deeptutor.learning.models import KnowledgePoint, KnowledgeType, LearningModule
 from deeptutor.learning.storage import LearningStore
 
 

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import time
 from enum import Enum
+import time
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 _KNOWLEDGE_TYPE_LEGACY: dict[str, str] = {
     "记忆型": "memory",

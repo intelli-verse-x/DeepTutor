@@ -1,8 +1,8 @@
 """Tests for Feynman check retry limit."""
 
 import asyncio
-import json
 from contextlib import asynccontextmanager
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest

@@ -29,8 +29,8 @@ The output is decoupled from the rest of ``turn_runtime``:
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
+import logging
 from typing import Any, Sequence
 
 from deeptutor.services.session.protocol import SessionStoreProtocol
