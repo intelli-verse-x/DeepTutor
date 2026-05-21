@@ -4,13 +4,13 @@
 
 This PR introduces **Guided Learning**, a structured, mastery-based tutoring subsystem that transforms DeepTutor from a free-form chat tool into a pedagogical learning system with persistent progress tracking, spaced repetition, and adaptive stage progression.
 
-**Upstream status**: This is a complete new subsystem. `upstream/main` has no `deeptutor/learning/`, no `guided_learning.py` capability, and no learning-related frontend pages or components.
+**Upstream status**: This is a complete new subsystem. `upstream/dev` has no `deeptutor/learning/`, no `guided_learning.py` capability, and no learning-related frontend pages or components.
 
-**Scope**: 73 files changed, +11,590 / -4,491 lines. All changes are additive except for minor hook points in existing chat/stream infrastructure.
+**Scope**: 71 files changed, +7,284 / -99 lines across 114 commits. All changes are additive except for minor hook points in existing chat/stream infrastructure. The branch was merged with `upstream/dev` (a merge commit at the tip) so it applies cleanly on top of the current dev base.
 
 ---
 
-## What’s included
+## What's included
 
 ### Backend
 
@@ -22,8 +22,8 @@ This PR introduces **Guided Learning**, a structured, mastery-based tutoring sub
 | **Scheduler** | `deeptutor/learning/scheduler.py` | Spaced repetition scheduler with per-knowledge-type initial states |
 | **Grading** | `deeptutor/learning/grading.py` | Server-side answer evaluation with normalization and stripping |
 | **Capability** | `deeptutor/capabilities/guided_learning.py` | 12-stage state machine: diagnostic → plan → pretest → explain → Feynman check → practice → error diagnosis → module test → review → completed |
-| **API Router** | `deeptutor/api/routers/guided_learning.py` | 13 REST endpoints: progress CRUD, module generation, notebook import, `/redo`, `/answer`, etc. |
-| **Tests** | `deeptutor/learning/tests/` (14 files) | 164 tests covering models, storage, scheduler, service, API endpoints, LLM integration, timeout degradation, error diagnosis, E2E flow |
+| **API Router** | `deeptutor/api/routers/guided_learning.py` | 10 REST endpoints: progress CRUD, module generation, notebook import, `/redo`, `/answer`, etc. |
+| **Tests** | `deeptutor/learning/tests/` (13 files) | 164 tests covering models, storage, scheduler, service, API endpoints, LLM integration, timeout degradation, error diagnosis, E2E flow |
 
 ### Frontend
 
@@ -39,6 +39,7 @@ This PR introduces **Guided Learning**, a structured, mastery-based tutoring sub
 - `deeptutor/core/stream_bus.py`: added `wait_for_input()` for interactive stage turns
 - `deeptutor/api/routers/unified_ws.py`: wired Guided Learning into WebSocket routing
 - `deeptutor/api/main.py`: registered learning router
+- `deeptutor/runtime/bootstrap/builtin_capabilities.py`: registered `guided_learning` capability
 
 ---
 
@@ -54,26 +55,34 @@ This PR introduces **Guided Learning**, a structured, mastery-based tutoring sub
 ## Testing
 
 ```bash
-cd deeptutor/learning/tests
-pytest -q
-# 164 passed in ~3s
+pytest deeptutor/learning/tests/ -q
+# 164 passed
 ```
 
 Test categories:
 - Unit: models, storage, scheduler, grading
 - Integration: service replace/merge, mastery updates, timeout degradation
-- API: all 13 endpoints with success + error paths
+- API: all 10 endpoints with success + error paths
 - E2E: complete `PRETEST → EXPLAIN → FEYNMAN_CHECK → PRACTICE_QUIZ → ERROR_DIAGNOSIS → MODULE_TEST → REVIEW → COMPLETED` flow
+
+Frontend type check:
+
+```bash
+cd web && npx tsc --noEmit
+# clean
+```
 
 ---
 
 ## Checklist
 
-- [x] 164 tests pass
+- [x] 164 backend tests pass
+- [x] Frontend `tsc --noEmit` clean
 - [x] No breaking changes to existing chat / solve / research capabilities
 - [x] i18n parity verified (`npm run i18n:parity`)
 - [x] No secrets or local configs committed
 - [x] All user-facing strings localized
+- [x] Branch merged with `upstream/dev` at HEAD (clean three-way merge)
 
 ---
 
