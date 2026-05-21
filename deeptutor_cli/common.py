@@ -32,8 +32,8 @@ def parse_json_object(raw: str | None) -> dict[str, Any]:
         return {}
     try:
         value = json.loads(normalized)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON config: {exc.msg}") from exc
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ValueError(f"Invalid JSON config: {exc}") from exc
     if not isinstance(value, dict):
         raise ValueError("JSON config must be an object.")
     return value
@@ -225,5 +225,5 @@ def _parse_scalar_value(raw_value: str) -> Any:
         return None
     try:
         return json.loads(raw_value)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         return raw_value

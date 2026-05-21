@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+import re
 import shutil
 from typing import Any
+
+_VALID_USER_ID = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -177,6 +180,8 @@ async def assign_space_template(
     payload: SpaceAssignPayload,
     _: object = Depends(require_admin),
 ) -> dict[str, Any]:
+    if not _VALID_USER_ID.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user_id")
     _require_assignable_user(user_id)
 
     admin_workspace = get_admin_path_service().get_workspace_dir()

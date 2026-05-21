@@ -147,6 +147,36 @@ async def unified_websocket(ws: WebSocket) -> None:
                 await subscribe_session(session_id, after_seq=int(msg.get("after_seq") or 0))
                 continue
 
+            if msg_type == "check_active_turn":
+                session_id = str(msg.get("session_id") or "").strip()
+                if not session_id:
+                    await safe_send({"type": "error", "content": "Missing session_id."})
+                    continue
+                from deeptutor.services.session import get_turn_runtime_manager
+
+                runtime = get_turn_runtime_manager()
+                active_turn = await runtime.store.get_active_turn(session_id)
+                if active_turn:
+                    # Verify the turn has a live execution; stale persisted
+                    # "running" rows (e.g. after server restart) have none.
+                    turn_id = active_turn["id"]
+                    async with runtime._lock:
+                        has_live = turn_id in runtime._executions
+                    if has_live:
+                        await safe_send({
+                            "type": "active_turn_info",
+                            "turn_id": turn_id,
+                            "status": active_turn.get("status", "running"),
+                        })
+                    else:
+                        # Stale turn from a previous process — mark it terminal
+                        # so create_turn won't reject the upcoming start_turn.
+                        await runtime.store.update_turn_status(turn_id, "cancelled", "Stale turn after restart")
+                        await safe_send({"type": "active_turn_info", "turn_id": "", "status": "none"})
+                else:
+                    await safe_send({"type": "active_turn_info", "turn_id": "", "status": "none"})
+                continue
+
             if msg_type == "resume_from":
                 turn_id = str(msg.get("turn_id") or "").strip()
                 if not turn_id:
@@ -210,6 +240,55 @@ async def unified_websocket(ws: WebSocket) -> None:
                     )
                     continue
                 await subscribe_turn(turn["id"], after_seq=0)
+                continue
+
+            if msg_type == "user_input":
+                turn_id = str(msg.get("turn_id") or "").strip()
+                if not turn_id:
+                    await safe_send({"type": "error", "content": "Missing turn_id for user_input."})
+                    continue
+                from deeptutor.core.stream_bus import get_bus
+
+                bus = get_bus(turn_id)
+                if bus is None:
+                    await safe_send({"type": "error", "content": f"No active bus for turn: {turn_id}"})
+                    continue
+                bus.submit_input(str(msg.get("content") or ""))
+                continue
+
+            if msg_type == "change_module":
+                session_id = str(msg.get("session_id") or "").strip()
+                module_id = str(msg.get("module_id") or "").strip()
+                if not session_id or not module_id:
+                    await safe_send({"type": "error", "content": "Missing session_id or module_id for change_module."})
+                    continue
+                from deeptutor.learning.service import LearningService
+                from deeptutor.learning.storage import LearningStore
+                from deeptutor.learning.models import LearningStage
+                from deeptutor.services.session import get_turn_runtime_manager
+
+                store = LearningStore()
+                service = LearningService(store)
+                progress = service.get_or_create(session_id)
+                found = any(m.id == module_id for m in progress.modules)
+                if found:
+                    progress.current_module_id = module_id
+                    progress.current_kp_index = 0
+                    progress.current_stage = LearningStage.PRETEST
+
+                # Send module_changed BEFORE cancelling so the frontend
+                # processes the module switch before any cancellation error.
+                await safe_send({"type": "module_changed", "module_id": module_id, "success": found})
+
+                # Cancel any active turn to prevent its finally block from
+                # overwriting the module change with stale progress.
+                runtime = get_turn_runtime_manager()
+                active_turn = await runtime.store.get_active_turn(session_id)
+                if active_turn:
+                    await runtime.cancel_turn(active_turn["id"])
+
+                if found:
+                    service.save(progress)
                 continue
 
             await safe_send({"type": "error", "content": f"Unknown type: {msg_type}"})

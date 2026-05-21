@@ -259,7 +259,7 @@ class VisualizeCapability(BaseCapability):
                 raw = raw[:-3].rstrip()
         try:
             parsed = json.loads(raw)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             parsed = {"render_type": "html" if is_html_mode else "svg", "code": raw}
         if not isinstance(parsed, dict):
             parsed = {

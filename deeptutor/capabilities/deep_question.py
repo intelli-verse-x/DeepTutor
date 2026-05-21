@@ -325,7 +325,7 @@ class DeepQuestionCapability(BaseCapability):
             text = text.strip()
         try:
             parsed = json.loads(text)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             return [
                 {
                     "question_id": "q_1",

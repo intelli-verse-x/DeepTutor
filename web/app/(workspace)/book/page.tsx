@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Loader2, MessageSquare } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -29,6 +29,8 @@ import {
   progressIsComplete,
   reduceBookEvent,
 } from "@/lib/book-progress";
+
+import { fetchAllProgress, importFromBook } from "@/lib/learning-api";
 
 import BookChatPanel from "./components/BookChatPanel";
 import BookCreator from "./components/BookCreator";
@@ -65,9 +67,11 @@ function BookLoadingText() {
 
 function BookPageInner() {
   const { t } = useTranslation();
+  const router = useRouter();
   const [books, setBooks] = useState<Book[]>([]);
   const [loadingBooks, setLoadingBooks] = useState(false);
   const [view, setView] = useState<View>("list");
+  const [toast, setToast] = useState("");
 
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [detail, setDetail] = useState<BookDetail | null>(null);
@@ -122,6 +126,12 @@ function BookPageInner() {
   useEffect(() => {
     void refreshBooks();
   }, [refreshBooks]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 3500);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   // ── Live WS event subscription ─────────────────────────────────────
 
@@ -229,6 +239,26 @@ function BookPageInner() {
     }
     await refreshBooks();
   };
+
+  const handleLearn = useCallback(async (book: Book) => {
+    try {
+      const allProgress = await fetchAllProgress();
+      const existing = allProgress.summaries.find((p: { book_id: string }) => p.book_id === book.id);
+      if (existing && existing.modules_count > 0) {
+        router.push(`/learning/${book.id}`);
+        return;
+      }
+      const data = await bookApi.get(book.id);
+      const chapters = (data.spine?.chapters ?? []).map((ch: { title: string; learning_objectives: string[] }) => ({
+        title: ch.title,
+        knowledge_points: ch.learning_objectives ?? [],
+      }));
+      await importFromBook(book.id, chapters);
+      router.push(`/learning/${book.id}`);
+    } catch {
+      setToast(t("guidedLearning.startLearningFailed"));
+    }
+  }, [router]);
 
   const handleRebuildBook = async () => {
     if (!detail) return;
@@ -444,6 +474,11 @@ function BookPageInner() {
 
   return (
     <div className="flex h-screen w-full">
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-lg bg-red-500/90 px-4 py-2 text-sm text-white shadow-lg">
+          {toast}
+        </div>
+      )}
       {view !== "list" && (
         <BookSidebar
           book={detail?.book || pendingBook || null}
@@ -473,6 +508,7 @@ function BookPageInner() {
               onNewBook={handleNewBook}
               onSelectBook={(id) => void handleSelectBook(id)}
               onDeleteBook={(id) => void handleDeleteBook(id)}
+              onLearn={(book) => void handleLearn(book)}
             />
           )}
 

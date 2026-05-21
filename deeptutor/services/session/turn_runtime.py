@@ -649,6 +649,12 @@ class TurnRuntimeManager:
             await self.store.update_turn_status(turn_id, "cancelled", "Turn cancelled")
             return True
         execution.task.cancel()
+        # Wait for the task to finish so its finally block (including save)
+        # completes before the caller proceeds.
+        try:
+            await execution.task
+        except asyncio.CancelledError:
+            pass
         return True
 
     async def subscribe_turn(
@@ -1378,6 +1384,9 @@ class TurnRuntimeManager:
             logger.debug("Failed to mirror turn event to workspace", exc_info=True)
 
 
+import threading
+
+_runtime_lock = threading.Lock()
 _runtime_instances: dict[str, TurnRuntimeManager] = {}
 
 
@@ -1386,9 +1395,10 @@ def get_turn_runtime_manager() -> TurnRuntimeManager:
 
     store = get_session_store()
     key = str(getattr(store, "db_path", id(store)))
-    if key not in _runtime_instances:
-        _runtime_instances[key] = TurnRuntimeManager(store=store)
-    return _runtime_instances[key]
+    with _runtime_lock:
+        if key not in _runtime_instances:
+            _runtime_instances[key] = TurnRuntimeManager(store=store)
+        return _runtime_instances[key]
 
 
 __all__ = ["TurnRuntimeManager", "get_turn_runtime_manager"]

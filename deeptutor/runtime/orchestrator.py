@@ -15,7 +15,7 @@ import uuid
 
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream import StreamEvent, StreamEventType
-from deeptutor.core.stream_bus import StreamBus
+from deeptutor.core.stream_bus import StreamBus, register_bus, unregister_bus
 from deeptutor.events.event_bus import Event, EventType, get_event_bus
 from deeptutor.runtime.registry.capability_registry import get_capability_registry
 from deeptutor.runtime.registry.tool_registry import get_tool_registry
@@ -90,6 +90,9 @@ class ChatOrchestrator:
         )
 
         bus = StreamBus()
+        _turn_id = str(context.metadata.get("turn_id") or "")
+        if _turn_id:
+            register_bus(_turn_id, bus)
 
         async def _run() -> None:
             try:
@@ -100,6 +103,8 @@ class ChatOrchestrator:
             finally:
                 await bus.emit(StreamEvent(type=StreamEventType.DONE, source=cap_name))
                 await bus.close()
+                if _turn_id:
+                    unregister_bus(_turn_id)
 
         stream = bus.subscribe()
         task = asyncio.create_task(_run())

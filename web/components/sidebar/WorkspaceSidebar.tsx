@@ -22,6 +22,7 @@ export default function WorkspaceSidebar() {
   const surface = useMemo(() => surfaceForPath(pathname), [pathname]);
   const {
     newSession,
+    cancelStreamingTurn,
     selectedSessionId,
     sessionStatuses,
     sidebarRefreshToken,
@@ -76,6 +77,7 @@ export default function WorkspaceSidebar() {
     .map(({ session }) => session);
 
   const handleNewChat = () => {
+    cancelStreamingTurn();
     newSession();
     router.push(surface.basePath);
   };
@@ -113,11 +115,13 @@ export default function WorkspaceSidebar() {
         prev.filter((session) => session.session_id !== sessionId),
       );
       if (selectedSessionId === sessionId) {
+        cancelStreamingTurn();
         newSession();
         router.push(surface.basePath);
       }
     },
     [newSession, router, selectedSessionId, surface.basePath, t],
+    [cancelStreamingTurn, newSession, router, selectedSessionId, t],
   );
 
   return (

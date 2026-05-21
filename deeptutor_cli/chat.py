@@ -227,7 +227,7 @@ def _parse_notebook_refs(values: list[str]) -> list[dict[str, Any]]:
 def _parse_config_value(raw_value: str) -> Any:
     try:
         return json.loads(raw_value)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         lowered = raw_value.lower()
         if lowered == "true":
             return True
