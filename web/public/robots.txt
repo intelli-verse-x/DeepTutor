@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+Sitemap: https://tutor.intelli-verse-x.ai/sitemap.xml
