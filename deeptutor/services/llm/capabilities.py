@@ -29,6 +29,15 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, object]] = {
         "system_in_messages": True,  # System prompt goes in messages array
         "newer_models_use_max_completion_tokens": True,
     },
+    # Custom / user-defined OpenAI-compatible endpoints
+    "custom": {
+        "supports_response_format": True,
+        "supports_streaming": True,
+        "supports_tools": True,  # Most OpenAI-compat endpoints support function calling
+        "supports_vision": False,  # Per-model; set True via MODEL_OVERRIDES
+        "system_in_messages": True,
+        "has_thinking_tags": False,  # Per-model; MODEL_OVERRIDES handles qwen/deepseek etc.
+    },
     "azure_openai": {
         "supports_response_format": True,
         "supports_streaming": True,
@@ -104,6 +113,16 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, object]] = {
         "supports_tools": True,
         "supports_vision": True,
         "system_in_messages": True,
+    },
+    # DashScope / Alibaba Cloud (Qwen family)
+    # Uses OpenAI-compatible API with native function calling support.
+    "dashscope": {
+        "supports_response_format": True,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": False,  # Per-model; set True via MODEL_OVERRIDES
+        "system_in_messages": True,
+        "has_thinking_tags": True,  # Qwen reasoner models emit <think/> tags
     },
     # Moonshot / Kimi — vision is per-model (see MODEL_OVERRIDES below).
     # Per the official docs the image input must be base64-encoded inline; URL
