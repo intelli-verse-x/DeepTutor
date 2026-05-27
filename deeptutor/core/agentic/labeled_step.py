@@ -47,6 +47,7 @@ from deeptutor.core.agentic.usage import UsageTracker
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.trace import merge_trace_metadata
 from deeptutor.services.llm import clean_thinking_tags
+from deeptutor.services.llm.multimodal import should_degrade_to_text, strip_image_parts_inplace
 
 # Reasoning models (Qwen, Deepseek-R1 via certain proxies, etc.) sometimes
 # inline a literal ``<think>...</think>`` block in the content stream before
@@ -118,8 +119,8 @@ def _message_content_chars(message: dict[str, Any]) -> int:
     return len(str(content))
 
 
-def _is_stream_options_unsupported(exc: Exception) -> bool:
-    """Detect providers that reject OpenAI's ``stream_options`` parameter."""
+def _error_text(exc: Exception) -> str:
+    """Best-effort lowercase error body for provider-capability detection."""
     response = getattr(exc, "response", None)
     body = (
         getattr(exc, "body", None)
@@ -128,7 +129,12 @@ def _is_stream_options_unsupported(exc: Exception) -> bool:
         or getattr(exc, "message", None)
         or str(exc)
     )
-    text = str(body).lower()
+    return str(body).lower()
+
+
+def _is_stream_options_unsupported(exc: Exception) -> bool:
+    """Detect providers that reject OpenAI's ``stream_options`` parameter."""
+    text = _error_text(exc)
     return any(
         marker in text
         for marker in (
@@ -145,15 +151,7 @@ def _is_stream_options_unsupported(exc: Exception) -> bool:
 
 def _is_tool_schema_unsupported(exc: Exception) -> bool:
     """Detect providers that reject native tool/function-calling schemas."""
-    response = getattr(exc, "response", None)
-    body = (
-        getattr(exc, "body", None)
-        or getattr(exc, "doc", None)
-        or getattr(response, "text", None)
-        or getattr(exc, "message", None)
-        or str(exc)
-    )
-    text = str(body).lower()
+    text = _error_text(exc)
     return any(
         marker in text
         for marker in (
@@ -165,6 +163,32 @@ def _is_tool_schema_unsupported(exc: Exception) -> bool:
             "parameters.properties",
             "404_not_found",
             "404 not_found",
+        )
+    )
+
+
+def _is_image_input_unsupported(exc: Exception) -> bool:
+    """Detect providers/models that reject image (multimodal) content.
+
+    Covers both explicit "no vision" rejections and the structural errors a
+    text-only OpenAI-compatible model raises when it receives the content
+    *array* the image injection produced (it expected a plain string).
+    Transient errors (rate limit / 5xx) never mention these markers, so they
+    don't trigger the image fallback.
+    """
+    text = _error_text(exc)
+    return any(
+        marker in text
+        for marker in (
+            "image",
+            "vision",
+            "multimodal",
+            "image_url",
+            "content type",
+            "must be a string",
+            "expected a string",
+            "expected string",
+            "invalid type for 'messages",
         )
     )
 
@@ -484,6 +508,24 @@ async def run_labeled_step(
                 retry_kwargs.pop("tools", None)
                 retry_kwargs.pop("tool_choice", None)
                 return await client.chat.completions.create(**retry_kwargs)
+            # Stage-2 vision fallback: the model rejected our image content and
+            # it is not in the known-vision allowlist. Strip images in place
+            # (so they aren't re-sent on later loop iterations) and retry the
+            # turn text-only rather than hard-failing.
+            if _is_image_input_unsupported(exc) and should_degrade_to_text(
+                binding, model, kwargs.get("messages") or []
+            ):
+                strip_image_parts_inplace(kwargs["messages"])
+                await stream.progress(
+                    "Model does not support image input; retrying without images.",
+                    source=source,
+                    stage=stage,
+                    metadata=merge_trace_metadata(
+                        iter_meta,
+                        {"trace_kind": "warning", "image_fallback": True},
+                    ),
+                )
+                return await client.chat.completions.create(**kwargs)
             raise
 
     response_stream = await _create_response_stream()

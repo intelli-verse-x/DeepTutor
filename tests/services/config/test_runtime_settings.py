@@ -12,6 +12,7 @@ RUNTIME_ENV_KEYS = (
     "BACKEND_PORT",
     "FRONTEND_PORT",
     "NEXT_PUBLIC_API_BASE_EXTERNAL",
+    "PUBLIC_API_BASE",
     "NEXT_PUBLIC_API_BASE",
     "CORS_ORIGIN",
     "CORS_ORIGINS",
@@ -107,6 +108,27 @@ def test_render_environment_uses_json_backed_runtime_names(monkeypatch, tmp_path
     assert env["AUTH_TOKEN_EXPIRE_HOURS"] == "12"
     assert env["POCKETBASE_URL"] == "http://pocketbase:8090"
     assert "AUTH_SECRET" not in env
+
+
+def test_system_settings_accept_public_api_base_alias_and_normalize_origins(
+    monkeypatch, tmp_path: Path
+) -> None:
+    _clear_runtime_env(monkeypatch)
+    service = RuntimeSettingsService(tmp_path / "settings")
+
+    system = service.save_system(
+        {
+            "public_api_base": "https://api.example.com/base",
+            "cors_origins": "app.example.com; https://learn.example.com/path",
+        }
+    )
+
+    assert system["next_public_api_base_external"] == "https://api.example.com/base"
+    assert system["cors_origins"] == [
+        "http://app.example.com",
+        "https://learn.example.com",
+    ]
+    assert "public_api_base" not in _read_json(service.path_for("system"))
 
 
 def test_exported_environment_does_not_become_runtime_override(monkeypatch, tmp_path: Path) -> None:

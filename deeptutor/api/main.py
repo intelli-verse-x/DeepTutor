@@ -12,6 +12,7 @@ from deeptutor.services.config import (
     load_auth_settings,
     load_system_settings,
 )
+from deeptutor.services.config.origins import normalize_origins
 from deeptutor.services.path_service import get_path_service
 
 ensure_runtime_settings_files()
@@ -80,27 +81,13 @@ def validate_tool_consistency():
         raise
 
 
-def _split_origins(value: str | None) -> list[str]:
-    if not value:
-        return []
-    origins: list[str] = []
-    seen: set[str] = set()
-    for raw in value.replace("\n", ",").split(","):
-        origin = raw.strip().rstrip("/")
-        if not origin or origin in seen:
-            continue
-        origins.append(origin)
-        seen.add(origin)
-    return origins
-
-
 def _build_cors_settings() -> dict[str, object]:
     """Build CORS settings for both localhost and remote Docker deployments."""
     system_settings = load_system_settings()
     auth_settings = load_auth_settings()
     frontend_port = str(system_settings["frontend_port"])
-    extra_origins = _split_origins(system_settings["cors_origin"]) + _split_origins(
-        ",".join(system_settings["cors_origins"])
+    extra_origins = normalize_origins(
+        [system_settings["cors_origin"], system_settings["cors_origins"]]
     )
     origins = [
         f"http://localhost:{frontend_port}",
@@ -117,7 +104,12 @@ def _build_cors_settings() -> dict[str, object]:
     # When auth is enabled, require explicit CORS_ORIGIN(S) for credentialed
     # cross-origin requests.
     allow_origin_regex = None if auth_settings["enabled"] else r"https?://.*"
-    return {"allow_origins": origins, "allow_origin_regex": allow_origin_regex}
+    mode = "explicit" if auth_settings["enabled"] else "permissive"
+    return {
+        "allow_origins": origins,
+        "allow_origin_regex": allow_origin_regex,
+        "mode": mode,
+    }
 
 
 @asynccontextmanager
@@ -233,6 +225,12 @@ async def selective_access_log(request, call_next):
 
 
 _cors_settings = _build_cors_settings()
+logger.info(
+    "CORS configured: mode=%s allow_origins=%s allow_origin_regex=%s",
+    _cors_settings["mode"],
+    _cors_settings["allow_origins"],
+    _cors_settings["allow_origin_regex"],
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_settings["allow_origins"],

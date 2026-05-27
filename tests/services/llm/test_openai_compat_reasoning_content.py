@@ -136,6 +136,17 @@ def test_services_dashscope_minimal_reasoning_uses_enable_thinking_only() -> Non
     assert kwargs["extra_body"] == {"enable_thinking": False}
 
 
+def test_services_custom_qwen_enables_thinking_without_top_level_effort() -> None:
+    kwargs = _build_services_kwargs(
+        "custom",
+        None,
+        model="qwen3.6-plus",
+    )
+
+    assert "reasoning_effort" not in kwargs
+    assert kwargs["extra_body"] == {"enable_thinking": True}
+
+
 def test_tutorbot_provider_minimal_reasoning_uses_extra_body_only() -> None:
     kwargs = _build_tutorbot_kwargs("deepseek", "minimal")
 
@@ -152,3 +163,14 @@ def test_tutorbot_deepseek_v4_flash_disables_thinking_by_default() -> None:
 
     assert "reasoning_effort" not in kwargs
     assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+def test_tutorbot_custom_qwen_enables_thinking_without_top_level_effort() -> None:
+    kwargs = _build_tutorbot_kwargs(
+        "custom",
+        None,
+        model="Qwen/Qwen3-235B-A22B-Instruct",
+    )
+
+    assert "reasoning_effort" not in kwargs
+    assert kwargs["extra_body"] == {"enable_thinking": True}

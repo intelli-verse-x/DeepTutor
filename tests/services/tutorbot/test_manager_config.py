@@ -15,15 +15,23 @@ from deeptutor.services.tutorbot.model_runtime import resolve_tutorbot_llm_confi
 
 
 @pytest.fixture
-def manager(tmp_path: Path) -> TutorBotManager:
-    """Return a TutorBotManager whose data dir is a fresh temp directory."""
-    mgr = TutorBotManager()
-    # Replace the path service with a stub so reads/writes stay sandboxed.
-    mgr._path_service = SimpleNamespace(  # type: ignore[assignment]
+def manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TutorBotManager:
+    """Return a TutorBotManager whose data dir is a fresh temp directory.
+
+    ``TutorBotManager._path_service`` is a read-only property that returns the
+    global singleton, so reads/writes are sandboxed by patching the factory it
+    reads from (mirrors tests/services/tutorbot/test_shell_exec_security.py).
+    """
+    path_service = SimpleNamespace(
         project_root=tmp_path,
+        workspace_root=tmp_path,
         get_memory_dir=lambda: tmp_path / "memory",
     )
-    return mgr
+    monkeypatch.setattr(
+        "deeptutor.services.tutorbot.manager.get_path_service",
+        lambda: path_service,
+    )
+    return TutorBotManager()
 
 
 def _append_session_line(manager: TutorBotManager, bot_id: str, payload: dict) -> None:
@@ -160,6 +168,17 @@ class TestMessageHistory:
 
         assert recent[0]["bot_id"] == "bot-recent"
         assert recent[0]["last_message"] == "look [image]"
+
+
+def test_web_session_key_preserves_default_and_supports_explicit_sessions() -> None:
+    manager = TutorBotManager()
+
+    assert manager.web_session_key("math-bot") == "bot:math-bot"
+    assert manager.web_session_key("math-bot", chat_id="thread-1") == "web:thread-1"
+    assert (
+        manager.web_session_key("math-bot", chat_id="thread-1", session_id="lesson-1")
+        == "web:lesson-1"
+    )
 
 
 # ---------------------------------------------------------------------------

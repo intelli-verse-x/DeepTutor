@@ -177,6 +177,68 @@ def _build_unique_task_id(task_type: str, task_key_prefix: str) -> str:
     return task_manager.generate_task_id(task_type, task_key)
 
 
+def _save_zip_archive(
+    file: UploadFile,
+    sanitized_filename: str,
+    target_dir: Path,
+    allowed_extensions: set[str] | None,
+) -> list[Path]:
+    """Safely expand an uploaded ``.zip`` into ``target_dir``.
+
+    The archive itself is never persisted; each member is validated and
+    extracted via :func:`safe_extract_zip` (Zip Slip / zip-bomb / extension
+    guards). Returns the list of written file paths.
+    """
+    import tempfile
+    import zipfile
+
+    from deeptutor.utils.archive_extractor import ArchiveTooLargeError, safe_extract_zip
+
+    file.file.seek(0)
+    max_size = DocumentValidator.MAX_FILE_SIZE
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+            written = 0
+            for chunk in iter(lambda: file.file.read(8192), b""):
+                written += len(chunk)
+                if written > max_size:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Archive '{sanitized_filename}' exceeds maximum size limit of "
+                            f"{format_bytes_human_readable(max_size)}"
+                        ),
+                    )
+                tmp.write(chunk)
+
+        try:
+            result = safe_extract_zip(
+                tmp_path, target_dir, allowed_extensions=allowed_extensions or set()
+            )
+        except ArchiveTooLargeError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Rejected archive '{sanitized_filename}': {exc}",
+            ) from exc
+        except zipfile.BadZipFile as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{sanitized_filename}' is not a valid zip archive.",
+            ) from exc
+
+        if not result.extracted:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Archive '{sanitized_filename}' contained no supported files.",
+            )
+        return result.extracted
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+
+
 def _save_uploaded_files(
     files: list[UploadFile],
     target_dir: Path,
@@ -209,6 +271,26 @@ def _save_uploaded_files(
                     allowed_extensions=allowed_extensions,
                 )
                 file.filename = sanitized_filename
+
+                if Path(sanitized_filename).suffix.lower() == ".zip":
+                    # Expand the archive in place; register each extracted
+                    # member instead of the zip itself.
+                    for dest in _save_zip_archive(
+                        file, sanitized_filename, target_dir, allowed_extensions
+                    ):
+                        written_file_paths.append(dest)
+                        uploaded_files.append(dest.name)
+                        uploaded_file_paths.append(str(dest))
+                        if _pb_sync and kb_name:
+                            try:
+                                _upload_file_to_pb(kb_name, dest.name, dest)
+                            except Exception as pb_exc:
+                                logger.debug(
+                                    "PocketBase file upload failed for '%s': %s",
+                                    dest.name,
+                                    pb_exc,
+                                )
+                    continue
 
                 file_path = target_dir / sanitized_filename
                 max_size = DocumentValidator.MAX_FILE_SIZE
@@ -1059,9 +1141,13 @@ async def upload_files(
                 ),
             )
         allowed_extensions = FileTypeRouter.get_supported_extensions()
-        _validate_upload_batch(files, allowed_extensions=allowed_extensions)
+        # ``.zip`` is accepted as an upload container; its members are
+        # validated against ``allowed_extensions`` during extraction and the
+        # archive itself is never indexed (``safe_extract_zip`` skips ``.zip``).
+        upload_extensions = allowed_extensions | {".zip"}
+        _validate_upload_batch(files, allowed_extensions=upload_extensions)
         uploaded_files, uploaded_file_paths = _save_uploaded_files(
-            files, raw_dir, allowed_extensions=allowed_extensions
+            files, raw_dir, allowed_extensions=upload_extensions
         )
         task_id = _build_unique_task_id("kb_upload", kb_name)
         get_task_stream_manager().ensure_task(task_id)

@@ -16,7 +16,7 @@ from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from deeptutor.logging import (
     ProcessLogEvent,
@@ -43,16 +43,22 @@ def _discover_plugins() -> list[Any]:
 
 
 class ToolExecuteRequest(BaseModel):
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class CapabilityExecuteRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     content: str
-    tools: list[str] = []
-    knowledge_bases: list[str] = []
+    tools: list[str] = Field(default_factory=list, alias="enabledTools")
+    knowledge_bases: list[str] = Field(default_factory=list, alias="knowledgeBases")
     language: str = "en"
-    config: dict[str, Any] = {}
-    attachments: list[dict[str, Any]] = []
+    config: dict[str, Any] = Field(default_factory=dict)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    bot_id: str | None = None
+    session_id: str | None = None
+    chat_id: str | None = None
+    llm_selection: dict[str, str] | None = Field(default=None, alias="llmSelection")
 
 
 @router.get("/list")
@@ -283,6 +289,32 @@ async def _execute_capability_stream(
     body: CapabilityExecuteRequest,
 ) -> AsyncGenerator[str, None]:
     """Run a capability while streaming process logs, trace events, and the result."""
+    bot_id = (body.bot_id or "").strip()
+    if capability_name == "chat" and bot_id:
+        from deeptutor.api.routers.tutorbot import (
+            ChatMessageRequest,
+            _bot_chat_stream,
+            _ensure_running_bot,
+        )
+
+        if not body.content.strip():
+            yield _sse("error", {"detail": "content is required"})
+            return
+        try:
+            await _ensure_running_bot(bot_id)
+        except HTTPException as exc:
+            yield _sse("error", {"detail": exc.detail, "status_code": exc.status_code})
+            return
+        request = ChatMessageRequest(
+            content=body.content,
+            session_id=body.session_id,
+            chat_id=body.chat_id,
+            llm_selection=body.llm_selection,
+        )
+        async for chunk in _bot_chat_stream(bot_id, request):
+            yield chunk
+        return
+
     from deeptutor.core.context import Attachment, UnifiedContext
     from deeptutor.runtime.orchestrator import ChatOrchestrator
 

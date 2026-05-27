@@ -573,8 +573,16 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-dashed border-[var(--border)] py-12 text-center text-[13px] text-[var(--muted-foreground)]">
-          {t("No profiles configured. Add a profile to start.")}
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-[var(--border)] px-5 py-12 text-center text-[13px] text-[var(--muted-foreground)]">
+          <div>{t("No profiles configured. Add a profile to start.")}</div>
+          <button
+            type="button"
+            onClick={() => addProfile(service)}
+            className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)]/50 px-2.5 py-1 text-[12px] text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] hover:text-[var(--foreground)]"
+          >
+            <Plus className="h-3 w-3" />
+            {t("Profile")}
+          </button>
         </div>
       )}
     </div>

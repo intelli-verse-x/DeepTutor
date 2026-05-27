@@ -35,3 +35,19 @@ def test_cors_requires_explicit_origins_when_auth_enabled(monkeypatch) -> None:
     assert "https://foo.example.com" in settings["allow_origins"]
     assert "https://bar.example.com" in settings["allow_origins"]
     assert settings["allow_origins"].count("https://foo.example.com") == 1
+
+
+def test_cors_normalizes_common_origin_input_mistakes(monkeypatch) -> None:
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    monkeypatch.setenv(
+        "CORS_ORIGIN",
+        "172.26.0.10:3782; https://learn.example.com/app/",
+    )
+    monkeypatch.setenv("CORS_ORIGINS", "http://localhost:3000;api.example.com")
+
+    settings = api_main._build_cors_settings()
+
+    assert settings["allow_origin_regex"] is None
+    assert "http://172.26.0.10:3782" in settings["allow_origins"]
+    assert "https://learn.example.com" in settings["allow_origins"]
+    assert "http://api.example.com" in settings["allow_origins"]

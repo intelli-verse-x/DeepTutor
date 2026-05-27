@@ -5,6 +5,7 @@ import {
   BookMarked,
   Brain,
   Database,
+  Network,
   Palette,
   Plug,
   Search,
@@ -16,6 +17,7 @@ import {
 export type SettingsItemKey =
   | "appearance"
   | "status"
+  | "network"
   | "tools"
   | "mcp"
   | "llm"
@@ -46,6 +48,13 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
     label: "Status",
     description: "Runtime status for backend and configured services.",
     icon: Activity,
+  },
+  {
+    key: "network",
+    href: "/settings/network",
+    label: "Network",
+    description: "Ports, browser API base, and CORS origins.",
+    icon: Network,
   },
   {
     key: "llm",

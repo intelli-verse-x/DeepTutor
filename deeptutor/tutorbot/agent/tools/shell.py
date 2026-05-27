@@ -20,7 +20,7 @@ class ExecTool(Tool):
         working_dir: str | None = None,
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
-        restrict_to_workspace: bool = False,
+        restrict_to_workspace: bool = True,
         path_append: str = "",
         forward_logs: bool = True,
     ):
@@ -37,6 +37,19 @@ class ExecTool(Tool):
             r">\s*/dev/sd",  # write to disk
             r"\b(shutdown|reboot|poweroff)\b",  # system power
             r":\(\)\s*\{.*\};\s*:",  # fork bomb
+            # Network exfiltration / remote transfer. Anchored to command
+            # start or a shell separator to avoid false positives on safe
+            # uses (e.g. ``echo "curl ..."`` or a filename containing these).
+            r"(?:^|[;&|]\s*)(curl|wget|nc|ncat|netcat|socat)\b",
+            r"(?:^|[;&|]\s*)(ssh|scp|sftp|rsync|ftp)\b",
+            # Inline interpreters used for reverse shells / exfiltration.
+            r"(?:^|[;&|]\s*)(python|python3|perl|ruby|node|php)\s+-[ce]\b",
+            # Sensitive file access.
+            r"\bcat\s+/(etc/(passwd|shadow|sudoers)|proc/self/environ)\b",
+            # User / privilege management.
+            r"(?:^|[;&|]\s*)(useradd|usermod|passwd|chpasswd|crontab)\b",
+            # World-writable / additive-write permission changes.
+            r"\bchmod\s+(?:[0-7]*[2367](?:\s|$)|(?:a|o|\+)\+?w|[ugo]*[ao]\+w)\b",
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace

@@ -70,6 +70,15 @@ async def test_turn_runtime_replays_events_and_materializes_messages(
     store = SQLiteSessionStore(tmp_path / "chat_history.db")
     runtime = TurnRuntimeManager(store)
     captured: dict[str, object] = {}
+    original_publish = runtime._publish_live_event
+
+    async def publish_with_status_capture(execution, event):
+        if event.type == StreamEventType.DONE:
+            persisted_turn = await store.get_turn(execution.turn_id)
+            captured["turn_status_when_done_published"] = (persisted_turn or {}).get("status")
+        return await original_publish(execution, event)
+
+    monkeypatch.setattr(runtime, "_publish_live_event", publish_with_status_capture)
 
     class FakeContextBuilder:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -163,6 +172,7 @@ async def test_turn_runtime_replays_events_and_materializes_messages(
     ]
     done_event = next(e for e in events if e["type"] == "done")
     assert done_event["metadata"]["status"] == "completed"
+    assert captured["turn_status_when_done_published"] == "completed"
 
     detail = await store.get_session_with_messages(session["id"])
     assert detail is not None

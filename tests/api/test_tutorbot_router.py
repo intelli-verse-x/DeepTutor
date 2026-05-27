@@ -51,6 +51,7 @@ def _make_fake_manager(existing: dict | None = None):
             "channels": {},
             "model": None,
             "llm_selection": None,
+            "allow_shell_exec": False,
         }
         defaults.update(existing)
         return BotConfig(**defaults)
@@ -63,6 +64,7 @@ def _make_fake_manager(existing: dict | None = None):
             "channels",
             "model",
             "llm_selection",
+            "allow_shell_exec",
         )
 
         def load_bot_config(self, bot_id: str) -> BotConfig | None:
@@ -83,6 +85,7 @@ def _make_fake_manager(existing: dict | None = None):
                 "name": config.name,
                 "channels": config.channels,
                 "llm_selection": config.llm_selection,
+                "allow_shell_exec": config.allow_shell_exec,
                 "running": True,
             }
             return instance
@@ -100,6 +103,153 @@ def _make_client(monkeypatch, existing: dict | None = None):
     app = FastAPI()
     app.include_router(tutorbot_router_mod.router, prefix="/api/v1/tutorbot")
     return TestClient(app), saved
+
+
+class TestBotChatHttpApi:
+    def test_http_chat_uses_specified_bot_and_session(self, monkeypatch):
+        from deeptutor.services.tutorbot.manager import BotConfig
+
+        class FakeInstance:
+            running = True
+
+        class FakeMgr:
+            def __init__(self):
+                self.calls: list[dict[str, Any]] = []
+
+            def get_bot(self, bot_id: str):
+                return FakeInstance()
+
+            def load_bot_config(self, bot_id: str):
+                return BotConfig(name=bot_id)
+
+            async def start_bot(self, bot_id: str, config: BotConfig):
+                return FakeInstance()
+
+            async def send_message(self, bot_id: str, content: str, **kwargs):
+                self.calls.append({"bot_id": bot_id, "content": content, **kwargs})
+                return "answer"
+
+        mgr = FakeMgr()
+        tutorbot_router_mod = importlib.import_module("deeptutor.api.routers.tutorbot")
+        monkeypatch.setattr(tutorbot_router_mod, "get_tutorbot_manager", lambda: mgr)
+        tutorbot_router_mod._start_locks.clear()
+
+        app = FastAPI()
+        app.include_router(tutorbot_router_mod.router, prefix="/api/v1/tutorbot")
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/tutorbot/math-bot/chat",
+            json={"content": "hi", "session_id": "lesson-1"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "bot_id": "math-bot",
+            "session_id": "lesson-1",
+            "content": "answer",
+        }
+        assert mgr.calls == [
+            {
+                "bot_id": "math-bot",
+                "content": "hi",
+                "chat_id": "lesson-1",
+                "session_id": "lesson-1",
+            }
+        ]
+
+    def test_http_chat_creates_session_when_omitted(self, monkeypatch):
+        from deeptutor.services.tutorbot.manager import BotConfig
+
+        class FakeInstance:
+            running = True
+
+        class FakeMgr:
+            def __init__(self):
+                self.calls: list[dict[str, Any]] = []
+
+            def get_bot(self, bot_id: str):
+                return FakeInstance()
+
+            def load_bot_config(self, bot_id: str):
+                return BotConfig(name=bot_id)
+
+            async def start_bot(self, bot_id: str, config: BotConfig):
+                return FakeInstance()
+
+            async def send_message(self, bot_id: str, content: str, **kwargs):
+                self.calls.append({"bot_id": bot_id, "content": content, **kwargs})
+                return "answer"
+
+        mgr = FakeMgr()
+        tutorbot_router_mod = importlib.import_module("deeptutor.api.routers.tutorbot")
+        monkeypatch.setattr(tutorbot_router_mod, "get_tutorbot_manager", lambda: mgr)
+        tutorbot_router_mod._start_locks.clear()
+
+        app = FastAPI()
+        app.include_router(tutorbot_router_mod.router, prefix="/api/v1/tutorbot")
+        client = TestClient(app)
+
+        response = client.post("/api/v1/tutorbot/math-bot/chat", json={"content": "hi"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["bot_id"] == "math-bot"
+        assert body["content"] == "answer"
+        assert body["session_id"]
+        assert body["session_id"] != "web"
+        assert mgr.calls == [
+            {
+                "bot_id": "math-bot",
+                "content": "hi",
+                "chat_id": body["session_id"],
+                "session_id": body["session_id"],
+            }
+        ]
+
+    def test_http_chat_stream_emits_sse_events(self, monkeypatch):
+        from deeptutor.services.tutorbot.manager import BotConfig
+
+        class FakeInstance:
+            running = True
+
+        class FakeMgr:
+            def get_bot(self, bot_id: str):
+                return FakeInstance()
+
+            def load_bot_config(self, bot_id: str):
+                return BotConfig(name=bot_id)
+
+            async def start_bot(self, bot_id: str, config: BotConfig):
+                return FakeInstance()
+
+            async def send_message(self, bot_id: str, content: str, **kwargs):
+                on_progress = kwargs.get("on_progress")
+                if on_progress:
+                    await on_progress("thinking")
+                return "streamed answer"
+
+        tutorbot_router_mod = importlib.import_module("deeptutor.api.routers.tutorbot")
+        monkeypatch.setattr(tutorbot_router_mod, "get_tutorbot_manager", lambda: FakeMgr())
+        tutorbot_router_mod._start_locks.clear()
+
+        app = FastAPI()
+        app.include_router(tutorbot_router_mod.router, prefix="/api/v1/tutorbot")
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/tutorbot/math-bot/chat/execute-stream",
+            json={"content": "hi", "session_id": "lesson-1"},
+        )
+
+        assert response.status_code == 200
+        body = response.text
+        assert "event: session" in body
+        assert '"session_id": "lesson-1"' in body
+        assert "event: thinking" in body
+        assert "event: content" in body
+        assert "streamed answer" in body
+        assert "event: done" in body
 
 
 def _catalog_with_llm_options() -> dict[str, Any]:
@@ -294,6 +444,28 @@ class TestCreateBotExplicitClearSemantics:
         assert cfg.channels == {"telegram": {"enabled": True}}
         assert cfg.model == "gpt-4o"
         assert cfg.llm_selection == {"profile_id": "p-default", "model_id": "m-default"}
+
+    def test_shell_exec_setting_is_preserved_when_omitted(self, monkeypatch):
+        client, saved = _make_client(
+            monkeypatch,
+            existing={"allow_shell_exec": True},
+        )
+
+        resp = client.post("/api/v1/tutorbot", json={"bot_id": "my-bot", "name": "New"})
+
+        assert resp.status_code == 200
+        assert saved["config"].allow_shell_exec is True
+
+    def test_shell_exec_cannot_be_enabled_from_router_payload(self, monkeypatch):
+        client, saved = _make_client(monkeypatch, existing=None)
+
+        resp = client.post(
+            "/api/v1/tutorbot",
+            json={"bot_id": "my-bot", "allow_shell_exec": True},
+        )
+
+        assert resp.status_code == 200
+        assert saved["config"].allow_shell_exec is False
 
     def test_null_field_in_payload_falls_back_to_existing(self, monkeypatch):
         """Explicit ``null`` for an optional field is treated as 'not provided'.

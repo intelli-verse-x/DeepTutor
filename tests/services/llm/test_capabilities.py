@@ -65,6 +65,12 @@ def test_minimax_openai_compat_supports_tools_without_response_format() -> None:
     assert supports_response_format("minimax", "MiniMax-M2.7-highspeed") is False
 
 
+def test_custom_and_dashscope_openai_compat_support_native_tools_for_qwen() -> None:
+    assert supports_tools("custom", "qwen3.6-plus") is True
+    assert supports_tools("dashscope", "qwen-plus") is True
+    assert has_thinking_tags("custom", "qwen3.6-plus") is True
+
+
 def test_qwen_model_override_enables_vision() -> None:
     assert supports_vision("dashscope", "qwen-vl-plus") is True
     assert supports_vision("openai", "qwen2.5-vl-72b-instruct") is True

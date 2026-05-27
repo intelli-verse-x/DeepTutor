@@ -10,6 +10,7 @@ from deeptutor.services.config.provider_runtime import (
     ResolvedEmbeddingConfig,
     ResolvedLLMConfig,
 )
+from deeptutor.services.config.runtime_settings import RuntimeSettingsService
 from deeptutor.services.embedding import client as embedding_client_module
 from deeptutor.services.embedding import config as embedding_config_module
 from deeptutor.services.llm import client as llm_client_module
@@ -167,6 +168,34 @@ def _patch_runtime(
         "resolve_embedding_runtime_config",
         _resolve_embedding_runtime_config,
     )
+
+
+@pytest.mark.asyncio
+async def test_network_settings_roundtrip_normalizes_cors_origins(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    service.save_system({"backend_port": 8001, "frontend_port": 3782})
+    service.save_auth({"enabled": True, "cookie_secure": True})
+    monkeypatch.setattr(settings_router, "get_runtime_settings_service", lambda: service)
+
+    payload = settings_router.NetworkSettingsUpdate(
+        backend_port=8101,
+        frontend_port=3882,
+        public_api_base="https://api.example.com/deeptutor",
+        cors_origins=["app.example.com; https://learn.example.com/path"],
+    )
+
+    response = await settings_router.update_network_settings(payload)
+
+    assert response["settings"]["backend_port"] == 8101
+    assert response["settings"]["public_api_base"] == "https://api.example.com/deeptutor"
+    assert response["settings"]["cors_origins"] == [
+        "http://app.example.com",
+        "https://learn.example.com",
+    ]
+    assert response["effective"]["cors_mode"] == "explicit"
+    assert response["auth"]["cross_site_cookie_ready"] is True
 
 
 def test_embedding_provider_choices_use_full_endpoint_urls() -> None:
@@ -372,3 +401,58 @@ async def test_complete_tour_invalidates_runtime_caches(
     assert new_llm_client is not old_llm_client
     assert new_embedding_client is not old_embedding_client
     assert '"status": "completed"' in cache
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_returns_picker_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    import deeptutor.services.llm.factory as factory_module
+
+    async def _fake_fetch(binding: str, base_url: str, api_key: str | None = None):
+        assert binding == "openai"  # "OpenAI" is normalized to lowercase
+        assert base_url == "https://api.example.com/v1"
+        assert api_key == "sk-x"
+        return ["gpt-4o", "gpt-4o-mini"]
+
+    monkeypatch.setattr(factory_module, "fetch_models", _fake_fetch)
+
+    response = await settings_router.fetch_models_from_provider(
+        settings_router.FetchModelsPayload(
+            binding="OpenAI", base_url="https://api.example.com/v1", api_key="sk-x"
+        )
+    )
+
+    assert response == {
+        "models": [
+            {"id": "gpt-4o", "name": "gpt-4o"},
+            {"id": "gpt-4o-mini", "name": "gpt-4o-mini"},
+        ]
+    }
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_requires_base_url() -> None:
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        await settings_router.fetch_models_from_provider(
+            settings_router.FetchModelsPayload(base_url="   ")
+        )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_maps_provider_error_to_502(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import HTTPException
+
+    import deeptutor.services.llm.factory as factory_module
+
+    async def _boom(binding: str, base_url: str, api_key: str | None = None):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(factory_module, "fetch_models", _boom)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await settings_router.fetch_models_from_provider(
+            settings_router.FetchModelsPayload(binding="custom", base_url="https://x/v1")
+        )
+    assert exc_info.value.status_code == 502

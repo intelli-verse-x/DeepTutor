@@ -61,7 +61,7 @@ class AgentLoop:
         team_max_workers: int = 5,
         team_worker_max_iterations: int = 25,
         cron_service: CronService | None = None,
-        restrict_to_workspace: bool = False,
+        restrict_to_workspace: bool = True,
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
