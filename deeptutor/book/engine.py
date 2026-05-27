@@ -712,7 +712,7 @@ class BookEngine:
             raise ValueError(f"Cannot compile page – missing book/spine/page ({book_id}/{page_id})")
         if page.status == PageStatus.READY and not force:
             return page
-        if force and page.content_type != ContentType.OVERVIEW:
+        if force:
             self._reset_page_for_force_compile(page)
             self.storage.save_page(page)
 
@@ -919,6 +919,7 @@ class BookEngine:
             self.storage.save_page(page)
             self.compiler._finalize_page_status(page)
             self.storage.save_page(page)
+            await self._maybe_finalize_book(book_id)
         return block
 
     # ── Maintenance / health (Phase 4) ─────────────────────────────────

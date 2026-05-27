@@ -45,7 +45,7 @@ export default function RootLayout({
       <head>
         <ThemeScript />
       </head>
-      <body className="font-sans bg-[var(--background)] text-[var(--foreground)]">
+      <body className="font-sans bg-[var(--background)] text-[var(--foreground)]" suppressHydrationWarning>
         <AppShellProvider>
           <I18nClientBridge>{children}</I18nClientBridge>
           <ToastViewport />

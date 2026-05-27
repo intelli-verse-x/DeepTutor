@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2, MessageSquare } from "lucide-react";
+import { notify } from "@/lib/notifications";
 import { useTranslation } from "react-i18next";
 
 import { bookApi, openBookSocket } from "@/lib/book-api";
@@ -314,6 +315,10 @@ function BookPageInner() {
       setCompilingPageId(pageId);
       try {
         await bookApi.compilePage(selectedBookId, pageId, force);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        notify(`Compile failed: ${msg}`, { tone: "error", durationMs: 8000 });
+        console.error("compilePage failed:", err);
       } finally {
         setCompilingPageId((current) => (current === pageId ? null : current));
         await loadBookDetail(selectedBookId);
@@ -333,8 +338,15 @@ function BookPageInner() {
 
   const handleRegenerateBlock = async (block: Block) => {
     if (!detail || !selectedPage) return;
-    await bookApi.regenerateBlock(detail.book.id, selectedPage.id, block.id);
-    await loadBookDetail(detail.book.id);
+    try {
+      await bookApi.regenerateBlock(detail.book.id, selectedPage.id, block.id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      notify(`Regenerate block failed: ${msg}`, { tone: "error", durationMs: 8000 });
+      console.error("regenerateBlock failed:", err);
+    } finally {
+      await loadBookDetail(detail.book.id);
+    }
   };
 
   const handleDeleteBlock = async (block: Block) => {
