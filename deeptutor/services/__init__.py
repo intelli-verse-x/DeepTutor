@@ -53,6 +53,7 @@ __all__ = [
     "setup",
     "session",
     "config",
+    "notebook",
     "PathService",
     "get_path_service",
     "BaseSessionManager",
@@ -79,6 +80,10 @@ def __getattr__(name: str):
         return importlib.import_module(f"{__name__}.rag")
     if name == "embedding":
         return importlib.import_module(f"{__name__}.embedding")
+    if name == "notebook_manager":
+        from .notebook import notebook_manager
+
+        return notebook_manager
     if name == "BaseSessionManager":
         from .session import BaseSessionManager
 
