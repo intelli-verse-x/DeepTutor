@@ -77,13 +77,13 @@ from deeptutor.services.llm import (
     prepare_multimodal_messages,
     supports_tools,  # noqa: F401  (re-exported for tests)
 )
-from deeptutor.services.provider_registry import find_by_name
 from deeptutor.services.llm import (
     stream as llm_stream,
 )
 from deeptutor.services.llm.context_window import resolve_effective_context_window
 from deeptutor.services.prompt import get_prompt_manager
 from deeptutor.services.prompt.language import append_language_directive
+from deeptutor.services.provider_registry import find_by_name
 
 logger = logging.getLogger(__name__)
 
@@ -398,18 +398,7 @@ class AgenticChatPipeline:
             system_prompt=system_prompt,
             user_content=user_content,
         )
-        messages, images_stripped = self._prepare_messages_with_attachments(messages, context)
-
-        if images_stripped:
-            # ``images_stripped`` is a transient warning, not a sub-trace, so
-            # it carries no call_id (frontend ``CallTracePanel`` groups by
-            # call_id and would otherwise spawn an empty sub-trace row).
-            await stream.thinking(
-                self._t("notices.images_stripped", model=self.model or ""),
-                source="chat",
-                stage="responding",
-                metadata={"trace_kind": "warning"},
-            )
+        messages = self._prepare_messages_with_attachments(messages, context)
 
         # Build the per-turn OpenAI client via ``_build_openai_client`` so
         # tests can monkey-patch that method post-instantiation to inject a
@@ -476,7 +465,9 @@ class AgenticChatPipeline:
                 # answer lives in ``content``, reasoning in
                 # ``reasoning_content``.  Non-reasoning models that emit
                 # ``<think/>`` tags get LABEL_THINK so the loop continues.
-                implicit_think_label=LABEL_FINISH if (_is_reasoner and use_native_tools) else LABEL_THINK,
+                implicit_think_label=LABEL_FINISH
+                if (_is_reasoner and use_native_tools)
+                else LABEL_THINK,
             )
 
         if outcome.sources:
@@ -1058,7 +1049,7 @@ class AgenticChatPipeline:
                 system_prompt=system_prompt,
                 user_content=original_user_message,
             )
-            messages, _ = self._prepare_messages_with_attachments(messages, context)
+            messages = self._prepare_messages_with_attachments(messages, context)
             if partial_response:
                 messages.append({"role": "assistant", "content": partial_response})
             messages.append(
@@ -1325,14 +1316,17 @@ class AgenticChatPipeline:
         self,
         messages: list[dict[str, Any]],
         context: UnifiedContext,
-    ) -> tuple[list[dict[str, Any]], bool]:
+    ) -> list[dict[str, Any]]:
+        # Stage-1: images are injected for every model. A model that cannot
+        # actually handle them degrades to text-only via the Stage-2 fallback
+        # in ``labeled_step`` (it strips images and retries) rather than here.
         mm_result = prepare_multimodal_messages(
             messages,
             context.attachments,
             binding=self.binding,
             model=self.model,
         )
-        return mm_result.messages, mm_result.images_stripped
+        return mm_result.messages
 
     # ------------------------------------------------------------------
     # Tool selection + scheme construction

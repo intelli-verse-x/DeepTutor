@@ -9,6 +9,8 @@ from typing import Any, Callable
 
 from deeptutor.services.path_service import get_path_service
 
+from .origins import normalize_origins
+
 DEFAULT_SYSTEM_SETTINGS: dict[str, Any] = {
     "version": 1,
     "backend_port": 8001,
@@ -68,18 +70,7 @@ def _coerce_port(value: Any, default: int) -> int:
 
 
 def _coerce_origins(value: Any) -> list[str]:
-    if isinstance(value, list):
-        raw_items = value
-    else:
-        raw_items = str(value or "").replace("\n", ",").split(",")
-    origins: list[str] = []
-    seen: set[str] = set()
-    for raw in raw_items:
-        origin = str(raw).strip().rstrip("/")
-        if origin and origin not in seen:
-            origins.append(origin)
-            seen.add(origin)
-    return origins
+    return normalize_origins(value)
 
 
 def _deepcopy_default(defaults: dict[str, Any]) -> dict[str, Any]:
@@ -286,6 +277,8 @@ class RuntimeSettingsService:
             payload["frontend_port"] = value
         if value := self._process_env_value("NEXT_PUBLIC_API_BASE_EXTERNAL"):
             payload["next_public_api_base_external"] = value
+        if value := self._process_env_value("PUBLIC_API_BASE"):
+            payload["next_public_api_base_external"] = value
         if value := self._process_env_value("NEXT_PUBLIC_API_BASE"):
             payload["next_public_api_base"] = value
         if value := self._process_env_value("CORS_ORIGIN"):
@@ -330,11 +323,14 @@ class RuntimeSettingsService:
         return self._normalize_integrations(payload)
 
     def _normalize_system(self, settings: dict[str, Any]) -> dict[str, Any]:
+        public_api_base = _string(settings.get("next_public_api_base_external")) or _string(
+            settings.get("public_api_base")
+        )
         return {
             "version": 1,
             "backend_port": _coerce_port(settings.get("backend_port"), 8001),
             "frontend_port": _coerce_port(settings.get("frontend_port"), 3782),
-            "next_public_api_base_external": _string(settings.get("next_public_api_base_external")),
+            "next_public_api_base_external": public_api_base,
             "next_public_api_base": _string(settings.get("next_public_api_base")),
             "cors_origin": _string(settings.get("cors_origin")),
             "cors_origins": _coerce_origins(settings.get("cors_origins")),

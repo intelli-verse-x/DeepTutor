@@ -144,7 +144,6 @@ notices:
   tool_unknown_error: "An unknown error occurred while executing {tool}."
   start_retrieval: "Starting retrieval"
   empty_tool_result: "The tool completed without returning text output."
-  images_stripped: "The current model `{model}` does not support image input, so image attachments were ignored."
   max_iterations_reached: "Reached the maximum number of tool iterations for this turn. Producing the best answer I can with what I have."
   protocol_retry: "The model violated the action-label protocol; retrying this iteration."
   final_protocol_failed: "The model still did not produce a valid FINISH reply after the finalization prompt."

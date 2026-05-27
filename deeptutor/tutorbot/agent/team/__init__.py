@@ -60,7 +60,7 @@ class TeamManager:
         web_search_config: "WebSearchConfig | None" = None,
         web_proxy: str | None = None,
         exec_config: ExecToolConfig | None = None,
-        restrict_to_workspace: bool = False,
+        restrict_to_workspace: bool = True,
         max_workers: int = 5,
         worker_max_iterations: int = 25,
     ):

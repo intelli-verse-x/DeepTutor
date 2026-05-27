@@ -15,13 +15,18 @@ from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 from deeptutor.multi_user.context import get_current_user
 from deeptutor.multi_user.model_access import allowed_llm_options, redacted_model_access
-from deeptutor.services.config import get_config_test_runner, get_model_catalog_service
+from deeptutor.services.config import (
+    get_config_test_runner,
+    get_model_catalog_service,
+    get_runtime_settings_service,
+)
+from deeptutor.services.config.origins import normalize_origins
 from deeptutor.services.embedding.client import reset_embedding_client
 from deeptutor.services.llm.client import reset_llm_client
 from deeptutor.services.llm.config import clear_llm_config_cache
@@ -96,6 +101,19 @@ class EnabledToolsUpdate(BaseModel):
 
 class CatalogPayload(BaseModel):
     catalog: dict[str, Any]
+
+
+class FetchModelsPayload(BaseModel):
+    binding: str = ""
+    base_url: str
+    api_key: Optional[str] = None
+
+
+class NetworkSettingsUpdate(BaseModel):
+    backend_port: int = Field(ge=1, le=65535)
+    frontend_port: int = Field(ge=1, le=65535)
+    public_api_base: str = ""
+    cors_origins: list[str] = Field(default_factory=list)
 
 
 def _invalidate_runtime_caches() -> None:
@@ -219,6 +237,58 @@ def _provider_choices() -> dict[str, list[dict[str, str]]]:
     return {"llm": llm, "embedding": embedding, "search": search}
 
 
+def _api_base_source(system: dict[str, Any]) -> str:
+    if system.get("next_public_api_base_external"):
+        return "next_public_api_base_external"
+    if system.get("next_public_api_base"):
+        return "next_public_api_base"
+    return "default_backend_url"
+
+
+def _network_settings_payload() -> dict[str, Any]:
+    service = get_runtime_settings_service()
+    file_system = service.load_system(include_process_overrides=False)
+    effective_system = service.load_system(include_process_overrides=True)
+    auth = service.load_auth(include_process_overrides=True)
+    backend_url = f"http://localhost:{effective_system['backend_port']}"
+    browser_api_base = (
+        effective_system["next_public_api_base_external"]
+        or effective_system["next_public_api_base"]
+        or backend_url
+    )
+    cors_origins = normalize_origins(
+        [effective_system["cors_origin"], effective_system["cors_origins"]]
+    )
+    auth_enabled = bool(auth["enabled"])
+    cookie_secure = bool(auth["cookie_secure"])
+    return {
+        "settings": {
+            "backend_port": file_system["backend_port"],
+            "frontend_port": file_system["frontend_port"],
+            "public_api_base": file_system["next_public_api_base_external"],
+            "cors_origins": normalize_origins(
+                [file_system["cors_origin"], file_system["cors_origins"]]
+            ),
+        },
+        "effective": {
+            "backend_url": backend_url,
+            "frontend_url": f"http://localhost:{effective_system['frontend_port']}",
+            "browser_api_base": browser_api_base,
+            "api_base_source": _api_base_source(effective_system),
+            "cors_mode": "explicit" if auth_enabled else "permissive",
+            "cors_origins": cors_origins,
+            "allow_remote_http_origins": not auth_enabled,
+        },
+        "auth": {
+            "enabled": auth_enabled,
+            "cookie_secure": cookie_secure,
+            "cookie_samesite": "none" if cookie_secure else "lax",
+            "cross_site_cookie_ready": bool(auth_enabled and cookie_secure),
+        },
+        "restart_required": True,
+    }
+
+
 @router.get("")
 async def get_settings():
     user = get_current_user()
@@ -238,6 +308,30 @@ async def get_settings():
 async def get_catalog():
     _require_settings_admin()
     return {"catalog": get_model_catalog_service().load()}
+
+
+@router.get("/network")
+async def get_network_settings():
+    _require_settings_admin()
+    return _network_settings_payload()
+
+
+@router.put("/network")
+async def update_network_settings(payload: NetworkSettingsUpdate):
+    _require_settings_admin()
+    service = get_runtime_settings_service()
+    current = service.load_system(include_process_overrides=False)
+    service.save_system(
+        {
+            **current,
+            "backend_port": payload.backend_port,
+            "frontend_port": payload.frontend_port,
+            "next_public_api_base_external": payload.public_api_base.strip(),
+            "cors_origin": "",
+            "cors_origins": normalize_origins(payload.cors_origins),
+        }
+    )
+    return _network_settings_payload()
 
 
 @router.get("/llm-options")
@@ -266,6 +360,37 @@ async def apply_catalog(payload: CatalogPayload | None = None):
         "catalog": get_model_catalog_service().load(),
         "runtime": applied,
     }
+
+
+@router.post("/fetch-models")
+async def fetch_models_from_provider(payload: FetchModelsPayload):
+    """List the model IDs an OpenAI-compatible provider exposes.
+
+    Thin HTTP surface over ``factory.fetch_models`` so the settings UI can
+    populate a model picker from ``base_url`` + ``api_key`` instead of making
+    the user type model IDs by hand.
+    """
+    _require_settings_admin()
+    from deeptutor.services.llm.factory import fetch_models as fetch_llm_models
+
+    base_url = (payload.base_url or "").strip()
+    binding = (payload.binding or "").strip().lower() or "openai"
+    if not base_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="base_url is required.",
+        )
+
+    try:
+        model_ids = await fetch_llm_models(binding, base_url, payload.api_key)
+    except Exception as exc:  # noqa: BLE001 — surface any provider error as 502
+        logger.exception("Failed to fetch models from %s", base_url)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Provider request failed: {exc}",
+        ) from exc
+
+    return {"models": [{"id": model_id, "name": model_id} for model_id in model_ids]}
 
 
 @router.put("/theme")

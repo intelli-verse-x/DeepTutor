@@ -37,18 +37,19 @@ class ExecTool(Tool):
             r">\s*/dev/sd",  # write to disk
             r"\b(shutdown|reboot|poweroff)\b",  # system power
             r":\(\)\s*\{.*\};\s*:",  # fork bomb
-            # Network exfiltration
-            r"\b(curl|wget|nc|ncat|netcat|socat)\b",
-            r"\b(ssh|scp|sftp|rsync|ftp)\b",
-            # Reverse shells / interpreters used for exfiltration
-            r"\bpython[23]?\s+-c\b",
-            r"\bperl\s+-e\b",
-            r"\bruby\s+-e\b",
-            # Sensitive file access
-            r"\bcat\s+.*/etc/(passwd|shadow|sudoers)",
-            r"\bchmod\s+[0-7]*[267][0-7]*\b",  # world-writable perms
-            r"\bcrontab\b",
-            r"\b(useradd|usermod|passwd)\b",  # user management
+            # Network exfiltration / remote transfer. Anchored to command
+            # start or a shell separator to avoid false positives on safe
+            # uses (e.g. ``echo "curl ..."`` or a filename containing these).
+            r"(?:^|[;&|]\s*)(curl|wget|nc|ncat|netcat|socat)\b",
+            r"(?:^|[;&|]\s*)(ssh|scp|sftp|rsync|ftp)\b",
+            # Inline interpreters used for reverse shells / exfiltration.
+            r"(?:^|[;&|]\s*)(python|python3|perl|ruby|node|php)\s+-[ce]\b",
+            # Sensitive file access.
+            r"\bcat\s+/(etc/(passwd|shadow|sudoers)|proc/self/environ)\b",
+            # User / privilege management.
+            r"(?:^|[;&|]\s*)(useradd|usermod|passwd|chpasswd|crontab)\b",
+            # World-writable / additive-write permission changes.
+            r"\bchmod\s+(?:[0-7]*[2367](?:\s|$)|(?:a|o|\+)\+?w|[ugo]*[ao]\+w)\b",
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace

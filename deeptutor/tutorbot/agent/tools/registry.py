@@ -81,30 +81,32 @@ def build_base_tools(
     exec_config: "ExecToolConfig",
     web_search_config: "WebSearchConfig | None" = None,
     web_proxy: str | None = None,
-    restrict_to_workspace: bool = False,
+    restrict_to_workspace: bool = True,
 ) -> ToolRegistry:
-    """Build a ToolRegistry pre-loaded with filesystem, shell, and web tools."""
+    """Build a ToolRegistry pre-loaded with filesystem, optional shell, and web tools."""
     from deeptutor.tutorbot.agent.tools.filesystem import (
         EditFileTool,
         ListDirTool,
         ReadFileTool,
         WriteFileTool,
     )
-    from deeptutor.tutorbot.agent.tools.shell import ExecTool
     from deeptutor.tutorbot.agent.tools.web import WebFetchTool, WebSearchTool
 
     tools = ToolRegistry()
     allowed_dir = workspace if restrict_to_workspace else None
     for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
         tools.register(cls(workspace=workspace, allowed_dir=allowed_dir))
-    tools.register(
-        ExecTool(
-            working_dir=str(workspace),
-            timeout=exec_config.timeout,
-            restrict_to_workspace=restrict_to_workspace,
-            path_append=exec_config.path_append,
+    if exec_config.enabled:
+        from deeptutor.tutorbot.agent.tools.shell import ExecTool
+
+        tools.register(
+            ExecTool(
+                working_dir=str(workspace),
+                timeout=exec_config.timeout,
+                restrict_to_workspace=restrict_to_workspace,
+                path_append=exec_config.path_append,
+            )
         )
-    )
     tools.register(WebSearchTool(config=web_search_config, proxy=web_proxy))
     tools.register(WebFetchTool(proxy=web_proxy, config=web_search_config))
     return tools

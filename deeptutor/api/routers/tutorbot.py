@@ -7,9 +7,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from typing import Any, AsyncGenerator
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, ValidationError
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from deeptutor.services.tutorbot import get_tutorbot_manager
 from deeptutor.services.tutorbot.manager import (
@@ -40,6 +43,30 @@ async def _get_start_lock(bot_id: str) -> asyncio.Lock:
         return lock
 
 
+async def _ensure_running_bot(bot_id: str) -> TutorBotInstance:
+    mgr = get_tutorbot_manager()
+    instance = mgr.get_bot(bot_id)
+    if instance and instance.running:
+        return instance
+
+    config = mgr.load_bot_config(bot_id)
+    if config is None:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    lock = await _get_start_lock(bot_id)
+    async with lock:
+        instance = mgr.get_bot(bot_id)
+        if instance and instance.running:
+            return instance
+        try:
+            return await mgr.start_bot(bot_id, config)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from None
+        except Exception as exc:
+            logger.exception("Failed to auto-start bot '%s'", bot_id)
+            raise HTTPException(status_code=500, detail="Failed to start bot") from exc
+
+
 class CreateBotRequest(BaseModel):
     bot_id: str
     name: str | None = None
@@ -61,6 +88,15 @@ class UpdateBotRequest(BaseModel):
 
 class FileUpdateRequest(BaseModel):
     content: str
+
+
+class ChatMessageRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    content: str = Field(..., min_length=1)
+    session_id: str | None = None
+    chat_id: str | None = None
+    llm_selection: dict[str, str] | None = Field(default=None, alias="llmSelection")
 
 
 class SoulCreateRequest(BaseModel):
@@ -201,6 +237,7 @@ def _stopped_bot_dict(
         "channels": channels,
         "model": cfg.model,
         "llm_selection": cfg.llm_selection,
+        "allow_shell_exec": cfg.allow_shell_exec,
         "running": False,
         "started_at": None,
         "last_reload_error": None,
@@ -389,6 +426,113 @@ async def get_bot_history(bot_id: str, limit: int = 100):
     return get_tutorbot_manager().get_bot_history(bot_id, limit=limit)
 
 
+def _sse(event: str, payload: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+
+
+def _resolve_http_session(payload: ChatMessageRequest) -> tuple[str, str]:
+    """Return ``(session_id, chat_id)`` for HTTP/SSE TutorBot conversations."""
+    explicit_session = (payload.session_id or "").strip()
+    explicit_chat = (payload.chat_id or "").strip()
+    if explicit_session:
+        return explicit_session, explicit_chat or explicit_session
+    if explicit_chat:
+        return explicit_chat, explicit_chat
+    session_id = uuid4().hex
+    return session_id, session_id
+
+
+@router.post("/{bot_id}/chat")
+async def bot_chat_http(bot_id: str, payload: ChatMessageRequest) -> dict[str, Any]:
+    """Send one HTTP message to a specified TutorBot with persistent session context."""
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content is required")
+    await _ensure_running_bot(bot_id)
+    mgr = get_tutorbot_manager()
+    session_id, chat_id = _resolve_http_session(payload)
+    try:
+        response = await mgr.send_message(
+            bot_id,
+            content,
+            chat_id=chat_id,
+            session_id=session_id,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return {
+        "bot_id": bot_id,
+        "session_id": session_id,
+        "content": response,
+    }
+
+
+async def _bot_chat_stream(
+    bot_id: str,
+    payload: ChatMessageRequest,
+) -> AsyncGenerator[str, None]:
+    mgr = get_tutorbot_manager()
+    content = payload.content.strip()
+    if not content:
+        yield _sse("error", {"detail": "content is required"})
+        return
+    session_id, chat_id = _resolve_http_session(payload)
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+    done = asyncio.Event()
+    holder: dict[str, Any] = {}
+
+    async def on_progress(text: str) -> None:
+        await queue.put({"event": "thinking", "payload": {"content": text}})
+
+    async def run() -> None:
+        try:
+            holder["content"] = await mgr.send_message(
+                bot_id,
+                content,
+                chat_id=chat_id,
+                session_id=session_id,
+                on_progress=on_progress,
+            )
+        except Exception as exc:  # noqa: BLE001
+            holder["error"] = str(exc)
+        finally:
+            done.set()
+
+    yield _sse("session", {"bot_id": bot_id, "session_id": session_id})
+    task = asyncio.create_task(run())
+    try:
+        while not done.is_set():
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=0.15)
+            except asyncio.TimeoutError:
+                continue
+            yield _sse(item["event"], item["payload"])
+        while not queue.empty():
+            item = queue.get_nowait()
+            yield _sse(item["event"], item["payload"])
+        if holder.get("error"):
+            yield _sse("error", {"detail": holder["error"]})
+            return
+        yield _sse("content", {"content": holder.get("content", "")})
+        yield _sse("done", {"bot_id": bot_id, "session_id": session_id})
+    finally:
+        if not task.done():
+            task.cancel()
+
+
+@router.post("/{bot_id}/chat/execute-stream")
+async def bot_chat_http_stream(bot_id: str, payload: ChatMessageRequest):
+    """Stream one HTTP message to a specified TutorBot as server-sent events."""
+    if not payload.content.strip():
+        raise HTTPException(status_code=400, detail="content is required")
+    await _ensure_running_bot(bot_id)
+    return StreamingResponse(
+        _bot_chat_stream(bot_id, payload),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.websocket("/{bot_id}/ws")
 async def bot_chat_ws(ws: WebSocket, bot_id: str):
     from deeptutor.api.routers.auth import ws_auth_failed, ws_require_auth
@@ -465,10 +609,12 @@ async def bot_chat_ws(ws: WebSocket, bot_id: str):
 
             try:
                 chat_id_value = data.get("chat_id", "web")
+                session_id_value = data.get("session_id")
                 response = await mgr.send_message(
                     bot_id,
                     content,
                     chat_id=chat_id_value,
+                    session_id=session_id_value,
                     on_progress=on_progress,
                 )
                 if not await _safe_send({"type": "content", "content": response}):

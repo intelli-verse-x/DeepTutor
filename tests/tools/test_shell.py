@@ -121,9 +121,7 @@ class TestRestrictToWorkspace:
         assert result is None
 
     def test_unrestricted_allows_absolute_paths(self, unrestricted_tool):
-        result = unrestricted_tool._guard_command(
-            "cat /etc/hostname", "/tmp/test-workspace"
-        )
+        result = unrestricted_tool._guard_command("cat /etc/hostname", "/tmp/test-workspace")
         assert result is None
 
 

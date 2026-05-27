@@ -9,10 +9,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from llama_index.core import Settings, VectorStoreIndex
+from llama_index.core import Document, Settings, VectorStoreIndex
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.core.schema import BaseNode, Document
+from llama_index.core.schema import BaseNode
 
 
 def build_ingestion_pipeline() -> IngestionPipeline:
@@ -34,19 +34,28 @@ def build_ingestion_pipeline() -> IngestionPipeline:
     )
 
 
-def _has_precomputed_embedding(node: Any) -> bool:
-    """Return True if node already carries an embedding vector.
+def _has_precomputed_embedding(document: Any) -> bool:
+    """Return True only for non-Document nodes that already carry a vector.
 
-    LlamaIndex's Document class inherits from BaseNode, so a naive
-    ``isinstance(doc, BaseNode)`` check incorrectly classifies every
-    Document as pre-embedded, bypassing the chunking pipeline entirely.
-    This helper distinguishes genuinely pre-embedded nodes (e.g. ImageNode
-    produced by multimodal loaders) from regular Documents that still need
-    splitting and embedding.
+    LlamaIndex's ``Document`` class inherits from ``BaseNode``, so a naive
+    ``isinstance(doc, BaseNode)`` check incorrectly classifies every Document
+    as pre-embedded, bypassing the chunking pipeline entirely. This helper
+    distinguishes genuinely pre-embedded nodes (e.g. ImageNode produced by
+    multimodal loaders) from regular Documents that still need splitting and
+    embedding. The embedding may be a list or a numpy array, so we check
+    ``len(...) > 0`` rather than ``bool(...)`` (ambiguous for ndarrays).
     """
-    if isinstance(node, Document):
+    if isinstance(document, Document):
         return False
-    return isinstance(node, BaseNode) and bool(getattr(node, "embedding", None))
+    if not isinstance(document, BaseNode):
+        return False
+    embedding = getattr(document, "embedding", None)
+    if embedding is None:
+        return False
+    try:
+        return len(embedding) > 0
+    except TypeError:
+        return True
 
 
 def documents_to_nodes(documents: list[Any], *, show_progress: bool = True) -> list[Any]:
@@ -55,8 +64,10 @@ def documents_to_nodes(documents: list[Any], *, show_progress: bool = True) -> l
     Pre-embedded nodes, such as ImageNode instances produced by the document
     loader, pass through unchanged so they are not re-embedded as text.
     """
-    text_documents = [doc for doc in documents if not _has_precomputed_embedding(doc)]
-    preembedded_nodes = [doc for doc in documents if _has_precomputed_embedding(doc)]
+    text_documents = [
+        document for document in documents if not _has_precomputed_embedding(document)
+    ]
+    preembedded_nodes = [document for document in documents if _has_precomputed_embedding(document)]
 
     nodes: list[Any] = []
     if text_documents:

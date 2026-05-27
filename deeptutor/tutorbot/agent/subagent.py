@@ -31,7 +31,7 @@ class SubagentManager:
         web_search_config: "WebSearchConfig | None" = None,
         web_proxy: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
-        restrict_to_workspace: bool = False,
+        restrict_to_workspace: bool = True,
     ):
         from deeptutor.tutorbot.config.schema import ExecToolConfig, WebSearchConfig
 

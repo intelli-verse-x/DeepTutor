@@ -123,7 +123,6 @@ notices:
   tool_unknown_error: "执行工具 {tool} 时发生未知错误。"
   start_retrieval: "开始检索"
   empty_tool_result: "工具执行完成，但没有返回文本内容。"
-  images_stripped: "当前模型 `{model}` 不支持图像输入，本轮图片附件已被忽略。"
   max_iterations_reached: "已达到本轮工具迭代上限，将基于当前材料给出最佳回答。"
   protocol_retry: "模型违反了动作标签协议，正在重试本次迭代。"
   final_protocol_failed: "最终化提示后，模型仍未产出合格的 FINISH 回复。"

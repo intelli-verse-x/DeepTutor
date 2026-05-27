@@ -35,6 +35,7 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, object]] = {
         "supports_streaming": True,
         "supports_tools": True,  # Most OpenAI-compat endpoints support function calling
         "supports_vision": False,  # Per-model; set True via MODEL_OVERRIDES
+        "vision_url_supported": True,
         "system_in_messages": True,
         "has_thinking_tags": False,  # Per-model; MODEL_OVERRIDES handles qwen/deepseek etc.
     },
@@ -66,6 +67,24 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, object]] = {
         "system_in_messages": False,
         "has_thinking_tags": False,
     },
+    "custom_anthropic": {
+        "supports_response_format": False,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": True,
+        "vision_url_supported": False,
+        "system_in_messages": False,
+        "has_thinking_tags": False,
+    },
+    "minimax_anthropic": {
+        "supports_response_format": False,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": True,
+        "vision_url_supported": False,
+        "system_in_messages": False,
+        "has_thinking_tags": False,
+    },
     # DeepSeek
     "deepseek": {
         "supports_response_format": False,  # DeepSeek doesn't support strict JSON schema yet
@@ -74,6 +93,28 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, object]] = {
         "supports_vision": False,
         "system_in_messages": True,
         "has_thinking_tags": True,  # DeepSeek reasoner has thinking tags
+    },
+    # VolcEngine Ark (Doubao) and BytePlus — OpenAI-compatible gateways that
+    # host natively multimodal models (Doubao-Vision). ``supports_vision`` is
+    # the Stage-2 fallback hint (see ``multimodal.py``), not a pre-flight gate:
+    # marking these True means a transient failure never causes images to be
+    # silently dropped. The Ark API expects inline base64 image data, so
+    # url-only attachments are resolved to bytes before sending.
+    "volcengine": {
+        "supports_response_format": True,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": True,
+        "vision_url_supported": False,
+        "system_in_messages": True,
+    },
+    "byteplus": {
+        "supports_response_format": True,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": True,
+        "vision_url_supported": False,
+        "system_in_messages": True,
     },
     # OpenRouter (aggregator, generally OpenAI-compatible)
     "openrouter": {

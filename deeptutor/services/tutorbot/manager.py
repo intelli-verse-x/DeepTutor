@@ -104,6 +104,22 @@ def normalize_message_content(content: Any) -> str:
     return str(content)
 
 
+def _strict_config_bool(value: Any, *, default: bool = False) -> bool:
+    """Parse security-sensitive config booleans without truthy string surprises."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off", ""}:
+            return False
+        return default
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    return default
+
+
 def _history_sort_timestamp(message: dict[str, Any], fallback: float) -> float:
     """Return a numeric timestamp for stable cross-session history ordering."""
     raw = message.get("timestamp")
@@ -125,6 +141,7 @@ class BotConfig:
     channels: dict[str, Any] = field(default_factory=dict)
     model: str | None = None
     llm_selection: dict[str, str] | None = None
+    allow_shell_exec: bool = False
 
 
 @dataclass
@@ -182,6 +199,7 @@ class TutorBotInstance:
             "channels": channels,
             "model": self.config.model,
             "llm_selection": self.config.llm_selection,
+            "allow_shell_exec": self.config.allow_shell_exec,
             "running": self.running,
             "started_at": self.started_at.isoformat(),
             "last_reload_error": self.last_reload_error,
@@ -313,6 +331,7 @@ class TutorBotManager:
         "channels",
         "model",
         "llm_selection",
+        "allow_shell_exec",
     )
 
     def load_bot_config(self, bot_id: str) -> BotConfig | None:
@@ -329,6 +348,7 @@ class TutorBotManager:
                 channels=data.get("channels", {}),
                 model=data.get("model"),
                 llm_selection=data.get("llm_selection"),
+                allow_shell_exec=_strict_config_bool(data.get("allow_shell_exec", False)),
             )
         except Exception:
             logger.exception("Failed to load bot config %s", bot_id)
@@ -348,6 +368,7 @@ class TutorBotManager:
             "description": config.description,
             "persona": config.persona,
             "channels": config.channels,
+            "allow_shell_exec": config.allow_shell_exec,
             "auto_start": auto_start,
         }
         if config.model:
@@ -424,7 +445,11 @@ class TutorBotManager:
             soul_path.write_text(config.persona, encoding="utf-8")
 
         venv_bin = str(Path(sys.executable).parent)
-        exec_config = ExecToolConfig(timeout=300, path_append=venv_bin)
+        exec_config = ExecToolConfig(
+            enabled=config.allow_shell_exec,
+            timeout=300,
+            path_append=venv_bin,
+        )
 
         canonical_key = f"bot:{bot_id}"
 
@@ -437,7 +462,7 @@ class TutorBotManager:
             exec_config=exec_config,
             session_manager=session_adapter,
             shared_memory_dir=self._shared_memory_dir,
-            restrict_to_workspace=False,
+            restrict_to_workspace=True,
             default_session_key=canonical_key,
         )
 
@@ -823,6 +848,17 @@ class TutorBotManager:
         messages = [item[2] for item in indexed_messages]
         return messages[-limit:]
 
+    @staticmethod
+    def web_session_key(bot_id: str, *, chat_id: str = "web", session_id: str | None = None) -> str:
+        """Return the TutorBot session key used for web/API conversations."""
+        normalized_session = str(session_id or "").strip()
+        if normalized_session:
+            return f"web:{normalized_session}"
+        normalized_chat = str(chat_id or "web").strip() or "web"
+        if normalized_chat != "web":
+            return f"web:{normalized_chat}"
+        return f"bot:{bot_id}"
+
     def get_recent_active_bots(self, limit: int = 3) -> list[dict[str, Any]]:
         """Return the most recently active bots with their last message preview."""
         bot_activity: list[tuple[float, str, dict[str, Any]]] = []
@@ -878,6 +914,7 @@ class TutorBotManager:
         bot_id: str,
         content: str,
         chat_id: str = "web",
+        session_id: str | None = None,
         on_progress: Callable[[str], Awaitable[None]] | None = None,
     ) -> str:
         """Send a message to a running bot and return the response."""
@@ -885,7 +922,7 @@ class TutorBotManager:
         if not instance or not instance.running:
             raise RuntimeError(f"Bot '{bot_id}' is not running")
 
-        canonical_key = f"bot:{bot_id}"
+        session_key = self.web_session_key(bot_id, chat_id=chat_id, session_id=session_id)
 
         async def _progress(text: str, *, tool_hint: bool = False) -> None:
             if on_progress:
@@ -893,9 +930,9 @@ class TutorBotManager:
 
         response = await instance.agent_loop.process_direct(
             content,
-            session_key=canonical_key,
+            session_key=session_key,
             channel="web",
-            chat_id=chat_id,
+            chat_id=session_id or chat_id,
             on_progress=_progress,
         )
 

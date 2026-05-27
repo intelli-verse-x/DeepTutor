@@ -1516,12 +1516,14 @@ class TurnRuntimeManager:
             )
 
             orch = ChatOrchestrator()
+            pending_done_event: StreamEvent | None = None
             async for event in orch.handle(context):
                 if event.type == StreamEventType.SESSION:
                     continue
-                payload_event = await self._publish_live_event(execution, event)
                 if event.type == StreamEventType.DONE:
-                    stream_done_sent = True
+                    pending_done_event = event
+                    continue
+                payload_event = await self._publish_live_event(execution, event)
                 if payload_event.get("type") not in {"done", "session"}:
                     assistant_events.append(payload_event)
                 if _should_capture_assistant_content(event):
@@ -1576,6 +1578,14 @@ class TurnRuntimeManager:
                     )
                 except Exception:
                     logger.debug("Failed to generate session title", exc_info=True)
+            if pending_done_event is None:
+                pending_done_event = StreamEvent(
+                    type=StreamEventType.DONE,
+                    source=capability_name,
+                    metadata={"status": "completed"},
+                )
+            await self._publish_live_event(execution, pending_done_event)
+            stream_done_sent = True
         except asyncio.CancelledError:
             if not stream_done_sent:
                 await self._publish_live_event(

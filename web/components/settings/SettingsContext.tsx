@@ -139,6 +139,12 @@ export const TOUR_STEPS: TourStep[] = [
     descKey: "settingsTour.status.desc",
   },
   {
+    target: "tour-network",
+    route: "/settings/network",
+    titleKey: "settingsTour.network.title",
+    descKey: "settingsTour.network.desc",
+  },
+  {
     target: "tour-llm",
     route: "/settings/llm",
     titleKey: "settingsTour.llm.title",
