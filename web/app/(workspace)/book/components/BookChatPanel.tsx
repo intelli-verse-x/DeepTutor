@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   ChangeEvent,
   ClipboardEvent,
@@ -178,7 +178,11 @@ export default function BookChatPanel({
     };
   }, [book?.id, page?.id, initialSessionId, open]);
 
-  useEffect(() => {
+  // Pin-to-bottom in layout phase (not in a post-paint effect): the
+  // assignment lands before the browser commits the frame so the
+  // viewer never sees the "new content at the old scrollTop" flash
+  // that an ordinary ``useEffect`` would produce during fast streams.
+  useLayoutEffect(() => {
     if (scrollerRef.current) {
       scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
     }
@@ -433,7 +437,11 @@ export default function BookChatPanel({
         </button>
       </header>
 
-      <div ref={scrollerRef} className="flex-1 overflow-y-auto px-4 py-3">
+      <div
+        ref={scrollerRef}
+        data-chat-scroll-root="true"
+        className="flex-1 overflow-y-auto px-4 py-3"
+      >
         {messages.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--background)]/50 p-4 text-xs leading-5 text-[var(--muted-foreground)]">
             {t(
@@ -480,6 +488,7 @@ export default function BookChatPanel({
                     <AssistantResponse
                       content={m.content}
                       className="text-sm leading-relaxed"
+                      isStreaming={Boolean(m.streaming)}
                     />
                   ) : (
                     <div className="whitespace-pre-wrap break-words">

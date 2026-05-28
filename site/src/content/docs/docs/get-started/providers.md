@@ -3,7 +3,7 @@ title: Provider Configuration
 ---
 
 
-DeepTutor currently ships 32 LLM provider bindings, 12 embedding provider bindings, and 7 active search providers (plus an explicit `none` option). Configure them through the Web Settings page, `deeptutor init`, `data/user/settings/model_catalog.json`, or process environment variables. Project-root `.env` files are not auto-loaded by the runtime.
+DeepTutor currently ships 33 LLM provider bindings, 12 embedding provider bindings, and 7 active search providers (plus an explicit `none` option). Configure them through the Web Settings page, `deeptutor init`, `data/user/settings/model_catalog.json`, or process environment variables. Project-root `.env` files are not auto-loaded by the runtime.
 
 ## LLM Providers
 
@@ -21,6 +21,7 @@ DeepTutor currently ships 32 LLM provider bindings, 12 embedding provider bindin
 | Gemini                  | `gemini`              | `https://generativelanguage.googleapis.com/v1beta/openai/`|
 | GitHub Copilot          | `github_copilot`      | `https://api.githubcopilot.com`                          |
 | Groq                    | `groq`                | `https://api.groq.com/openai/v1`                         |
+| Lemonade                | `lemonade`            | `http://localhost:13305/api/v1`                          |
 | llama.cpp               | `llama_cpp`           | `http://localhost:8080/v1`                               |
 | LM Studio               | `lm_studio`           | `http://localhost:1234/v1`                               |
 | MiniMax                 | `minimax`             | `https://api.minimax.io/v1`                              |
@@ -153,5 +154,14 @@ LLM_API_KEY=token-abc123
 LLM_BINDING=llama_cpp
 LLM_MODEL=your-model-name
 LLM_HOST=http://localhost:8080/v1
+LLM_API_KEY=not-needed
+```
+
+### Lemonade
+
+```dotenv
+LLM_BINDING=lemonade
+LLM_MODEL=your-model-name
+LLM_HOST=http://localhost:13305/api/v1
 LLM_API_KEY=not-needed
 ```

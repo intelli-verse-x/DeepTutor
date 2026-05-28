@@ -238,6 +238,29 @@
   background: var(--muted-foreground);
 }
 
+/* ─── Streaming surfaces ───
+   Every scroll container that wraps an LLM-streaming surface (chat,
+   trace card, quiz follow-up, book chat, …) opts into this contract
+   by carrying ``data-chat-scroll-root="true"``.
+
+   ``overflow-anchor: none``
+     Disables the browser's automatic scroll anchoring. Anchoring tries
+     to keep an in-viewport element fixed in screen space when content
+     above it grows; for a chat surface this fights ``useChatAutoScroll``
+     every time a code block / KaTeX block / dynamic viewer mounts and
+     reflows the message list. Without this rule the page visibly jitters
+     during fast streams.
+
+   ``scroll-behavior: auto``
+     The hook intentionally never animates ``scrollTop``. If a global
+     ``scroll-behavior: smooth`` ever lands (theme, base reset, browser
+     experiment), a smooth animation racing against the next-frame pin
+     reintroduces the exact stutter this rule is here to prevent. */
+[data-chat-scroll-root="true"] {
+  overflow-anchor: none;
+  scroll-behavior: auto;
+}
+
 /* ─── Prose: base ─── */
 .prose {
   @apply font-serif text-[15px];

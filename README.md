@@ -290,7 +290,7 @@ default. With auth enabled, add exact frontend origins:
 ```
 
 <details>
-<summary><b>Connecting to Ollama / LM Studio / llama.cpp / vLLM on the host</b></summary>
+<summary><b>Connecting to Ollama / LM Studio / llama.cpp / vLLM / Lemonade on the host</b></summary>
 
 Inside Docker, `localhost` is the container itself, not your host machine. To reach a model service running on the host, use the host gateway (recommended):
 
@@ -308,6 +308,7 @@ Then in **Settings → Models**, point the provider Base URL at `host.docker.int
 - Ollama embedding: `http://host.docker.internal:11434/api/embed`
 - LM Studio: `http://host.docker.internal:1234/v1`
 - llama.cpp: `http://host.docker.internal:8080/v1`
+- Lemonade: `http://host.docker.internal:13305/api/v1`
 
 Docker Desktop (macOS/Windows) usually resolves `host.docker.internal` without `--add-host`. On Linux, the flag is the portable way to create that hostname on modern Docker Engine.
 
