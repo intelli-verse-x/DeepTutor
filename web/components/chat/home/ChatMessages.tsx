@@ -272,7 +272,10 @@ const AssistantMessage = memo(function AssistantMessage({
             status={outlineStatus}
           />
           {showResearchBody ? (
-            <AssistantResponse content={msg.content} isStreaming={isStreaming} />
+            <AssistantResponse
+              content={msg.content}
+              isStreaming={isStreaming}
+            />
           ) : null}
         </>
       ) : mathAnimatorResult ? (
@@ -290,7 +293,12 @@ const AssistantMessage = memo(function AssistantMessage({
               per-question markdown — the pipeline trims that out of
               ``msg.content`` since the QuizViewer renders the cards
               themselves. */}
-          {msg.content ? <AssistantResponse content={msg.content} isStreaming={isStreaming} /> : null}
+          {msg.content ? (
+            <AssistantResponse
+              content={msg.content}
+              isStreaming={isStreaming}
+            />
+          ) : null}
           <QuizViewer
             questions={quizQuestions}
             sessionId={sessionId}
@@ -305,7 +313,11 @@ const AssistantMessage = memo(function AssistantMessage({
         // iteration's text sits below.
         messageSegments.map((seg) =>
           seg.kind === "text" ? (
-            <AssistantResponse key={seg.key} content={seg.text} isStreaming={isStreaming} />
+            <AssistantResponse
+              key={seg.key}
+              content={seg.text}
+              isStreaming={isStreaming}
+            />
           ) : (
             <AskUserOptions
               key={seg.key}

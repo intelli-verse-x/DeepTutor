@@ -198,82 +198,80 @@ export default function SessionList({
                   : "text-[var(--muted-foreground)] hover:bg-[var(--background)]/40 hover:text-[var(--foreground)]"
               }`}
             >
-                  <SessionAvatar
-                    sessionId={session.session_id}
-                    running={session.status === "running"}
-                    className={
-                      session.status === "running"
-                        ? "text-blue-500"
-                        : "opacity-70"
+              <SessionAvatar
+                sessionId={session.session_id}
+                running={session.status === "running"}
+                className={
+                  session.status === "running" ? "text-blue-500" : "opacity-70"
+                }
+              />
+              {isEditing ? (
+                <input
+                  value={draftTitle}
+                  autoFocus
+                  onChange={(event) => setDraftTitle(event.target.value)}
+                  onBlur={() => void commitEdit()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void commitEdit();
+                    if (event.key === "Escape") {
+                      setEditingId(null);
+                      setDraftTitle("");
                     }
-                  />
-                  {isEditing ? (
-                    <input
-                      value={draftTitle}
-                      autoFocus
-                      onChange={(event) => setDraftTitle(event.target.value)}
-                      onBlur={() => void commitEdit()}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") void commitEdit();
-                        if (event.key === "Escape") {
-                          setEditingId(null);
-                          setDraftTitle("");
-                        }
-                      }}
-                      onClick={(event) => event.stopPropagation()}
-                      className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-px text-[12px] text-[var(--foreground)] outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
-                    />
-                  ) : isPlaceholderTitle(session.title) ? (
-                    <span
-                      className={`dt-breathing-text min-w-0 flex-1 truncate text-[13px] italic text-[var(--muted-foreground)] ${active ? "font-medium" : ""}`}
-                    >
-                      {placeholderLabel}
-                    </span>
-                  ) : (
-                    <span
-                      className={`min-w-0 flex-1 truncate text-[13px] ${active ? "font-medium" : ""}`}
-                    >
-                      {session.title}
-                    </span>
-                  )}
-                  <div className="flex shrink-0 items-center gap-px opacity-0 transition-opacity group-hover:opacity-100">
-                    {isEditing ? (
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void commitEdit();
-                        }}
-                        className="rounded p-0.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                        aria-label={t("Save title")}
-                      >
-                        <Check size={10} />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          startEdit(session);
-                        }}
-                        className="rounded p-0.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                        aria-label={t("Rename chat")}
-                      >
-                        <Pencil size={10} />
-                      </button>
-                    )}
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void onDelete(session.session_id);
-                      }}
-                      className="rounded p-0.5 text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
-                      aria-label={t("Delete chat")}
-                    >
-                      <Trash2 size={10} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                  className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--background)] px-1.5 py-px text-[12px] text-[var(--foreground)] outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
+                />
+              ) : isPlaceholderTitle(session.title) ? (
+                <span
+                  className={`dt-breathing-text min-w-0 flex-1 truncate text-[13px] italic text-[var(--muted-foreground)] ${active ? "font-medium" : ""}`}
+                >
+                  {placeholderLabel}
+                </span>
+              ) : (
+                <span
+                  className={`min-w-0 flex-1 truncate text-[13px] ${active ? "font-medium" : ""}`}
+                >
+                  {session.title}
+                </span>
+              )}
+              <div className="flex shrink-0 items-center gap-px opacity-0 transition-opacity group-hover:opacity-100">
+                {isEditing ? (
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void commitEdit();
+                    }}
+                    className="rounded p-0.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    aria-label={t("Save title")}
+                  >
+                    <Check size={10} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      startEdit(session);
+                    }}
+                    className="rounded p-0.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    aria-label={t("Rename chat")}
+                  >
+                    <Pencil size={10} />
+                  </button>
+                )}
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void onDelete(session.session_id);
+                  }}
+                  className="rounded p-0.5 text-[var(--muted-foreground)] hover:text-[var(--destructive)]"
+                  aria-label={t("Delete chat")}
+                >
+                  <Trash2 size={10} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
   }

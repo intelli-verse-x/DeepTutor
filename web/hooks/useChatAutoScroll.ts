@@ -182,10 +182,13 @@ export function useChatAutoScroll({
   // ``scrollToBottom`` is preserved as a public escape hatch (e.g. an
   // imperative "jump to latest" button) but kept ``instant`` so it
   // never animates against an active stream.
-  const scrollToBottom = useCallback((_behavior: ScrollBehavior) => {
-    void _behavior;
-    pinToBottom();
-  }, [pinToBottom]);
+  const scrollToBottom = useCallback(
+    (_behavior: ScrollBehavior) => {
+      void _behavior;
+      pinToBottom();
+    },
+    [pinToBottom],
+  );
 
   return {
     containerRef,

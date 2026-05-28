@@ -67,9 +67,7 @@ def test_install_current_user_maps_payload_to_scoped_user() -> None:
     from deeptutor.multi_user.context import get_current_user_or_none, reset_current_user
     from deeptutor.services.auth import TokenPayload
 
-    token = _install_current_user(
-        TokenPayload(username="alice", role="user", user_id="u_alice")
-    )
+    token = _install_current_user(TokenPayload(username="alice", role="user", user_id="u_alice"))
     try:
         user = get_current_user_or_none()
         assert user is not None

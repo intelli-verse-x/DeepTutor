@@ -186,9 +186,7 @@ export function SidebarShell({
               >
                 <Link
                   href={item.href}
-                  onClick={
-                    item.href === "/chat" ? handleChatClick : undefined
-                  }
+                  onClick={item.href === "/chat" ? handleChatClick : undefined}
                   aria-label={t(item.label)}
                   className={`relative flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-150 ${
                     active
@@ -298,9 +296,7 @@ export function SidebarShell({
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={
-                  item.href === "/chat" ? handleChatClick : undefined
-                }
+                onClick={item.href === "/chat" ? handleChatClick : undefined}
                 className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
                   active
                     ? "bg-[var(--background)]/70 font-medium text-[var(--foreground)]"
@@ -316,10 +312,7 @@ export function SidebarShell({
       </nav>
 
       {/* Chat history — its own region below the nav, takes remaining height */}
-      {showSessions &&
-      onSelectSession &&
-      onRenameSession &&
-      onDeleteSession ? (
+      {showSessions && onSelectSession && onRenameSession && onDeleteSession ? (
         <section
           className={`mt-4 flex min-h-0 flex-col ${
             recentsCollapsed ? "" : "flex-1"

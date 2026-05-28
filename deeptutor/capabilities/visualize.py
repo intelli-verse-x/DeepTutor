@@ -216,9 +216,7 @@ class VisualizeCapability(BaseCapability):
                     # large/complex SVGs trip JSON-mode escaping and crash the
                     # whole turn. Fall back to the unreviewed draft so the user
                     # still gets a rendered result.
-                    logger.warning(
-                        "Visualize review failed (%s); using unreviewed draft.", exc
-                    )
+                    logger.warning("Visualize review failed (%s); using unreviewed draft.", exc)
                     review = ReviewResult(
                         optimized_code=code,
                         changed=False,
