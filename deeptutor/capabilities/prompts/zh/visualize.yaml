@@ -7,6 +7,7 @@ status:
   html_invalid_fallback: "HTML 校验未通过；已使用备用模板。"
   code_optimized: "代码已优化：{notes}"
   code_no_changes: "代码无需修改。"
+  review_skipped_error: "审查阶段出错；已使用未审查的草稿。"
   manim_code_prepared: "Manim 代码已准备完成。"
   manim_rendering: "正在以 quality={quality} 渲染 {mode}。"
   manim_artifacts_one: "已准备 {count} 个产物。"

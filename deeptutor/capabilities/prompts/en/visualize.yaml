@@ -7,6 +7,7 @@ status:
   html_invalid_fallback: "HTML did not validate; using fallback template."
   code_optimized: "Code optimized: {notes}"
   code_no_changes: "Code looks good — no changes needed."
+  review_skipped_error: "Review skipped — using draft as-is."
   manim_code_prepared: "Manim code prepared."
   manim_rendering: "Rendering {mode} with quality={quality}."
   manim_artifacts_one: "Prepared {count} artifact."

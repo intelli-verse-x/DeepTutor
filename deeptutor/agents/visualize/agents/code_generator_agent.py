@@ -84,4 +84,25 @@ class CodeGeneratorAgent(BaseAgent):
             if lowered.startswith("<!doctype") or lowered.startswith("<html"):
                 return stripped
 
+        # The renderers expect their payload to start cleanly with the right
+        # root tag. Models often wrap output with prose ("Here you go: <svg>…")
+        # or emit a code fence on the same line as the closing tag, which
+        # `extract_code_block`'s regex (requiring a leading \n before ```) does
+        # not strip. Trim to the outermost root tags as a defensive net.
+        if extracted:
+            if analysis.render_type == "svg":
+                lower = extracted.lower()
+                start = lower.find("<svg")
+                end = lower.rfind("</svg>")
+                if start != -1 and end != -1 and end > start:
+                    extracted = extracted[start : end + len("</svg>")]
+            elif analysis.render_type == "html":
+                lower = extracted.lower()
+                start = lower.find("<!doctype")
+                if start == -1:
+                    start = lower.find("<html")
+                end = lower.rfind("</html>")
+                if start != -1 and end != -1 and end > start:
+                    extracted = extracted[start : end + len("</html>")]
+
         return extracted
