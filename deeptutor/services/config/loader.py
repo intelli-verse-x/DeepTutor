@@ -222,7 +222,7 @@ def get_agent_params(module_name: str) -> dict:
         >>> params["temperature"]  # 0.3
         >>> params["max_tokens"]   # 8192
     """
-    defaults = {
+    global_defaults = {
         "temperature": 0.5,
         "max_tokens": 4096,
     }
@@ -242,15 +242,34 @@ def get_agent_params(module_name: str) -> dict:
         raise FileNotFoundError(f"Missing required configuration file: {path}")
     section = section_map.get(module_name)
     if section is None:
-        return defaults
+        return global_defaults
+
+    # Per-module defaults come from the shipped DEFAULT_AGENTS_SETTINGS so that
+    # adding a new capability seeded with non-default tokens (e.g. visualize at
+    # 16k) doesn't require existing users to hand-edit their stale agents.yaml.
+    # Imported lazily to avoid a circular dependency with services.setup.
+    from deeptutor.services.setup.init import DEFAULT_AGENTS_SETTINGS
+
+    seeded: dict[str, Any] = DEFAULT_AGENTS_SETTINGS
+    for key in section:
+        seeded = seeded.get(key, {}) if isinstance(seeded, dict) else {}
+    module_defaults = {
+        "temperature": seeded.get("temperature", global_defaults["temperature"])
+        if isinstance(seeded, dict)
+        else global_defaults["temperature"],
+        "max_tokens": seeded.get("max_tokens", global_defaults["max_tokens"])
+        if isinstance(seeded, dict)
+        else global_defaults["max_tokens"],
+    }
+
     with open(path, encoding="utf-8") as f:
         agents_config = yaml.safe_load(f) or {}
     module_config: dict[str, Any] = agents_config
     for key in section:
-        module_config = module_config.get(key, {})
+        module_config = module_config.get(key, {}) if isinstance(module_config, dict) else {}
     return {
-        "temperature": module_config.get("temperature", defaults["temperature"]),
-        "max_tokens": module_config.get("max_tokens", defaults["max_tokens"]),
+        "temperature": module_config.get("temperature", module_defaults["temperature"]),
+        "max_tokens": module_config.get("max_tokens", module_defaults["max_tokens"]),
     }
 
 

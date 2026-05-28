@@ -61,6 +61,7 @@ class VisualizeCapability(BaseCapability):
     )
 
     async def run(self, context: UnifiedContext, stream: StreamBus) -> None:
+        from deeptutor.agents.visualize.models import ReviewResult
         from deeptutor.agents.visualize.pipeline import VisualizePipeline
         from deeptutor.agents.visualize.utils import (
             build_fallback_html,
@@ -164,8 +165,6 @@ class VisualizeCapability(BaseCapability):
                 # 30-60s on a 10k-token document with negligible quality gain.
                 # Instead, do a local sanity check and fall back to a minimal
                 # template if the model returned something unrenderable.
-                from deeptutor.agents.visualize.models import ReviewResult
-
                 if is_valid_html_document(code):
                     final_code = code
                     review = ReviewResult(
@@ -206,8 +205,6 @@ class VisualizeCapability(BaseCapability):
                     source=self.name,
                     stage="reviewing",
                 )
-                from deeptutor.agents.visualize.models import ReviewResult
-
                 try:
                     review = await pipeline.run_review(
                         user_input=context.user_message,

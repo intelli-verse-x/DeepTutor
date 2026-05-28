@@ -22,6 +22,13 @@ _PROVIDER_REASONING_PATTERNS = {
     "deepseek": ("deepseek-v4-pro", "deepseek-reasoner"),
     "dashscope": ("qwen3", "qwen-3", "qwq", "qwen-plus"),
 }
+# Models that ship with thinking enabled by default and burn the entire
+# `max_tokens` budget on reasoning unless we explicitly turn it off via the
+# top-level ``reasoning_effort`` field. Substring match — also catches the
+# ``models/<id>`` prefix some clients use.
+_PROVIDER_DEFAULT_OFF_PATTERNS: dict[str, tuple[str, ...]] = {
+    "gemini": ("gemini-2.5", "gemini-3"),
+}
 _CUSTOM_MODEL_THINKING_STYLES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("qwen3", "qwen-3", "qwq", "qwen-plus"), "enable_thinking"),
     (("deepseek-v4-pro", "deepseek-reasoner"), "thinking_type"),
@@ -51,6 +58,24 @@ def _disable_thinking_by_default(provider_name: str, model_name: str) -> bool:
         provider_name == provider and pattern in normalized
         for provider, pattern in _THINKING_DISABLED_BY_DEFAULT
     )
+
+
+def default_reasoning_effort_for(provider: str | None, model: str | None) -> str | None:
+    """Return the implicit ``reasoning_effort`` for ``provider``/``model``, if any.
+
+    Used by callers that don't go through :func:`build_openai_compatible_reasoning_kwargs`
+    (currently the openai-SDK path in ``executors.py`` and the aiohttp fallback
+    in ``cloud_provider.py``). Returns ``None`` when no default applies — the
+    caller should leave the field unset in that case.
+
+    The single source of truth is :data:`_PROVIDER_DEFAULT_OFF_PATTERNS` so all
+    three execution paths agree on which models need thinking disabled by default.
+    """
+    provider_name = (provider or "").strip().lower()
+    off_patterns = _PROVIDER_DEFAULT_OFF_PATTERNS.get(provider_name)
+    if off_patterns and _matches(model or "", off_patterns):
+        return "none"
+    return None
 
 
 def build_openai_compatible_reasoning_kwargs(
@@ -83,8 +108,11 @@ def build_openai_compatible_reasoning_kwargs(
             patterns = custom_patterns
 
     resolved_effort = reasoning_effort
-    if resolved_effort is None and patterns and _matches(model_name, patterns):
-        resolved_effort = "high"
+    if resolved_effort is None:
+        if patterns and _matches(model_name, patterns):
+            resolved_effort = "high"
+        else:
+            resolved_effort = default_reasoning_effort_for(provider_name, model_name)
 
     semantic_effort: str | None = None
     if isinstance(resolved_effort, str):
@@ -113,4 +141,7 @@ def build_openai_compatible_reasoning_kwargs(
     return kwargs
 
 
-__all__ = ["build_openai_compatible_reasoning_kwargs"]
+__all__ = [
+    "build_openai_compatible_reasoning_kwargs",
+    "default_reasoning_effort_for",
+]

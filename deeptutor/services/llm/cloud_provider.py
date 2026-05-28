@@ -22,6 +22,7 @@ from .capabilities import (
 )
 from .config import get_token_limit_kwargs
 from .exceptions import LLMAPIError, LLMAuthenticationError, LLMConfigError
+from .reasoning_params import default_reasoning_effort_for
 from .utils import (
     build_auth_headers,
     build_chat_url,
@@ -349,14 +350,10 @@ async def _openai_complete(
             effort.lower() == "minimal" and binding.lower() in _BINDINGS_WITH_EXTRA_BODY_THINKING
         ):
             data["reasoning_effort"] = effort
-    elif (binding or "").lower() == "gemini" and any(
-        (model or "").lower().startswith(p) for p in ("gemini-2.5", "gemini-3")
-    ):
-        # Gemini 2.5+ models burn most of `max_tokens` on internal thinking by
-        # default, leaving too little headroom for the actual response and
-        # truncating with finish_reason=length. Disable thinking unless the
-        # caller explicitly asked for it.
-        data["reasoning_effort"] = "none"
+    else:
+        implicit_effort = default_reasoning_effort_for(binding, model)
+        if implicit_effort:
+            data["reasoning_effort"] = implicit_effort
 
     timeout = aiohttp.ClientTimeout(total=120)
     connector = _get_aiohttp_connector()
@@ -526,14 +523,10 @@ async def _openai_stream(
             effort.lower() == "minimal" and binding.lower() in _BINDINGS_WITH_EXTRA_BODY_THINKING
         ):
             data["reasoning_effort"] = effort
-    elif (binding or "").lower() == "gemini" and any(
-        (model or "").lower().startswith(p) for p in ("gemini-2.5", "gemini-3")
-    ):
-        # Gemini 2.5+ models burn most of `max_tokens` on internal thinking by
-        # default, leaving too little headroom for the actual response and
-        # truncating with finish_reason=length. Disable thinking unless the
-        # caller explicitly asked for it.
-        data["reasoning_effort"] = "none"
+    else:
+        implicit_effort = default_reasoning_effort_for(binding, model)
+        if implicit_effort:
+            data["reasoning_effort"] = implicit_effort
 
     timeout = aiohttp.ClientTimeout(total=300)
     connector = _get_aiohttp_connector()
