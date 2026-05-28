@@ -11,9 +11,10 @@ client, optional tool schemas, and a label protocol, this:
   post-label text and returns it to the caller; the caller decides whether
   to emit it as body content (so a mixed ``FINISH+TOOL`` reply never leaks
   prose into the answer area before the protocol is validated).
-* Accumulates ``tool_calls`` deltas. When ``tool_label`` is set and tool-call
-  deltas arrive before the label resolves, force-resolves the label to that
-  value (tool-call presence is authoritative).
+* Accumulates ``tool_calls`` deltas. Tool-call presence alone does not choose
+  the action label: the formal content stream must still begin with the
+  caller's tool label (e.g. ``TOOL``), otherwise the caller's protocol repair
+  path handles the missing label.
 * When a reasoning model prepends a literal ``<think>...</think>`` block
   *before* the protocol label, that prelude is detected and streamed live
   into the reasoning sub-trace (same routing as the ``THINK`` label).
@@ -231,16 +232,10 @@ async def run_labeled_step(
     behavior — its cards only open when there is actual reasoning text to
     show, avoiding empty "Reasoning…" cards for direct FINISH replies.
 
-    ``implicit_think_label`` lets a caller (e.g. chat) say "if a reasoning
-    model emits ``<think>...</think>`` without following it with one of my
-    protocol labels, treat the whole iteration as *this* label". The intent
-    is to gracefully accept native-format reasoning models — they think in
-    ``<think>`` blocks and may not parrot back the protocol's
-    ``\`\`THINK\`\``` token. Without this, the loop would see a missing
-    label and burn iterations on repair-retries. When the implicit
-    resolution fires, the prelude markers are preserved in the returned
-    ``text`` so the next iteration's assistant context still shows the
-    model's reasoning verbatim.
+    ``implicit_think_label`` is kept for API compatibility with older
+    callers, but is intentionally ignored. Reasoning traces from
+    ``reasoning_content`` or inline ``<think>`` are trace data, not loop
+    actions; the formal content stream must still provide the protocol label.
     """
     kwargs: dict[str, Any] = {
         "model": model,
@@ -459,20 +454,10 @@ async def run_labeled_step(
                 return
 
             if len(label_buf) > LABEL_PROBE_MAX_CHARS:
-                # Probe window exhausted with no protocol label match. If
-                # we previously consumed a ``<think>`` prelude AND the
-                # caller opted into implicit-THINK semantics, treat this
-                # iteration as an implicit ``THINK`` — the model is a
-                # reasoning model speaking its native dialect. Otherwise
-                # fall to ``LABEL_UNKNOWN`` so the caller can repair.
-                if (
-                    saw_pre_label_think
-                    and implicit_think_label
-                    and implicit_think_label in allowed_labels
-                ):
-                    label = implicit_think_label
-                else:
-                    label = LABEL_UNKNOWN
+                # Probe window exhausted with no protocol label match.
+                # Reasoning traces are not action labels, so fall to
+                # ``LABEL_UNKNOWN`` and let the caller repair.
+                label = LABEL_UNKNOWN
                 flushed = label_buf
                 label_buf = ""
                 await _emit_text(flushed)
@@ -603,21 +588,6 @@ async def run_labeled_step(
                 fn_for_chars = getattr(tc_delta, "function", None)
                 output_chars_seen += len(str(getattr(fn_for_chars, "name", "") or ""))
                 output_chars_seen += len(str(getattr(fn_for_chars, "arguments", "") or ""))
-                # Tool-call deltas are authoritative for the tool branch. If
-                # we're still buffering a label when tool-call deltas arrive,
-                # force-resolve to ``tool_label`` so the buffered prose
-                # flushes into the reasoning sub-trace and subsequent prose
-                # continues there.
-                if label is None and tool_label:
-                    label = tool_label
-                    if in_prelude_think:
-                        # Close out the prelude before treating any buffered
-                        # prose as the tool branch's reasoning preamble.
-                        await _close_prelude_artificially()
-                    flushed = label_buf
-                    label_buf = ""
-                    if flushed:
-                        await _emit_text(flushed)
                 idx = getattr(tc_delta, "index", 0)
                 entry = tc_acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})
                 if getattr(tc_delta, "id", None):
@@ -636,12 +606,9 @@ async def run_labeled_step(
 
     # Stream ended while still buffering a label. Decide how to resolve:
     #
-    # - If we saw a ``<think>`` prelude and the caller opted into
-    #   implicit-THINK semantics, treat the iteration as an implicit
-    #   ``THINK`` so the loop continues (reasoning models that natively
-    #   speak ``<think>...</think>`` get accepted instead of treated as
-    #   protocol violators).
-    # - Otherwise fall to ``LABEL_UNKNOWN`` and let the caller repair.
+    # - Reasoning traces (``reasoning_content`` or inline ``<think>``) are
+    #   not action labels. If no formal content label appeared, fall to
+    #   ``LABEL_UNKNOWN`` and let the caller repair.
     if label is None:
         if in_prelude_think:
             # Stream ended mid-prelude — flush remaining reasoning live so
@@ -657,14 +624,7 @@ async def run_labeled_step(
             label, after_label = final_parsed
             label_buf = ""
             await _emit_text(after_label)
-        if (
-            label is None
-            and saw_pre_label_think
-            and implicit_think_label
-            and implicit_think_label in allowed_labels
-        ):
-            label = implicit_think_label
-        elif label is None:
+        if label is None:
             label = LABEL_UNKNOWN
         if label_buf:
             await _emit_text(label_buf)
@@ -692,16 +652,10 @@ async def run_labeled_step(
         )
 
     text = "".join(content_acc)
-    # Preserve the literal ``<think>...</think>`` block when we resolved the
-    # iteration implicitly as ``THINK`` — the next iteration's assistant
-    # context should reflect the model's reasoning verbatim, not a stripped
-    # empty draft. For all other resolutions, fall through to the standard
-    # cleanup so downstream consumers (assistant messages, final-response
-    # text) aren't polluted with the prelude markers.
-    implicit_think_resolved = bool(
-        saw_pre_label_think and implicit_think_label and label == implicit_think_label
-    )
-    if (binding or saw_pre_label_think) and not implicit_think_resolved:
+    # Reasoning traces have already been streamed into the trace channel; the
+    # returned formal text should not leak inline provider markers or private
+    # pre-label thinking.
+    if binding or saw_pre_label_think:
         text = clean_thinking_tags(text, binding, model)
     ordered_tool_calls = [tc_acc[k] for k in sorted(tc_acc.keys())]
     ordered_tool_calls = [tc for tc in ordered_tool_calls if tc.get("name")]

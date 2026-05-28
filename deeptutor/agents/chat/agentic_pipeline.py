@@ -456,18 +456,11 @@ class AgenticChatPipeline:
                 max_iterations=max(1, self._max_iterations),
                 host=host,
                 usage=self._usage,
-                # Reasoning models with native tool-calling support emit
-                # ``reasoning_content`` without parroting back
-                # ````THINK```` labels.  When the model is a reasoner
-                # AND native tool calling is active, use LABEL_FINISH so
-                # that a reply containing ``reasoning_content`` + answer
-                # text (but no explicit label) terminates the loop — the
-                # answer lives in ``content``, reasoning in
-                # ``reasoning_content``.  Non-reasoning models that emit
-                # ``<think/>`` tags get LABEL_THINK so the loop continues.
-                implicit_think_label=LABEL_FINISH
-                if (_is_reasoner and use_native_tools)
-                else LABEL_THINK,
+                # Thinking traces are trace data, not loop-control actions.
+                # The formal content stream must still begin with FINISH /
+                # TOOL / THINK / PAUSE so protocol repair can catch missing
+                # labels instead of silently treating answers as THINK.
+                implicit_think_label=None,
             )
 
         if outcome.sources:
@@ -1248,32 +1241,33 @@ class AgenticChatPipeline:
 
         Reasoning models (e.g. Qwen3.6-Plus) emit reasoning via
         ``reasoning_content`` and tool calls via native ``tool_calls``
-        deltas. The label protocol (TOOL/THINK/FINISH/PAUSE) confuses
-        them into writing tool-call JSON in ``content`` instead of using
-        the native mechanism. This note tells them to ignore labels and
-        use native tool calling directly.
+        deltas. The reasoning stream is displayed separately, but the
+        formal ``content`` stream still controls the agent loop through the
+        standard first-line label.
         """
         if self.language == "zh":
             note = (
                 "\n\n# 推理模型特别说明\n"
                 "你是一个原生支持推理和工具调用的模型。"
-                "请**忽略上面「输出协议」中关于 ``TOOL``/``THINK``/``FINISH``/``PAUSE`` 标签的指示**。"
-                "你不需要在回复中输出任何标签。"
-                "你的推理过程会自动在独立区域显示。"
-                "当你需要调用工具时，直接通过原生 tool_calls 功能发起调用，不要在文本中写 JSON。"
-                "当你准备好给出最终答案时，直接在回复正文中写出答案即可。"
+                "你的推理过程会自动在独立的思考轨迹区域显示；"
+                "但正式回复正文仍然必须遵守上面的「输出协议」，第一行写且只写一个标签："
+                "``FINISH``、``TOOL``、``THINK`` 或 ``PAUSE``。"
+                "需要调用工具时，正式正文第一行写 ``TOOL``，并在同一次回复里通过原生 tool_calls 发起调用；"
+                "不要把工具调用写成 JSON 文本。"
+                "准备给最终答案时，正式正文第一行写 ``FINISH``。"
             )
         else:
             note = (
                 "\n\n# Reasoning Model Special Instructions\n"
                 "You are a model with native reasoning and tool-calling support. "
-                "Please **ignore the 'Output Protocol' instructions above about "
-                "``TOOL``/``THINK``/``FINISH``/``PAUSE`` labels**. "
-                "You do NOT need to output any labels in your replies. "
-                "Your reasoning is automatically displayed in a separate area. "
-                "When you need to call a tool, use native tool_calls directly — "
-                "do NOT write JSON in your text output. "
-                "When you are ready to give the final answer, just write it in your reply body."
+                "Your reasoning is automatically displayed in a separate trace, "
+                "but your formal content stream must still follow the Output "
+                "Protocol above: the first line must be exactly one label, "
+                "``FINISH``, ``TOOL``, ``THINK``, or ``PAUSE``. "
+                "When you need a tool, put ``TOOL`` on the first line and emit "
+                "real native tool_calls in the same reply; do NOT write tool-call "
+                "JSON as text. When you are ready to answer, put ``FINISH`` on "
+                "the first line."
             )
         return system_prompt + note
 

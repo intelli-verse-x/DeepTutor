@@ -670,6 +670,29 @@
   animation: session-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Session avatar — gentle breathing wiggle when a session is running */
+@keyframes dt-session-icon-running {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  25% {
+    transform: translateY(-0.6px) rotate(-6deg) scale(1.05);
+  }
+  50% {
+    transform: translateY(0) rotate(0deg) scale(1.02);
+  }
+  75% {
+    transform: translateY(0.6px) rotate(6deg) scale(1.05);
+  }
+}
+
+.dt-session-icon-running {
+  animation: dt-session-icon-running 1.6s cubic-bezier(0.45, 0.05, 0.55, 0.95)
+    infinite;
+  transform-origin: center;
+}
+
 /* ----- Chat shell ↔ file preview drawer ---------------------------------
    Squeezes the chat column when the drawer is open. The transition
    timing here MUST match FilePreviewDrawer's transform transition so the

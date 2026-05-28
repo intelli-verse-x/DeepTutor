@@ -40,11 +40,6 @@ export default function UtilitySidebar() {
     void refreshSessions();
   }, [refreshSessions]);
 
-  const handleNewChat = useCallback(() => {
-    setActiveSessionId(null);
-    router.push("/chat");
-  }, [router, setActiveSessionId]);
-
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
       setActiveSessionId(sessionId);
@@ -91,7 +86,7 @@ export default function UtilitySidebar() {
       sessions={sessions}
       activeSessionId={activeSessionId}
       loadingSessions={loadingSessions}
-      onNewChat={handleNewChat}
+      onNewChat={() => setActiveSessionId(null)}
       onSelectSession={handleSelectSession}
       onRenameSession={handleRenameSession}
       onDeleteSession={handleDeleteSession}

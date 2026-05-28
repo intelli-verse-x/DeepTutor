@@ -30,9 +30,12 @@ async def _collect_bus_events(bus: StreamBus) -> tuple[list[StreamEvent], asynci
 def _llm_chunk(
     *,
     content: str | None = None,
+    reasoning_content: str | None = None,
     tool_calls: list[dict[str, Any]] | None = None,
 ) -> SimpleNamespace:
     delta_fields: dict[str, Any] = {"content": content}
+    if reasoning_content is not None:
+        delta_fields["reasoning_content"] = reasoning_content
     if tool_calls is not None:
         delta_fields["tool_calls"] = [
             SimpleNamespace(
@@ -910,6 +913,83 @@ async def test_run_does_not_finish_on_unlabeled_reply_after_ask_user(
 
 
 @pytest.mark.asyncio
+async def test_reasoning_trace_does_not_replace_formal_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reasoning models may stream reasoning_content, but their formal
+    content still needs a first-line protocol label."""
+    monkeypatch.setattr(
+        "deeptutor.agents.chat.agentic_pipeline.get_llm_config",
+        lambda: SimpleNamespace(
+            binding="custom",
+            model="qwen3.6-plus",
+            api_key="k",
+            base_url="u",
+            api_version=None,
+            extra_headers={},
+            reasoning_effort=None,
+        ),
+    )
+
+    class _Registry:
+        def build_prompt_text(self, *_args, **_kwargs):
+            return "- ask_user: ask a clarifying question"
+
+        def build_openai_schemas(self, _enabled_tools):
+            return [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "ask_user",
+                        "description": "Ask user",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ]
+
+    client = _ScriptedChatClient(
+        [
+            [
+                _llm_chunk(reasoning_content="I can answer from existing context."),
+                _llm_chunk(content="This is an unlabeled final-looking draft."),
+            ],
+            [_llm_chunk(content="``FINISH``\nLabeled final answer.")],
+        ]
+    )
+
+    pipeline = AgenticChatPipeline(language="en")
+    pipeline.registry = _Registry()
+    monkeypatch.setattr(pipeline, "_compose_enabled_tools", lambda _context: ["ask_user"])
+    monkeypatch.setattr(pipeline, "_build_openai_client", lambda: client)
+
+    bus = StreamBus()
+    events, consumer = await _collect_bus_events(bus)
+    await pipeline.run(UnifiedContext(session_id="s1", user_message="Explain X"), bus)
+    await asyncio.sleep(0)
+    await bus.close()
+    await consumer
+
+    assert client.call_count == 2
+    system_prompt = client.calls[0]["messages"][0]["content"]
+    assert "must still follow the Output Protocol" in system_prompt
+    assert "ignore the 'Output Protocol'" not in system_prompt
+    assert "do NOT need to output any labels" not in system_prompt
+
+    thinking_events = [e.content for e in events if e.type == StreamEventType.THINKING]
+    assert any("I can answer from existing context." in text for text in thinking_events)
+    protocol_warnings = [
+        e
+        for e in events
+        if e.type == StreamEventType.PROGRESS
+        and e.metadata.get("protocol_violation") == "missing_label"
+    ]
+    assert protocol_warnings
+    result = [e for e in events if e.type == StreamEventType.RESULT][-1]
+    assert result.metadata["completed"] is True
+    assert result.metadata["response"] == "Labeled final answer."
+
+
+@pytest.mark.asyncio
 async def test_run_forces_finish_after_iteration_budget_ends_on_think(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -963,7 +1043,7 @@ async def test_run_repairs_multiple_labels_in_one_llm_reply(
     )
     client = _ScriptedChatClient(
         [
-            [_llm_chunk(content="``THINK``\nFirst thought.\n``TOOL``\nMaybe search.")],
+            [_llm_chunk(content="``THINK``\nFirst thought.\n``FINISH``\nMaybe search.")],
             [_llm_chunk(content="``FINISH``\nClean final.")],
         ]
     )
