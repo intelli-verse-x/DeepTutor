@@ -233,6 +233,14 @@ class TestIsMentioned:
         ch._bot_full_name = "DeepTutor Bot"
         assert ch._is_mentioned({"flags": [], "content": "no mention here"}) is False
 
+    def test_content_fallback_disambiguated_mention(self):
+        # Zulip renders @**Name|user_id** when names are ambiguous; this string
+        # does not contain @**Name** as a substring, so it needs its own pattern.
+        ch = _make_channel()
+        ch._bot_user_id = 100
+        ch._bot_full_name = "DeepTutor Bot"
+        assert ch._is_mentioned({"flags": [], "content": "hi @**DeepTutor Bot|100** help"}) is True
+
 
 class TestExtractUploadLinks:
     def test_markdown_image(self):

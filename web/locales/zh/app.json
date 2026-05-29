@@ -1600,6 +1600,7 @@
   "Collapse header": "折叠标题栏",
   "Untitled chapter": "未命名章节",
   "Force regenerate": "强制重新生成",
+  "Regenerating…": "正在重新生成…",
   "{{count}} block failed": "{{count}} 个内容块生成失败",
   "{{count}} blocks failed": "{{count}} 个内容块生成失败",
   "Regenerate page": "重新生成本页",

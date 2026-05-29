@@ -1501,6 +1501,7 @@
   "Collapse header": "Collapse header",
   "Untitled chapter": "Untitled chapter",
   "Force regenerate": "Force regenerate",
+  "Regenerating…": "Regenerating…",
   "{{count}} block failed": "{{count}} block failed",
   "{{count}} blocks failed": "{{count}} blocks failed",
   "Regenerate page": "Regenerate page",

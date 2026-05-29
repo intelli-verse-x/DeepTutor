@@ -165,7 +165,7 @@ export default function PageReader({
                 ) : (
                   <RefreshCcw className="h-3.5 w-3.5" />
                 )}
-                {loading ? "Regenerating…" : "Force regenerate"}
+                {loading ? t("Regenerating…") : t("Force regenerate")}
               </button>
             )}
             <button
@@ -222,7 +222,7 @@ export default function PageReader({
                       ) : (
                         <RefreshCcw className="h-3.5 w-3.5" />
                       )}
-                      {loading ? "Regenerating…" : "Regenerate page"}
+                      {loading ? t("Regenerating…") : t("Regenerate page")}
                     </button>
                   )}
                 </div>

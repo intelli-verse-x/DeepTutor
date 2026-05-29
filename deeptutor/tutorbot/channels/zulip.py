@@ -523,13 +523,18 @@ class ZulipChannel(BaseChannel):
                 return True
 
         # 2. Content fallback — Generic bot + Event Queue API often returns an
-        #    empty ``flags`` array, so scan the message body for the literal
-        #    ``@**Bot Full Name**`` mention syntax Zulip renders.
+        #    empty ``flags`` array, so scan the message body for the mention
+        #    syntax Zulip renders: ``@**Bot Full Name**`` and, when names are
+        #    ambiguous, the disambiguated ``@**Bot Full Name|user_id**``.
         if self._bot_full_name:
-            mention_pattern = f"@**{self._bot_full_name}**"
-            if mention_pattern in message.get("content", ""):
-                logger.debug("Zulip _is_mentioned: matched content pattern {}", mention_pattern)
-                return True
+            content = message.get("content", "")
+            patterns = [f"@**{self._bot_full_name}**"]
+            if self._bot_user_id is not None:
+                patterns.append(f"@**{self._bot_full_name}|{self._bot_user_id}**")
+            for mention_pattern in patterns:
+                if mention_pattern in content:
+                    logger.debug("Zulip _is_mentioned: matched content pattern {}", mention_pattern)
+                    return True
 
         logger.debug(
             "Zulip _is_mentioned: no mention flags or content match, flags={}",

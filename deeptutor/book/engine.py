@@ -712,6 +712,21 @@ class BookEngine:
             raise ValueError(f"Cannot compile page – missing book/spine/page ({book_id}/{page_id})")
         if page.status == PageStatus.READY and not force:
             return page
+
+        # Overview pages are built deterministically from the spine (intro,
+        # concept graph, chapter index). Never run the generic LLM compiler over
+        # their hand-built blocks — that would overwrite the deterministic
+        # "How to read this book" intro and chapter index with hallucinated
+        # prose. Reaching here means force=True or the page is not yet READY, so
+        # rebuild deterministically (this also refreshes a changed spine).
+        if page.content_type == ContentType.OVERVIEW:
+            page.status = PageStatus.PENDING
+            self.storage.save_page(page)
+            await self._materialize_overview_page(spine, [page], book, stream=stream)
+            page = self.storage.load_page(book_id, page_id) or page
+            await self._maybe_finalize_book(book_id)
+            return page
+
         if force:
             self._reset_page_for_force_compile(page)
             self.storage.save_page(page)

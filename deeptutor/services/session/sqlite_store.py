@@ -95,8 +95,7 @@ class SQLiteSessionStore:
             pass
 
     def _initialize(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
+        with self._connect() as conn:
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -383,7 +382,9 @@ class SQLiteSessionStore:
         # sqlite3.Connection's own context manager commits/rolls back but does
         # NOT close the connection — so naked `with sqlite3.connect(...)` leaks
         # one FD per call until GC. Wrap it so each call site gets both
-        # transaction semantics and deterministic close.
+        # transaction semantics and deterministic close. The inner `with conn`
+        # commits on clean exit and rolls back on exception, so call sites do
+        # NOT need an explicit conn.commit() (any remaining ones are no-ops).
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")

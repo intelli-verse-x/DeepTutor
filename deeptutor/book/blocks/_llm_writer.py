@@ -7,6 +7,7 @@ Avoids subclassing BaseAgent for these tiny calls; instead uses
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from deeptutor.services.llm import (
@@ -101,20 +102,21 @@ def _strip_thinking_preamble(text: str) -> str:
     """
     if not text:
         return text
+    if "{" not in text:
+        # No JSON object present (refusal / plain prose) — return as-is so the
+        # caller's json-repair fallback can decide, instead of raising here.
+        return text
     # Find the last '{' — that's where the actual JSON object starts
     brace = text.rindex("{")
     if brace > 0:
         candidate = text[brace:]
         # Quick check: can json.loads parse it?
-        import json
         try:
             json.loads(candidate)
             return candidate  # Valid JSON -> use it
         except (json.JSONDecodeError, ValueError):
             pass  # Not valid JSON, fall through to original approach
     # Fallback: try the first '{' with the thinking-heuristic check
-    if "{" not in text:
-        return text
     brace = text.index("{")
     if brace > 0:
         before = text[:brace].strip()
@@ -129,7 +131,7 @@ async def llm_json(
     *,
     user_prompt: str,
     system_prompt: str,
-    max_tokens: int = 1200,
+    max_tokens: int = 2600,
     temperature: float = 0.4,
     language: str | None = None,
     expected_key: str | None = None,
@@ -138,8 +140,10 @@ async def llm_json(
 
     Reasoning models can spend the whole response budget on hidden/scratchpad
     tokens and leave the visible JSON object empty. For structured book blocks
-    we first honor the configured reasoning mode, then retry once with minimal
-    reasoning if parsing fails or the expected top-level key is missing.
+    we first honor the configured reasoning mode, then retry once with low
+    reasoning effort if parsing fails or the expected top-level key is missing.
+    ("low" rather than "minimal": local/Qwen models served via vLLM reject
+    "minimal", and "minimal" disables thinking entirely.)
 
     Also strips thinking/reasoning preamble text (common with local models)
     before JSON parsing.
@@ -149,7 +153,8 @@ async def llm_json(
         raw = await llm_text(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
-            max_tokens=2600,  # generous budget: thinking + actual JSON
+            # Floor of 2600: room for thinking + JSON, but let callers raise it.
+            max_tokens=max(max_tokens, 2600),
             temperature=temperature,
             language=language,
             reasoning_effort=reasoning_effort,
