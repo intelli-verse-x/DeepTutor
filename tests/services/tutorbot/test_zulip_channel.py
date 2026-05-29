@@ -213,6 +213,26 @@ class TestIsMentioned:
         ch._bot_user_id = 100
         assert ch._is_mentioned({"flags": ["mentioned", "wildcard_mentioned"]}) is True
 
+    def test_content_fallback_when_flags_empty(self):
+        # Generic bot + Event Queue API returns empty flags; detect the mention
+        # from the rendered ``@**Bot Name**`` syntax in the message body.
+        ch = _make_channel()
+        ch._bot_user_id = 100
+        ch._bot_full_name = "DeepTutor Bot"
+        assert ch._is_mentioned({"flags": [], "content": "hi @**DeepTutor Bot** help"}) is True
+
+    def test_content_fallback_requires_full_name(self):
+        ch = _make_channel()
+        ch._bot_user_id = 100
+        ch._bot_full_name = ""
+        assert ch._is_mentioned({"flags": [], "content": "hi @**DeepTutor Bot**"}) is False
+
+    def test_content_fallback_no_match(self):
+        ch = _make_channel()
+        ch._bot_user_id = 100
+        ch._bot_full_name = "DeepTutor Bot"
+        assert ch._is_mentioned({"flags": [], "content": "no mention here"}) is False
+
 
 class TestExtractUploadLinks:
     def test_markdown_image(self):

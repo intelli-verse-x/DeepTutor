@@ -78,6 +78,7 @@ class ZulipChannel(BaseChannel):
         self._client: Any = None
         self._bot_email: str = ""
         self._bot_user_id: int | None = None
+        self._bot_full_name: str = ""
         self._queue_id: str | None = None
         self._last_event_id: int = -1
         self._max_message_id: int = 0
@@ -128,6 +129,7 @@ class ZulipChannel(BaseChannel):
 
         self._bot_email = profile.get("email", self.config.email)
         self._bot_user_id = profile.get("user_id")
+        self._bot_full_name = profile.get("full_name", "")
         logger.info(
             "Zulip bot connected: {} (user_id={})",
             self._bot_email,
@@ -503,15 +505,34 @@ class ZulipChannel(BaseChannel):
         return None
 
     def _is_mentioned(self, message: dict) -> bool:
+        """Check if the bot is mentioned in the message.
+
+        For Generic bot, Zulip server may not set 'mentioned' flag in the
+        event payload, so we also detect @mention by scanning the message
+        content for patterns like @**BotName** or @**BotName|UserID**.
+        """
         if self._bot_user_id is None:
             logger.debug("Zulip _is_mentioned: bot_user_id is None, cannot check mention")
             return False
+
+        # 1. Mention flags — set by Outgoing webhook bots and some Generic bot
+        #    configurations.
         for flag in message.get("flags", []):
             if isinstance(flag, str) and flag in MENTION_FLAGS:
                 logger.debug("Zulip _is_mentioned: found flag={}", flag)
                 return True
+
+        # 2. Content fallback — Generic bot + Event Queue API often returns an
+        #    empty ``flags`` array, so scan the message body for the literal
+        #    ``@**Bot Full Name**`` mention syntax Zulip renders.
+        if self._bot_full_name:
+            mention_pattern = f"@**{self._bot_full_name}**"
+            if mention_pattern in message.get("content", ""):
+                logger.debug("Zulip _is_mentioned: matched content pattern {}", mention_pattern)
+                return True
+
         logger.debug(
-            "Zulip _is_mentioned: no mention flags found, flags={}",
+            "Zulip _is_mentioned: no mention flags or content match, flags={}",
             message.get("flags", []),
         )
         return False
