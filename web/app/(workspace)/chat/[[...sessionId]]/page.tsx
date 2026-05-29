@@ -1434,7 +1434,10 @@ export default function ChatPage() {
         }
       }
       if (isVisualizeMode) config = buildVisualizeWSConfig(visualizeConfig);
-      if (isResearchMode) config = buildResearchWSConfig(researchConfig);
+      if (isResearchMode) {
+        if (!researchValidation.valid) return;
+        config = buildResearchWSConfig(researchConfig);
+      }
 
       const skillsPayload = skillsAutoMode ? ["auto"] : [...selectedSkills];
       const memoryPayload = [...memoryReferencesPayload];
@@ -1485,6 +1488,7 @@ export default function ChatPage() {
       quizConfig,
       quizPdf,
       researchConfig,
+      researchValidation,
       selectedHistorySessions.length,
       selectedMemoryFiles.length,
       selectedBookReferences.length,

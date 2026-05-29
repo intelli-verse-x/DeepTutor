@@ -89,6 +89,42 @@ def _json_has_expected(data: dict[str, Any], expected_key: str | None) -> bool:
     return bool(value)
 
 
+def _strip_thinking_preamble(text: str) -> str:
+    """Strip model thinking/reasoning preamble before JSON output.
+
+    Some local/Qwen models output reasoning text (e.g. "Here's a thinking
+    process:...") even when ``response_format`` is ``json_object``.  The
+    reasoning text often contains backtick-quoted JSON templates with `{`
+    characters, so finding the *first* ``{`` is wrong.  Instead we find the
+    **last** ``{`` in the response — the actual JSON output comes after the
+    thinking text, and a top-level JSON object starts with its opening brace.
+    """
+    if not text:
+        return text
+    # Find the last '{' — that's where the actual JSON object starts
+    brace = text.rindex("{")
+    if brace > 0:
+        candidate = text[brace:]
+        # Quick check: can json.loads parse it?
+        import json
+        try:
+            json.loads(candidate)
+            return candidate  # Valid JSON -> use it
+        except (json.JSONDecodeError, ValueError):
+            pass  # Not valid JSON, fall through to original approach
+    # Fallback: try the first '{' with the thinking-heuristic check
+    if "{" not in text:
+        return text
+    brace = text.index("{")
+    if brace > 0:
+        before = text[:brace].strip()
+        if not before or before.lower().startswith(
+            ("here", "think", "let me", "ok", "okay", "i will", "first", "note", "so")
+        ) or before.rstrip(".").isdigit():
+            return text[brace:]
+    return text
+
+
 async def llm_json(
     *,
     user_prompt: str,
@@ -104,28 +140,39 @@ async def llm_json(
     tokens and leave the visible JSON object empty. For structured book blocks
     we first honor the configured reasoning mode, then retry once with minimal
     reasoning if parsing fails or the expected top-level key is missing.
+
+    Also strips thinking/reasoning preamble text (common with local models)
+    before JSON parsing.
     """
 
     async def _once(reasoning_effort: str | None) -> dict[str, Any]:
         raw = await llm_text(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
-            max_tokens=max_tokens,
+            max_tokens=2600,  # generous budget: thinking + actual JSON
             temperature=temperature,
-            response_format={"type": "json_object"},
             language=language,
             reasoning_effort=reasoning_effort,
         )
-        parsed = parse_json_response(raw, fallback={})
-        return _normalize_json_payload(parsed, expected_key=expected_key)
+        # First pass: strip thinking preamble (Qwen outputs thinking text
+        # even with json_object format), then let parse_json_response handle
+        # what remains via its json-repair fallback.
+        cleaned = _strip_thinking_preamble(raw)
+        parsed = parse_json_response(cleaned, fallback={})
+        if parsed:
+            return _normalize_json_payload(parsed, expected_key=expected_key)
+        # Second pass: if stripping failed, feed the raw response to
+        # parse_json_response — json-repair may extract JSON from mixed text.
+        recovered = parse_json_response(raw, fallback={})
+        return _normalize_json_payload(recovered, expected_key=expected_key)
 
     data = await _once(None)
     if _json_has_expected(data, expected_key):
         return data
 
-    retry_data = await _once("minimal")
+    retry_data = await _once("low")
     if _json_has_expected(retry_data, expected_key):
-        retry_data.setdefault("_metadata", {})["reasoning_retry"] = "minimal"
+        retry_data.setdefault("_metadata", {})["reasoning_retry"] = "low"
         return retry_data
     return data or retry_data
 

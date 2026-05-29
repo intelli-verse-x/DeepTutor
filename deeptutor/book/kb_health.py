@@ -283,8 +283,11 @@ def scan_log_health(book_id: str, storage: BookStorage | None = None) -> LogHeal
         logger.warning(f"Could not read log {log_path}: {exc}")
         return report
 
+    # Only report repeated entries that are actual errors/failures.
     repeated: list[dict[str, str | int]] = [
-        {"signature": k, "count": v} for k, v in counter.items() if v >= 3
+        {"signature": k, "count": v}
+        for k, v in counter.items()
+        if v >= 3 and ("error" in k.lower() or "fail" in k.lower())
     ]
     repeated.sort(key=lambda r: r["count"] if isinstance(r["count"], int) else 0, reverse=True)
     report.repeated_failures = repeated[:10]
