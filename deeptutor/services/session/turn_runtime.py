@@ -559,6 +559,14 @@ class TurnRuntimeManager:
         # frontend sends the v2 ``ask_user`` shape.
         self._reply_queues: dict[str, asyncio.Queue[dict[str, Any] | None]] = {}
 
+    async def has_live_execution(self, turn_id: str) -> bool:
+        """Public check for whether this process still owns the turn's runner.
+
+        Lets transport callers (e.g. the unified WS router) avoid reaching into
+        ``_lock`` / ``_executions`` directly.
+        """
+        return await self._has_live_execution(turn_id)
+
     async def _has_live_execution(self, turn_id: str) -> bool:
         """Whether this process still owns the turn's in-memory runner."""
         async with self._lock:

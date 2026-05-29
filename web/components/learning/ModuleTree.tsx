@@ -22,7 +22,6 @@ interface ModuleTreeProps {
   modules: Module[];
   masteryLevels: Record<string, number>;
   currentModuleId: string;
-  currentStage: string;
   onModuleClick?: (moduleId: string) => void;
 }
 
@@ -106,7 +105,6 @@ export default function ModuleTree({
   modules,
   masteryLevels,
   currentModuleId,
-  currentStage,
   onModuleClick,
 }: ModuleTreeProps) {
   const { t } = useTranslation();

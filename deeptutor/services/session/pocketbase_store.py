@@ -27,6 +27,10 @@ import time
 from typing import Any
 import uuid
 
+from deeptutor.services.path_service import get_path_service
+
+logger = logging.getLogger(__name__)
+
 _VALID_ID = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 
@@ -34,10 +38,6 @@ def _validate_id(value: str, name: str = "id") -> str:
     if not _VALID_ID.match(value):
         raise ValueError(f"Invalid {name}: {value!r}")
     return value
-
-from deeptutor.services.path_service import get_path_service
-
-logger = logging.getLogger(__name__)
 
 
 def _json_loads(value: Any, default: Any) -> Any:

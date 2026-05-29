@@ -101,17 +101,17 @@ export default function LearningPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-[var(--border)]">
-        {tabs.map((t) => (
+        {tabs.map((tabItem) => (
           <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
+            key={tabItem.key}
+            onClick={() => setTab(tabItem.key)}
             className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-              tab === t.key
+              tab === tabItem.key
                 ? "border-[var(--primary)] text-[var(--foreground)]"
                 : "border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
             }`}
           >
-            {t.label}
+            {tabItem.label}
           </button>
         ))}
       </div>
@@ -145,12 +145,12 @@ export default function LearningPage() {
                   <div className="mt-3">
                     <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1">
                       <span>{t("guidedLearning.mastered")}</span>
-                      <span>{card.mastered_pct}%</span>
+                      <span>{card.avg_mastery_pct}%</span>
                     </div>
                     <div className="w-full h-1.5 rounded-full bg-[var(--muted)]">
                       <div
                         className="h-full rounded-full bg-[var(--primary)] transition-all"
-                        style={{ width: `${card.mastered_pct}%` }}
+                        style={{ width: `${card.avg_mastery_pct}%` }}
                       />
                     </div>
                   </div>

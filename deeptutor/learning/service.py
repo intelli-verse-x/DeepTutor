@@ -96,6 +96,21 @@ class LearningService:
         progress.current_stage = next_stage
         progress.updated_at = time.time()
 
+    def switch_module(self, progress: LearningProgress, module_id: str) -> bool:
+        """Point the session at ``module_id`` and reset it to that module's
+        PRETEST stage. Mutates ``progress`` in place and returns whether the
+        module exists. The caller is responsible for persisting (``save``) —
+        typically *after* cancelling any in-flight turn so the turn's teardown
+        cannot overwrite the switch with stale progress.
+        """
+        found = any(m.id == module_id for m in progress.modules)
+        if found:
+            progress.current_module_id = module_id
+            progress.current_kp_index = 0
+            progress.current_stage = LearningStage.PRETEST
+            progress.updated_at = time.time()
+        return found
+
     def record_quiz_attempt(
         self, progress: LearningProgress, attempt: QuizAttempt
     ) -> None:
@@ -198,7 +213,8 @@ class LearningService:
                     "modules_count": len(progress.modules),
                     "kp_count": total_kps,
                     "current_stage": progress.current_stage.value if progress.current_stage else "",
-                    "mastered_pct": round(total_mastery / total_kps * 100) if total_kps else 0,
+                    # Average mastery across current KPs (not the % of KPs mastered).
+                    "avg_mastery_pct": round(total_mastery / total_kps * 100) if total_kps else 0,
                     "updated_at": progress.updated_at,
                 })
             except Exception:

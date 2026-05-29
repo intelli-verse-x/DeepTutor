@@ -1,13 +1,5 @@
 import { apiUrl, apiFetch } from "./api";
 
-export interface AnswerRequest {
-  question_id: string;
-  knowledge_point_id: string;
-  module_id?: string;
-  user_answer: string;
-  self_attribution?: string;
-}
-
 export interface ModuleInit {
   id: string;
   name: string;
@@ -19,16 +11,6 @@ export interface ModuleInit {
 export async function fetchProgress(bookId: string) {
   const res = await apiFetch(apiUrl(`/api/v1/learning/progress/${bookId}`));
   if (!res.ok) throw new Error(`Failed to fetch progress: ${res.status}`);
-  return res.json();
-}
-
-export async function submitAnswer(bookId: string, body: AnswerRequest) {
-  const res = await apiFetch(apiUrl(`/api/v1/learning/progress/${bookId}/answer`), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Failed to submit answer: ${res.status}`);
   return res.json();
 }
 
@@ -48,7 +30,7 @@ export interface ProgressSummary {
   modules_count: number;
   kp_count: number;
   current_stage: string;
-  mastered_pct: number;
+  avg_mastery_pct: number;
   updated_at: number;
 }
 

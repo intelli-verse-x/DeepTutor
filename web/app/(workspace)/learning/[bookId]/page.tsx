@@ -4,7 +4,8 @@ import { useParams } from "next/navigation";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Lightbulb, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { apiUrl, wsUrl } from "@/lib/api";
+import { wsUrl } from "@/lib/api";
+import { fetchProgress as fetchProgressApi } from "@/lib/learning-api";
 import ModuleTree from "@/components/learning/ModuleTree";
 import { StructuredStageContent, latestQuestionIdFromContent } from "@/components/learning/StructuredStageContent";
 
@@ -28,7 +29,6 @@ export default function LearningBookPage() {
   const { t } = useTranslation();
   const [stages, setStages] = useState<StageProgress[]>([]);
   const stagesRef = useRef<StageProgress[]>([]);
-  const [currentStage, setCurrentStage] = useState<string>("");
   const currentStageRef = useRef<string>("");
   const [connecting, setConnecting] = useState(true);
   const [progressLoaded, setProgressLoaded] = useState(false);
@@ -43,6 +43,7 @@ export default function LearningBookPage() {
   const intentionalCloseRef = useRef(false);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoAdvanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   interface ModuleData {
     id: string;
@@ -82,11 +83,7 @@ export default function LearningBookPage() {
   }, [currentModuleId, params.bookId]);
 
   const fetchProgress = useCallback(() => {
-    fetch(apiUrl(`/api/v1/learning/progress/${params.bookId}`), { credentials: "include" })
-      .then((r) => {
-        if (!r.ok) throw new Error(`Failed to fetch progress: ${r.status}`);
-        return r.json();
-      })
+    fetchProgressApi(params.bookId)
       .then((data) => {
         setModules(data.modules ?? []);
         setMasteryLevels(data.mastery_levels ?? {});
@@ -255,7 +252,6 @@ export default function LearningBookPage() {
       setSubmittingAnswer(false);
       setWaitingForLLM(false);
       currentStageRef.current = evt.stage;
-      setCurrentStage(evt.stage);
       // Clear errors on new stage — previous turn's error should not block the next turn
       errorRef.current = false;
       setError(null);
@@ -305,7 +301,6 @@ export default function LearningBookPage() {
         return updated;
       });
       currentStageRef.current = "";
-      setCurrentStage("");
       if (["plan", "diagnostic_phase1", "diagnostic_phase2", "practice_quiz", "review", "module_test"].includes(endedStage)) {
         fetchProgressRef.current();
       }
@@ -332,7 +327,7 @@ export default function LearningBookPage() {
           }));
           // If still active turn after 2s, retry (only for active turn errors)
           if (retriesLeft > 0) {
-            setTimeout(() => {
+            retryTimerRef.current = setTimeout(() => {
               if (activeTurnRetryRef.current && retriesLeft > 0) {
                 sendContinue(retriesLeft - 1);
               }
@@ -394,6 +389,14 @@ export default function LearningBookPage() {
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
+      }
+      if (autoAdvanceTimerRef.current) {
+        clearTimeout(autoAdvanceTimerRef.current);
+        autoAdvanceTimerRef.current = null;
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
       }
       wsRef.current?.close();
     };
@@ -462,7 +465,6 @@ export default function LearningBookPage() {
               modules={modules}
               masteryLevels={masteryLevels}
               currentModuleId={currentModuleId}
-              currentStage={currentStage}
               onModuleClick={handleModuleClick}
             />
           </div>

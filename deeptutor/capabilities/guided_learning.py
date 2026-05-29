@@ -5,10 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import json
+import logging
 import time
 from typing import Any
-
-_turn_call_llm: contextvars.ContextVar = contextvars.ContextVar("_turn_call_llm", default=None)
 
 from deeptutor.core.capability_protocol import BaseCapability, CapabilityManifest
 from deeptutor.core.context import UnifiedContext
@@ -52,6 +51,14 @@ from deeptutor.learning.scheduler import SpacedRepetitionScheduler
 from deeptutor.learning.service import LearningService
 from deeptutor.learning.storage import LearningStore
 from deeptutor.services.llm import complete
+from deeptutor.services.rag.service import RAGService
+from deeptutor.utils.json_parser import parse_json_response
+
+logger = logging.getLogger(__name__)
+
+# Per-turn RAG-warning collector, threaded to _call_llm without widening every
+# stage-handler signature. Declared after imports to keep import ordering clean.
+_turn_call_llm: contextvars.ContextVar = contextvars.ContextVar("_turn_call_llm", default=None)
 
 
 class GuidedLearningCapability(BaseCapability):
@@ -75,6 +82,14 @@ class GuidedLearningCapability(BaseCapability):
         ],
         tools_used=["rag", "code_execution", "web_search"],
     )
+
+    # ── Tuning constants ─────────────────────────────────────────────────
+    _FEYNMAN_MAX_RETRIES = 3
+    _RAG_TIMEOUT_SECONDS = 10
+    _LLM_CHAIN_TIMEOUT_SECONDS = 60
+    _STAGE_MAX_FAILURES = 2
+    _STAGE_MAX_CUMULATIVE_FAILURES = 4
+    _ERROR_DIAGNOSIS_TIMEOUT_SECONDS = 45
 
     def __init__(
         self,
@@ -111,11 +126,13 @@ class GuidedLearningCapability(BaseCapability):
 
     @staticmethod
     def _safe_json_parse(text: str, default: dict | None = None) -> dict:
-        """Parse JSON with graceful fallback on failure."""
-        try:
-            return json.loads(text)
-        except (json.JSONDecodeError, TypeError):
-            return default or {}
+        """Parse JSON with fence-stripping + repair, graceful fallback on failure.
+
+        Delegates to the shared parser so markdown-fenced / lightly-malformed
+        LLM output (the common case) is recovered instead of silently falling
+        back to the empty default.
+        """
+        return parse_json_response(text, fallback=default if default is not None else {})
 
     # ── Answer extraction ───────────────────────────────────────────────
 
@@ -156,6 +173,24 @@ class GuidedLearningCapability(BaseCapability):
         if not isinstance(question, dict):
             return question
         return {k: v for k, v in question.items() if k not in cls._ANSWER_KEYS}
+
+    @classmethod
+    def _sanitize_diagnostic(cls, data: dict) -> dict:
+        """Drop answer-bearing data before persisting to progress.diagnostic.
+
+        The diagnostic snapshot is returned verbatim to clients via the
+        /progress endpoints, so it must not carry the LLM's top-level
+        ``answers`` array or any inline answer keys — otherwise a polling
+        client receives the answers, defeating server-side grading. The
+        authoritative answers live in LearningStore (read by submit_answer).
+        """
+        clean = {k: v for k, v in data.items() if k != "answers"}
+        for key in ("questions", "exercises"):
+            if isinstance(clean.get(key), list):
+                clean[key] = [
+                    cls._strip_answer(q) if isinstance(q, dict) else q for q in clean[key]
+                ]
+        return clean
 
     @staticmethod
     def _inject_question_ids(data: dict, prefix: str) -> dict:
@@ -252,7 +287,6 @@ class GuidedLearningCapability(BaseCapability):
         if not self._kb_name:
             return ("", "")
         try:
-            from deeptutor.services.rag.service import RAGService
             rag = RAGService(kb_base_dir=self._kb_base_dir)
             result = await rag.search(query=query, kb_name=self._kb_name)
             content = result.get("content") or result.get("answer") or ""
@@ -260,8 +294,7 @@ class GuidedLearningCapability(BaseCapability):
                 return (f"\n\n参考教材内容：\n{content}", "")
             return ("", "")
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"RAG retrieval failed: {e}")
+            logger.warning(f"RAG retrieval failed: {e}")
             return ("", "RAG 检索失败")
 
     # ── Real LLM call ───────────────────────────────────────────────────
@@ -372,8 +405,7 @@ class GuidedLearningCapability(BaseCapability):
                 async with stream.stage("warning", source=self.manifest.name):
                     await stream.content(w, metadata={"type": "rag_error"})
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Stage {stage} failed: {e}", exc_info=True)
+            logger.error(f"Stage {stage} failed: {e}", exc_info=True)
             async with stream.stage("error", source=self.manifest.name):
                 await stream.content("阶段执行失败，进度已保存，下次将继续此阶段。")
         finally:
@@ -432,7 +464,7 @@ class GuidedLearningCapability(BaseCapability):
             progress.diagnostic = DiagnosticResult(
                 total_questions=len(questions),
                 correct_count=correct_count,
-                phase1_result=data,
+                phase1_result=self._sanitize_diagnostic(data),
             )
             self._service.advance_stage(progress, LearningStage.DIAGNOSTIC_PHASE2)
 
@@ -486,7 +518,7 @@ class GuidedLearningCapability(BaseCapability):
                 )
 
             if progress.diagnostic is not None:
-                progress.diagnostic.phase2_results = {"phase2": data}
+                progress.diagnostic.phase2_results = {"phase2": self._sanitize_diagnostic(data)}
                 progress.diagnostic.phase2_correct_count = correct_count
             self._service.advance_stage(progress, LearningStage.METACOGNITIVE_INTRO)
 
@@ -574,13 +606,6 @@ class GuidedLearningCapability(BaseCapability):
                 return
             await stream.content(response)
             self._service.advance_stage(progress, LearningStage.FEYNMAN_CHECK)
-
-    _FEYNMAN_MAX_RETRIES = 3
-    _RAG_TIMEOUT_SECONDS = 10
-    _LLM_CHAIN_TIMEOUT_SECONDS = 60
-    _STAGE_MAX_FAILURES = 2
-    _STAGE_MAX_CUMULATIVE_FAILURES = 4
-    _ERROR_DIAGNOSIS_TIMEOUT_SECONDS = 45
 
     def _advance_after_kp(self, progress: LearningProgress, kps: list) -> None:
         """Advance to next KP's PRETEST or to PRACTICE_QUIZ if all KPs done."""
@@ -830,8 +855,7 @@ class GuidedLearningCapability(BaseCapability):
                     timeout=self._ERROR_DIAGNOSIS_TIMEOUT_SECONDS,
                 )
             except Exception as exc:
-                import logging
-                logging.getLogger(__name__).warning("error_diagnosis failed: %s", exc, exc_info=True)
+                logger.warning("error_diagnosis failed: %s", exc, exc_info=True)
                 progress.stage_failure_counts["error_diagnosis"] = progress.stage_failure_counts.get("error_diagnosis", 0) + 1
                 progress.stage_failure_notes["error_diagnosis"] = str(exc)
                 for rec in active_errors:

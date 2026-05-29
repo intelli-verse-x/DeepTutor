@@ -21,6 +21,14 @@ Supported client message ``type`` values:
   ``language``, ``config``, ``notebook_references``, ``history_references``.
   Errors: ``regenerate_busy`` (another turn is running) and
   ``nothing_to_regenerate`` (no prior user message).
+- ``check_active_turn`` — report whether the session has a live running turn;
+  replies with ``active_turn_info`` (``turn_id``/``status``), marking stale
+  persisted "running" rows as cancelled when no live execution exists.
+- ``user_input`` — deliver a guided-learning input to the turn's StreamBus
+  (resolves a pending ``wait_for_input``).
+- ``change_module`` — switch the active guided-learning module; replies with
+  ``module_changed`` (``module_id``/``success``) before cancelling any active
+  turn so the frontend processes the switch before the cancellation.
 """
 
 from __future__ import annotations
@@ -162,8 +170,7 @@ async def unified_websocket(ws: WebSocket) -> None:
                     # Verify the turn has a live execution; stale persisted
                     # "running" rows (e.g. after server restart) have none.
                     turn_id = active_turn["id"]
-                    async with runtime._lock:
-                        has_live = turn_id in runtime._executions
+                    has_live = await runtime.has_live_execution(turn_id)
                     if has_live:
                         await safe_send({
                             "type": "active_turn_info",
@@ -300,19 +307,15 @@ async def unified_websocket(ws: WebSocket) -> None:
                 if not session_id or not module_id:
                     await safe_send({"type": "error", "content": "Missing session_id or module_id for change_module."})
                     continue
-                from deeptutor.learning.models import LearningStage
                 from deeptutor.learning.service import LearningService
                 from deeptutor.learning.storage import LearningStore
                 from deeptutor.services.session import get_turn_runtime_manager
 
-                store = LearningStore()
-                service = LearningService(store)
+                # Pedagogy (module lookup + PRETEST reset) lives in the service;
+                # the router only owns the transport ordering below.
+                service = LearningService(LearningStore())
                 progress = service.get_or_create(session_id)
-                found = any(m.id == module_id for m in progress.modules)
-                if found:
-                    progress.current_module_id = module_id
-                    progress.current_kp_index = 0
-                    progress.current_stage = LearningStage.PRETEST
+                found = service.switch_module(progress, module_id)
 
                 # Send module_changed BEFORE cancelling so the frontend
                 # processes the module switch before any cancellation error.

@@ -32,7 +32,6 @@ class StreamEventType(str, Enum):
     SESSION_META = "session_meta"
     DONE = "done"
     WAIT_FOR_INPUT = "wait_for_input"
-    USER_INPUT = "user_input"
 
 
 @dataclass

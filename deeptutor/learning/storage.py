@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import threading
 import time
@@ -15,8 +16,13 @@ _cas_lock = threading.Lock()
 def _atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + f".tmp.{uuid.uuid4().hex}")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
+    except BaseException:
+        # Don't leave an orphaned temp file behind on write/replace failure.
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 class LearningStore:
@@ -30,8 +36,6 @@ class LearningStore:
         return self._root / f"{book_id}.json"
 
     def save(self, progress: LearningProgress) -> None:
-        import json
-
         with _cas_lock:
             progress.updated_at = time.time()
             progress.version += 1
@@ -41,8 +45,6 @@ class LearningStore:
 
     def save_cas(self, progress: LearningProgress, expected_version: int) -> bool:
         """Compare-and-swap save. Returns True if version matched and save succeeded."""
-        import json
-
         with _cas_lock:
             current = self.load(progress.book_id)
             if current is None or current.version != expected_version:
@@ -55,8 +57,6 @@ class LearningStore:
             return True
 
     def load(self, book_id: str) -> LearningProgress | None:
-        import json
-
         path = self._path(book_id)
         if not path.exists():
             return None
@@ -64,12 +64,13 @@ class LearningStore:
         return LearningProgress.model_validate(data)
 
     def delete(self, book_id: str) -> None:
-        path = self._path(book_id)
-        if path.exists():
-            path.unlink()
-        qpath = self._questions_path(book_id)
-        if qpath.exists():
-            qpath.unlink()
+        with _cas_lock:
+            path = self._path(book_id)
+            if path.exists():
+                path.unlink()
+            qpath = self._questions_path(book_id)
+            if qpath.exists():
+                qpath.unlink()
 
     def exists(self, book_id: str) -> bool:
         return self._path(book_id).exists()
@@ -85,17 +86,19 @@ class LearningStore:
         Merges into existing data. Preserves metadata (kp_id, module_id, etc.)
         from previous save_question_meta() calls for questions not overwritten.
         """
-        import json
-
-        path = self._questions_path(book_id)
-        existing = self._load_raw_questions(book_id)
-        for qid, ans in answers.items():
-            if isinstance(existing.get(qid), dict):
-                existing[qid]["answer"] = ans
-            else:
-                existing[qid] = ans
-        text = json.dumps(existing, ensure_ascii=False, indent=2)
-        _atomic_write_text(path, text)
+        # Lock the read-modify-write so concurrent question writes (and a racing
+        # delete/redo) cannot lose a merge via last-writer-wins. _load_raw_questions
+        # does not take the lock, so there is no re-entrant deadlock.
+        with _cas_lock:
+            path = self._questions_path(book_id)
+            existing = self._load_raw_questions(book_id)
+            for qid, ans in answers.items():
+                if isinstance(existing.get(qid), dict):
+                    existing[qid]["answer"] = ans
+                else:
+                    existing[qid] = ans
+            text = json.dumps(existing, ensure_ascii=False, indent=2)
+            _atomic_write_text(path, text)
 
     def load_question_answers(self, book_id: str) -> dict[str, str]:
         """Load question answers. Returns {} if none saved.
@@ -103,8 +106,6 @@ class LearningStore:
         Backward compatible: if a value is a dict (from save_question_meta),
         extracts the \"answer\" key.
         """
-        import json
-
         path = self._questions_path(book_id)
         if not path.exists():
             return {}
@@ -123,13 +124,12 @@ class LearningStore:
         Merges into existing data. Values should be dicts like:
         {"answer": str, "knowledge_point_id": str, "module_id": str, "question_type": str}
         """
-        import json
-
-        path = self._questions_path(book_id)
-        existing = self._load_raw_questions(book_id)
-        existing.update(meta)
-        text = json.dumps(existing, ensure_ascii=False, indent=2)
-        _atomic_write_text(path, text)
+        with _cas_lock:
+            path = self._questions_path(book_id)
+            existing = self._load_raw_questions(book_id)
+            existing.update(meta)
+            text = json.dumps(existing, ensure_ascii=False, indent=2)
+            _atomic_write_text(path, text)
 
     def load_question_meta(self, book_id: str) -> dict[str, dict]:
         """Load question metadata. Backward compatible with old str-value format.
@@ -145,10 +145,18 @@ class LearningStore:
                 result[qid] = val
         return result
 
+    def clear_questions(self, book_id: str) -> None:
+        """Delete the stored question answers/metadata for a book (e.g. on redo).
+
+        Locked like the question writers so it cannot race a concurrent merge.
+        """
+        with _cas_lock:
+            qpath = self._questions_path(book_id)
+            if qpath.exists():
+                qpath.unlink()
+
     def _load_raw_questions(self, book_id: str) -> dict:
         """Load raw questions JSON file. Returns {} if none saved."""
-        import json
-
         path = self._questions_path(book_id)
         if not path.exists():
             return {}

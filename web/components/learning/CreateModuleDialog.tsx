@@ -88,12 +88,11 @@ export default function CreateModuleDialog({
     if (!selectedBookId) { setBookChapters([]); return; }
     setBookChapters([]);
     setLoadingChapters(true);
-    import("@/lib/book-api").then(({ bookApi }) =>
-      bookApi.get(selectedBookId)
-        .then((data) => setBookChapters(data.spine?.chapters ?? []))
-        .catch(() => setError(t("guidedLearning.loadChaptersFailed")))
-        .finally(() => setLoadingChapters(false)),
-    );
+    bookApi
+      .get(selectedBookId)
+      .then((data) => setBookChapters(data.spine?.chapters ?? []))
+      .catch(() => setError(t("guidedLearning.loadChaptersFailed")))
+      .finally(() => setLoadingChapters(false));
   }, [selectedBookId, t]);
 
   // Load records when notebook selected
@@ -110,7 +109,7 @@ export default function CreateModuleDialog({
     setTab("manual");
     setModuleName("");
     setKpRows([{ name: "", type: "concept" }]);
-    setManualBookId("manual");
+    setManualBookId("");
     setSelectedBookId("");
     setBookChapters([]);
     setSelectedNotebook("");
