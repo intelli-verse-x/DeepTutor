@@ -22,9 +22,18 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+import re
 import time
 from typing import Any
 import uuid
+
+_VALID_ID = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+
+def _validate_id(value: str, name: str = "id") -> str:
+    if not _VALID_ID.match(value):
+        raise ValueError(f"Invalid {name}: {value!r}")
+    return value
 
 from deeptutor.services.path_service import get_path_service
 
@@ -93,12 +102,13 @@ class PocketBaseSessionStore:
         return self._session_record_to_dict(record, resolved_id, resolved_title, now)
 
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
+        sid = _validate_id(session_id, "session_id")
         def _get():
             try:
                 records = (
                     _pb()
                     .collection("sessions")
-                    .get_full_list(query_params={"filter": f'session_id="{session_id}"'})
+                    .get_full_list(query_params={"filter": f'session_id="{sid}"'})
                 )
                 return records[0] if records else None
             except Exception:
@@ -146,11 +156,12 @@ class PocketBaseSessionStore:
         }
 
     async def update_session_title(self, session_id: str, title: str) -> bool:
+        sid = _validate_id(session_id, "session_id")
         def _update():
             records = (
                 _pb()
                 .collection("sessions")
-                .get_full_list(query_params={"filter": f'session_id="{session_id}"'})
+                .get_full_list(query_params={"filter": f'session_id="{sid}"'})
             )
             if not records:
                 return False
@@ -166,11 +177,12 @@ class PocketBaseSessionStore:
             return False
 
     async def delete_session(self, session_id: str) -> bool:
+        sid = _validate_id(session_id, "session_id")
         def _delete():
             records = (
                 _pb()
                 .collection("sessions")
-                .get_full_list(query_params={"filter": f'session_id="{session_id}"'})
+                .get_full_list(query_params={"filter": f'session_id="{sid}"'})
             )
             if not records:
                 return False
@@ -202,11 +214,12 @@ class PocketBaseSessionStore:
             return []
 
     async def update_summary(self, session_id: str, summary: str, up_to_msg_id: int) -> bool:
+        sid = _validate_id(session_id, "session_id")
         def _update():
             records = (
                 _pb()
                 .collection("sessions")
-                .get_full_list(query_params={"filter": f'session_id="{session_id}"'})
+                .get_full_list(query_params={"filter": f'session_id="{sid}"'})
             )
             if not records:
                 return False
@@ -228,8 +241,9 @@ class PocketBaseSessionStore:
     async def update_session_preferences(
         self, session_id: str, preferences: dict[str, Any]
     ) -> bool:
+        sid = _validate_id(session_id, "session_id")
         async def _merge():
-            session = await self.get_session(session_id)
+            session = await self.get_session(sid)
             if session is None:
                 return False
             merged = {**session.get("preferences", {}), **(preferences or {})}
@@ -238,7 +252,7 @@ class PocketBaseSessionStore:
                 records = (
                     _pb()
                     .collection("sessions")
-                    .get_full_list(query_params={"filter": f'session_id="{session_id}"'})
+                    .get_full_list(query_params={"filter": f'session_id="{sid}"'})
                 )
                 if not records:
                     return False
@@ -280,11 +294,12 @@ class PocketBaseSessionStore:
         # not yet wired through PocketBase storage — branching only works on
         # the SQLite backend today.
         _ = parent_message_id
+        sid = _validate_id(session_id, "session_id")
         now = time.time()
 
         def _add():
             payload = {
-                "session_id": session_id,
+                "session_id": sid,
                 "role": role,
                 "content": content or "",
                 "capability": capability or "",
@@ -321,7 +336,8 @@ class PocketBaseSessionStore:
     async def get_last_message(
         self, session_id: str, role: str | None = None
     ) -> dict[str, Any] | None:
-        filter_str = f'session_id="{session_id}"'
+        sid = _validate_id(session_id, "session_id")
+        filter_str = f'session_id="{sid}"'
         if role:
             filter_str += f' && role="{role}"'
 
@@ -347,13 +363,14 @@ class PocketBaseSessionStore:
             return None
 
     async def get_messages(self, session_id: str) -> list[dict[str, Any]]:
+        sid = _validate_id(session_id, "session_id")
         def _get():
             return (
                 _pb()
                 .collection("messages")
                 .get_full_list(
                     query_params={
-                        "filter": f'session_id="{session_id}"',
+                        "filter": f'session_id="{sid}"',
                         "sort": "msg_created_at",
                     }
                 )
@@ -397,6 +414,7 @@ class PocketBaseSessionStore:
     # ------------------------------------------------------------------
 
     async def create_turn(self, session_id: str, capability: str = "") -> dict[str, Any]:
+        sid = _validate_id(session_id, "session_id")
         now = time.time()
         turn_id = f"turn_{int(now * 1000)}_{uuid.uuid4().hex[:10]}"
 
@@ -405,16 +423,16 @@ class PocketBaseSessionStore:
             sessions = (
                 _pb()
                 .collection("sessions")
-                .get_full_list(query_params={"filter": f'session_id="{session_id}"'})
+                .get_full_list(query_params={"filter": f'session_id="{sid}"'})
             )
             if not sessions:
-                raise ValueError(f"Session not found: {session_id}")
+                raise ValueError(f"Session not found: {sid}")
             # Guard: no duplicate active turns
             active = (
                 _pb()
                 .collection("turns")
                 .get_full_list(
-                    query_params={"filter": f'session_id="{session_id}" && status="running"'}
+                    query_params={"filter": f'session_id="{sid}" && status="running"'}
                 )
             )
             if active:
@@ -425,7 +443,7 @@ class PocketBaseSessionStore:
                 .create(
                     {
                         "turn_id": turn_id,
-                        "session_id": session_id,
+                        "session_id": sid,
                         "capability": capability or "",
                         "status": "running",
                         "error": "",
@@ -440,7 +458,7 @@ class PocketBaseSessionStore:
         return {
             "id": turn_id,
             "turn_id": turn_id,
-            "session_id": session_id,
+            "session_id": sid,
             "capability": capability or "",
             "status": "running",
             "error": "",
@@ -451,11 +469,12 @@ class PocketBaseSessionStore:
         }
 
     async def get_turn(self, turn_id: str) -> dict[str, Any] | None:
+        tid = _validate_id(turn_id, "turn_id")
         def _get():
             records = (
                 _pb()
                 .collection("turns")
-                .get_full_list(query_params={"filter": f'turn_id="{turn_id}"'})
+                .get_full_list(query_params={"filter": f'turn_id="{tid}"'})
             )
             return records[0] if records else None
 
@@ -463,13 +482,14 @@ class PocketBaseSessionStore:
         return self._turn_record_to_dict(record) if record else None
 
     async def get_active_turn(self, session_id: str) -> dict[str, Any] | None:
+        sid = _validate_id(session_id, "session_id")
         def _get():
             records = (
                 _pb()
                 .collection("turns")
                 .get_full_list(
                     query_params={
-                        "filter": f'session_id="{session_id}" && status="running"',
+                        "filter": f'session_id="{sid}" && status="running"',
                         "sort": "-turn_updated_at",
                     }
                 )
@@ -480,13 +500,14 @@ class PocketBaseSessionStore:
         return self._turn_record_to_dict(record) if record else None
 
     async def list_active_turns(self, session_id: str) -> list[dict[str, Any]]:
+        sid = _validate_id(session_id, "session_id")
         def _list():
             return (
                 _pb()
                 .collection("turns")
                 .get_full_list(
                     query_params={
-                        "filter": f'session_id="{session_id}" && status="running"',
+                        "filter": f'session_id="{sid}" && status="running"',
                         "sort": "-turn_updated_at",
                     }
                 )
@@ -499,6 +520,7 @@ class PocketBaseSessionStore:
             return []
 
     async def update_turn_status(self, turn_id: str, status: str, error: str = "") -> bool:
+        tid = _validate_id(turn_id, "turn_id")
         now = time.time()
         finished_at = now if status in {"completed", "failed", "cancelled"} else None
 
@@ -506,7 +528,7 @@ class PocketBaseSessionStore:
             records = (
                 _pb()
                 .collection("turns")
-                .get_full_list(query_params={"filter": f'turn_id="{turn_id}"'})
+                .get_full_list(query_params={"filter": f'turn_id="{tid}"'})
             )
             if not records:
                 return False
@@ -529,7 +551,7 @@ class PocketBaseSessionStore:
 
         # Batch-flush turn events from local JSONL buffer to PocketBase on finalisation
         if updated and finished_at is not None:
-            await self._flush_turn_events(turn_id)
+            await self._flush_turn_events(tid)
 
         return updated
 
@@ -538,12 +560,13 @@ class PocketBaseSessionStore:
         Read the local events.jsonl write-ahead buffer and batch-POST all
         events to PocketBase turn_events collection in a single background call.
         """
+        tid = _validate_id(turn_id, "turn_id")
         try:
             path_service = get_path_service()
             # The JSONL file is written by _mirror_event_to_workspace; we look
             # across all capability workspaces since we only have the turn_id.
             workspace_root = path_service.get_user_root()
-            jsonl_files: list[Path] = list(workspace_root.rglob(f"{turn_id}/events.jsonl"))
+            jsonl_files: list[Path] = list(workspace_root.rglob(f"{tid}/events.jsonl"))
 
             if not jsonl_files:
                 return
@@ -567,7 +590,7 @@ class PocketBaseSessionStore:
                     try:
                         pb.collection("turn_events").create(
                             {
-                                "turn_id": turn_id,
+                                "turn_id": tid,
                                 "session_id": event.get("session_id", ""),
                                 "seq": int(event.get("seq", 0)),
                                 "type": event.get("type", ""),
@@ -582,7 +605,7 @@ class PocketBaseSessionStore:
                         logger.debug(f"turn_events batch item failed: {exc}")
 
             await asyncio.to_thread(_batch_create)
-            logger.debug(f"Flushed {len(events)} turn events for {turn_id} to PocketBase")
+            logger.debug(f"Flushed {len(events)} turn events for {tid} to PocketBase")
 
         except Exception as exc:
             logger.warning(f"_flush_turn_events failed for {turn_id}: {exc}")
@@ -623,9 +646,10 @@ class PocketBaseSessionStore:
 
     async def get_turn_events(self, turn_id: str, after_seq: int = 0) -> list[dict[str, Any]]:
         """Retrieve persisted turn events from PocketBase (post-turn replay)."""
+        tid = _validate_id(turn_id, "turn_id")
 
         def _get():
-            filter_str = f'turn_id="{turn_id}"'
+            filter_str = f'turn_id="{tid}"'
             if after_seq > 0:
                 filter_str += f" && seq > {after_seq}"
             return (
@@ -644,7 +668,7 @@ class PocketBaseSessionStore:
                     "content": getattr(r, "content", "") or "",
                     "metadata": _json_loads(getattr(r, "metadata_json", None), {}),
                     "session_id": getattr(r, "session_id", ""),
-                    "turn_id": turn_id,
+                    "turn_id": tid,
                     "seq": int(getattr(r, "seq", 0)),
                     "timestamp": _to_float(getattr(r, "event_timestamp", None)),
                 }

@@ -78,6 +78,7 @@ const CAPABILITY_ICONS: Record<string, LucideIcon> = {
   deep_solve: BrainCircuit,
   deep_question: PenLine,
   deep_research: Microscope,
+  guided_learning: Lightbulb,
 };
 
 const CAPABILITY_LABELS: Record<string, string> = {
@@ -85,6 +86,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
   deep_solve: "Deep Solve",
   deep_question: "Quiz Generation",
   deep_research: "Deep Research",
+  guided_learning: "Guided Learning",
 };
 
 function getToolIcon(name: string): LucideIcon {

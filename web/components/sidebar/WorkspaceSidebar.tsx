@@ -19,6 +19,7 @@ export default function WorkspaceSidebar() {
   const router = useRouter();
   const {
     newSession,
+    cancelStreamingTurn,
     selectedSessionId,
     sessionStatuses,
     sidebarRefreshToken,
@@ -72,6 +73,14 @@ export default function WorkspaceSidebar() {
     })
     .map(({ session }) => session);
 
+  // Cancel any in-flight streaming turn before starting a fresh session, so a
+  // new chat never inherits a still-running turn (mirrors handleDeleteSession).
+  const handleNewChat = useCallback(() => {
+    cancelStreamingTurn();
+    newSession();
+    router.push("/chat");
+  }, [cancelStreamingTurn, newSession, router]);
+
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
       router.push(`/chat/${sessionId}`);
@@ -105,11 +114,12 @@ export default function WorkspaceSidebar() {
         prev.filter((session) => session.session_id !== sessionId),
       );
       if (selectedSessionId === sessionId) {
+        cancelStreamingTurn();
         newSession();
         router.push("/chat");
       }
     },
-    [newSession, router, selectedSessionId, t],
+    [cancelStreamingTurn, newSession, router, selectedSessionId, t],
   );
 
   return (
@@ -118,7 +128,7 @@ export default function WorkspaceSidebar() {
       sessions={orderedSessions}
       activeSessionId={selectedSessionId}
       loadingSessions={loadingSessions}
-      onNewChat={newSession}
+      onNewChat={handleNewChat}
       onSelectSession={handleSelectSession}
       onRenameSession={handleRenameSession}
       onDeleteSession={handleDeleteSession}
