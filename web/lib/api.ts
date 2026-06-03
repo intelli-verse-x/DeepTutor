@@ -131,7 +131,12 @@ export function wsUrl(path: string): string {
   return `${normalizedBase}${normalizedPath}`;
 }
 
-const AUTH_ENABLED = process.env.NEXT_PUBLIC_AUTH_ENABLED === "true";
+// Evaluate the build-time flag at runtime (not a ``=== "true"`` compare) so the
+// Docker ``__NEXT_PUBLIC_AUTH_ENABLED_PLACEHOLDER__`` token survives minification
+// and ``start-frontend.sh`` can rewrite it on startup. See lib/auth.ts.
+const AUTH_ENABLED = /^(1|true|yes|on)$/i.test(
+  (process.env.NEXT_PUBLIC_AUTH_ENABLED ?? "").trim(),
+);
 
 /**
  * Authenticated fetch wrapper. Behaves identically to `fetch` but automatically
