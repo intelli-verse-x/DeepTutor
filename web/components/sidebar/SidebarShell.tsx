@@ -12,7 +12,6 @@ import {
   Brain,
   ChevronDown,
   Github,
-  GraduationCap,
   LayoutGrid,
   Library,
   MessageSquare,
@@ -61,12 +60,8 @@ const PRIMARY_NAV: NavEntry[] = [
     icon: BookOpen,
     tooltipKey: "Knowledge tooltip",
   },
-  {
-    href: "/learning",
-    label: "Learning",
-    icon: GraduationCap,
-    tooltipKey: "Learning tooltip",
-  },
+  // Guided Learning is hidden from the product nav (backend kept for further
+  // development). Re-add this entry to expose the /learning workspace.
   {
     href: "/space",
     label: "Space",
