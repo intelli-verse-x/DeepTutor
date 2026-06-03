@@ -98,7 +98,12 @@ interface SidebarShellProps {
   onSelectSession?: (sessionId: string) => void | Promise<void>;
   onRenameSession?: (sessionId: string, title: string) => void | Promise<void>;
   onDeleteSession?: (sessionId: string) => void | Promise<void>;
-  footerSlot?: ReactNode;
+  /**
+   * Footer content rendered below the nav. Pass a render function to receive
+   * the current ``collapsed`` state so footer items (e.g. Admin / Sign out) can
+   * switch to their icon-only variant when the rail is collapsed.
+   */
+  footerSlot?: ReactNode | ((collapsed: boolean) => ReactNode);
 }
 
 export function SidebarShell({
@@ -117,6 +122,8 @@ export function SidebarShell({
   const { t } = useTranslation();
   const { sidebarCollapsed: collapsed, setSidebarCollapsed: setCollapsed } =
     useAppShell();
+  const renderedFooter =
+    typeof footerSlot === "function" ? footerSlot(collapsed) : footerSlot;
   const [recentsCollapsed, setRecentsCollapsed] = useState(false);
 
   // Hydrate Recents collapse from localStorage after first render to stay SSR-safe.
@@ -236,7 +243,7 @@ export function SidebarShell({
               </Link>
             );
           })}
-          {footerSlot}
+          {renderedFooter}
           <a
             href={DOCS_URL}
             target="_blank"
@@ -389,7 +396,7 @@ export function SidebarShell({
             </Link>
           );
         })}
-        {footerSlot}
+        {renderedFooter}
         <div className="mt-0.5 flex items-center gap-0.5">
           <VersionBadge />
           <a

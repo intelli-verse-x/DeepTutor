@@ -132,12 +132,12 @@ export default function WorkspaceSidebar() {
       onSelectSession={handleSelectSession}
       onRenameSession={handleRenameSession}
       onDeleteSession={handleDeleteSession}
-      footerSlot={
+      footerSlot={(collapsed) => (
         <>
-          <AdminLink />
-          <LogoutButton />
+          <AdminLink collapsed={collapsed} />
+          <LogoutButton collapsed={collapsed} />
         </>
-      }
+      )}
     />
   );
 }
