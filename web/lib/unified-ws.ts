@@ -27,6 +27,7 @@ export type StreamEventType =
   | "result"
   | "error"
   | "session"
+  | "session_meta"
   | "done";
 
 export interface StreamEvent {
@@ -39,6 +40,11 @@ export interface StreamEvent {
   turn_id?: string;
   seq?: number;
   timestamp: number;
+}
+
+export interface LLMSelection {
+  profile_id: string;
+  model_id: string;
 }
 
 // ---- Client message ----
@@ -64,6 +70,17 @@ export interface StartTurnMessage {
     record_ids: string[];
   }[];
   history_references?: string[];
+  question_notebook_references?: number[];
+  book_references?: {
+    book_id: string;
+    page_ids: string[];
+  }[];
+  skills?: string[];
+  llm_selection?: LLMSelection | null;
+  /** Edit-branching: when present (even as ``null``) the new user message
+   *  attaches at this exact parent — creating a sibling rather than
+   *  appending to the session tail. */
+  parent_message_id?: number | null;
 }
 
 export interface SubscribeTurnMessage {
@@ -95,13 +112,38 @@ export interface CancelTurnMessage {
   turn_id: string;
 }
 
+export interface RegenerateMessage {
+  type: "regenerate";
+  session_id: string;
+  overrides?: Record<string, unknown>;
+}
+
+/**
+ * Deliver the user's answer for an ``ask_user`` paused turn so the
+ * agentic loop can resume on the same turn. The user's reply is
+ * substituted into the matching ``role=tool`` message body before the
+ * next LLM iteration runs.
+ *
+ * Either ``text`` (legacy single-question shape) or ``answers``
+ * (v2 multi-question shape) must be provided. When both are present
+ * the backend prefers ``answers``.
+ */
+export interface SubmitUserReplyMessage {
+  type: "submit_user_reply";
+  turn_id: string;
+  text?: string;
+  answers?: Array<{ questionId: string; text: string }>;
+}
+
 export type ChatMessage =
   | StartTurnMessage
   | SubscribeTurnMessage
   | SubscribeSessionMessage
   | ResumeTurnMessage
   | UnsubscribeMessage
-  | CancelTurnMessage;
+  | CancelTurnMessage
+  | RegenerateMessage
+  | SubmitUserReplyMessage;
 
 // ---- Connection manager ----
 
@@ -163,6 +205,13 @@ export class UnifiedWSClient {
       this.lastReceivedAt = Date.now();
       try {
         const event: StreamEvent = JSON.parse(ev.data);
+        // Heartbeat frames (client-sent ``ping`` echoed by some legacy
+        // backends, or ``pong`` from the modern handler) keep the socket
+        // alive but are not user-visible chat events. They MUST be dropped
+        // here — otherwise the message list renders them as "Unknown type"
+        // error rows, especially during long-running turns.
+        const type = (event as { type?: string }).type;
+        if (type === "ping" || type === "pong") return;
         if (event.turn_id) this.activeTurnId = event.turn_id;
         if (event.seq != null) this.lastSeq = Math.max(this.lastSeq, event.seq);
         this.onEvent(event);

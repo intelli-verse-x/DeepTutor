@@ -39,6 +39,7 @@ Configuration (env)
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import time
@@ -46,9 +47,7 @@ from typing import Any, Optional
 
 import httpx
 
-from deeptutor.logging import get_logger
-
-logger = get_logger("services.kb.user_kb_writer", level="INFO")
+logger = logging.getLogger(__name__)
 
 USER_ID_REGEX = re.compile(r"^[A-Za-z0-9_-]{4,128}$")
 

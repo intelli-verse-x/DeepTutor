@@ -14,10 +14,17 @@ import logging
 import re
 from typing import Any
 
+_repair_json_fn: Any = None
+
 try:
-    from json_repair import repair_json
+    from json_repair import repair_json as _repair_json_import
 except ImportError:
-    repair_json = None
+    pass
+else:
+    _repair_json_fn = _repair_json_import
+
+# Keep a public alias so tests and callers can patch the repair hook directly.
+repair_json = _repair_json_fn
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +33,7 @@ _UNSET = object()
 
 def parse_json_response(
     response: str,
-    logger_instance: logging.Logger | None = None,
+    logger_instance: Any = None,
     fallback: Any = _UNSET,
 ) -> Any:
     """
@@ -90,7 +97,10 @@ def parse_json_response(
         log.info("Successfully repaired malformed JSON")
         return result
     except Exception as repair_error:
-        log.error(f"JSON repair failed: {repair_error}")
+        # Most callers use this helper as best-effort parsing with an explicit
+        # fallback. Non-JSON prose is common in LLM/tool output and should not
+        # look like a backend failure when the caller can safely continue.
+        log.debug(f"JSON repair failed: {repair_error}")
         log.debug(f"Response: {extracted_response[:200]}")
         return fallback
 

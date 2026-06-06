@@ -8,18 +8,18 @@ import asyncio
 from datetime import datetime
 import hashlib
 import json
-import os
+import logging
 from pathlib import Path
 import shutil
 from typing import List, Optional
 
-from dotenv import load_dotenv
-
-from deeptutor.logging import get_logger
+from deeptutor.services.config import resolve_llm_runtime_config
 from deeptutor.services.rag.factory import DEFAULT_PROVIDER
-from deeptutor.services.rag.pipelines.llamaindex import LlamaIndexPipeline
+from deeptutor.services.rag.file_routing import FileTypeRouter
+from deeptutor.services.rag.index_versioning import list_kb_versions
+from deeptutor.services.rag.service import RAGService
 
-logger = get_logger("KnowledgeInit")
+logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_DIR = "./data/knowledge_bases"
 
@@ -48,12 +48,16 @@ class DocumentAdder:
         self.legacy_rag_storage_dir = self.kb_dir / "rag_storage"
         self.metadata_file = self.kb_dir / "metadata.json"
 
-        if not self.llamaindex_storage_dir.exists() and self.legacy_rag_storage_dir.exists():
+        has_llamaindex_index = any(
+            bool(version.get("ready")) for version in list_kb_versions(self.kb_dir)
+        )
+
+        if not has_llamaindex_index and self.legacy_rag_storage_dir.exists():
             raise ValueError(
                 f"Knowledge base '{kb_name}' uses legacy index format and requires reindex before incremental add"
             )
 
-        if not self.llamaindex_storage_dir.exists():
+        if not has_llamaindex_index:
             raise ValueError(f"Knowledge base not initialized (llamaindex): {kb_name}")
 
         if rag_provider and rag_provider != DEFAULT_PROVIDER:
@@ -124,7 +128,7 @@ class DocumentAdder:
         if not new_files:
             return []
 
-        pipeline = LlamaIndexPipeline(kb_base_dir=str(self.base_dir))
+        rag_service = RAGService(kb_base_dir=str(self.base_dir), provider=DEFAULT_PROVIDER)
         processed_files: list[Path] = []
         total_files = len(new_files)
 
@@ -140,7 +144,7 @@ class DocumentAdder:
                         total=total_files,
                     )
 
-                success = await pipeline.add_documents(self.kb_name, [str(doc_file)])
+                success = await rag_service.add_documents(self.kb_name, [str(doc_file)])
                 if success:
                     processed_files.append(doc_file)
                     self._record_successful_hash(doc_file)
@@ -167,12 +171,6 @@ class DocumentAdder:
         with open(self.metadata_file, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
 
-    def extract_numbered_items_for_new_docs(self, processed_files: List[Path], batch_size: int = 20) -> None:
-        """Compatibility no-op: numbered-item extraction is deprecated."""
-        _ = batch_size
-        if processed_files:
-            logger.info("Skipping numbered items extraction for incremental add (feature removed)")
-
     def update_metadata(self, added_count: int) -> None:
         """Update metadata after incremental add."""
         metadata: dict = {}
@@ -185,7 +183,12 @@ class DocumentAdder:
 
         metadata["rag_provider"] = DEFAULT_PROVIDER
         metadata["needs_reindex"] = False
-        metadata["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        metadata["last_updated"] = timestamp
+        if added_count > 0:
+            metadata["last_indexed_at"] = timestamp
+            metadata["last_indexed_count"] = added_count
+            metadata["last_indexed_action"] = "upload"
 
         history = metadata.get("update_history", [])
         history.append(
@@ -255,7 +258,6 @@ async def add_documents(
             )
             return 0
         processed = await adder.process_new_documents(new_files)
-        adder.extract_numbered_items_for_new_docs(processed)
         adder.update_metadata(len(processed))
 
         manager.update_kb_status(
@@ -270,6 +272,9 @@ async def add_documents(
                 "file_name": "",
                 "error": None,
                 "timestamp": datetime.now().isoformat(),
+                "indexed_count": len(processed),
+                "index_changed": len(processed) > 0,
+                "index_action": "upload",
             },
         )
         return len(processed)
@@ -292,25 +297,30 @@ async def add_documents(
 
 
 async def main() -> None:
+    try:
+        llm_config = resolve_llm_runtime_config()
+        default_api_key = llm_config.api_key
+        default_base_url = llm_config.effective_url
+    except Exception:
+        default_api_key = ""
+        default_base_url = ""
+
     parser = argparse.ArgumentParser(description="Incrementally add documents to a KB")
     parser.add_argument("kb_name", help="KB Name")
     parser.add_argument("--docs", nargs="+", help="Files")
     parser.add_argument("--docs-dir", help="Directory")
     parser.add_argument("--base-dir", default=DEFAULT_BASE_DIR)
-    parser.add_argument("--api-key", default=os.getenv("LLM_API_KEY"))
-    parser.add_argument("--base-url", default=os.getenv("LLM_HOST"))
+    parser.add_argument("--api-key", default=default_api_key)
+    parser.add_argument("--base-url", default=default_base_url)
     parser.add_argument("--allow-duplicates", action="store_true")
 
     args = parser.parse_args()
-    load_dotenv()
-
     doc_files: list[str] = []
     if args.docs:
         doc_files.extend(args.docs)
     if args.docs_dir:
         p = Path(args.docs_dir)
-        for ext in ["*.pdf", "*.txt", "*.md", "*.json", "*.csv"]:
-            doc_files.extend([str(f) for f in p.glob(ext)])
+        doc_files.extend(str(f) for f in FileTypeRouter.collect_supported_files(p))
 
     if not doc_files:
         logger.error("No documents provided.")

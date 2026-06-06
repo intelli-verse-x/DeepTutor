@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { SidebarShell } from "@/components/sidebar/SidebarShell";
+import { LogoutButton } from "@/components/auth/LogoutButton";
+import { AdminLink } from "@/components/auth/AdminLink";
 import { useUnifiedChat } from "@/context/UnifiedChatContext";
 import {
   deleteSession,
@@ -15,8 +17,12 @@ import {
 export default function WorkspaceSidebar() {
   const { t } = useTranslation();
   const router = useRouter();
-  const { newSession, selectedSessionId, sessionStatuses, sidebarRefreshToken } =
-    useUnifiedChat();
+  const {
+    newSession,
+    selectedSessionId,
+    sessionStatuses,
+    sidebarRefreshToken,
+  } = useUnifiedChat();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const hasLoadedSessionsRef = useRef(false);
@@ -35,6 +41,11 @@ export default function WorkspaceSidebar() {
     }
   }, []);
 
+  // First mount shows the skeleton; subsequent refreshes triggered by
+  // ``sidebarRefreshToken`` (STREAM_END, server-side session bind,
+  // turn deletion) silently swap in the new list. Resetting the ref
+  // each refresh briefly re-renders the loading skeleton, which the
+  // user perceives as a flicker on every message send / Answer Now.
   useEffect(() => {
     void refreshSessions();
   }, [refreshSessions, sidebarRefreshToken]);
@@ -61,11 +72,6 @@ export default function WorkspaceSidebar() {
     })
     .map(({ session }) => session);
 
-  const handleNewChat = () => {
-    newSession();
-    router.push("/chat");
-  };
-
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
       router.push(`/chat/${sessionId}`);
@@ -73,22 +79,31 @@ export default function WorkspaceSidebar() {
     [router],
   );
 
-  const handleRenameSession = useCallback(async (sessionId: string, title: string) => {
-    const updated = await updateSessionTitle(sessionId, title);
-    setSessions((prev) =>
-      prev.map((session) =>
-        session.session_id === sessionId
-          ? { ...session, title: updated.title, updated_at: updated.updated_at }
-          : session,
-      ),
-    );
-  }, []);
+  const handleRenameSession = useCallback(
+    async (sessionId: string, title: string) => {
+      const updated = await updateSessionTitle(sessionId, title);
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.session_id === sessionId
+            ? {
+                ...session,
+                title: updated.title,
+                updated_at: updated.updated_at,
+              }
+            : session,
+        ),
+      );
+    },
+    [],
+  );
 
   const handleDeleteSession = useCallback(
     async (sessionId: string) => {
       if (!window.confirm(t("Delete this chat history?"))) return;
       await deleteSession(sessionId);
-      setSessions((prev) => prev.filter((session) => session.session_id !== sessionId));
+      setSessions((prev) =>
+        prev.filter((session) => session.session_id !== sessionId),
+      );
       if (selectedSessionId === sessionId) {
         newSession();
         router.push("/chat");
@@ -103,10 +118,16 @@ export default function WorkspaceSidebar() {
       sessions={orderedSessions}
       activeSessionId={selectedSessionId}
       loadingSessions={loadingSessions}
-      onNewChat={handleNewChat}
+      onNewChat={newSession}
       onSelectSession={handleSelectSession}
       onRenameSession={handleRenameSession}
       onDeleteSession={handleDeleteSession}
+      footerSlot={
+        <>
+          <AdminLink />
+          <LogoutButton />
+        </>
+      }
     />
   );
 }

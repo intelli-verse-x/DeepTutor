@@ -1,17 +1,4 @@
 export type MathAnimatorOutputMode = "video" | "image";
-export type MathAnimatorQuality = "low" | "medium" | "high";
-
-export interface MathAnimatorFormConfig {
-  output_mode: MathAnimatorOutputMode;
-  quality: MathAnimatorQuality;
-  style_hint: string;
-}
-
-export const DEFAULT_MATH_ANIMATOR_CONFIG: MathAnimatorFormConfig = {
-  output_mode: "video",
-  quality: "medium",
-  style_hint: "",
-};
 
 export interface MathAnimatorArtifact {
   type: "video" | "image";
@@ -51,16 +38,6 @@ export interface MathAnimatorResult {
   };
 }
 
-export function buildMathAnimatorWSConfig(
-  cfg: MathAnimatorFormConfig,
-): Record<string, unknown> {
-  return {
-    output_mode: cfg.output_mode,
-    quality: cfg.quality,
-    style_hint: cfg.style_hint.trim(),
-  };
-}
-
 export function extractMathAnimatorResult(
   resultMetadata: Record<string, unknown> | undefined,
 ): MathAnimatorResult | null {
@@ -69,10 +46,10 @@ export function extractMathAnimatorResult(
     ? resultMetadata.artifacts.filter((item): item is MathAnimatorArtifact => {
         return Boolean(
           item &&
-            typeof item === "object" &&
-            "type" in item &&
-            "url" in item &&
-            "filename" in item,
+          typeof item === "object" &&
+          "type" in item &&
+          "url" in item &&
+          "filename" in item,
         );
       })
     : [];
@@ -81,7 +58,8 @@ export function extractMathAnimatorResult(
       ? (resultMetadata.code as Record<string, unknown>)
       : {};
   const hasOutputMode =
-    resultMetadata.output_mode === "image" || resultMetadata.output_mode === "video";
+    resultMetadata.output_mode === "image" ||
+    resultMetadata.output_mode === "video";
   const timings =
     resultMetadata.timings && typeof resultMetadata.timings === "object"
       ? (resultMetadata.timings as Record<string, number>)

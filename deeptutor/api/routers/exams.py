@@ -43,6 +43,18 @@ logger = logging.getLogger("routers.exams")
 router = APIRouter()
 
 
+def _as_uuid(value: str, label: str = "id") -> uuid.UUID:
+    """Parse a client-supplied UUID, returning HTTP 422 instead of a 500.
+
+    ``uuid.UUID()`` raises ``ValueError`` on malformed input; left unguarded
+    that surfaced as an opaque 500 (e.g. ``GET /diagnostic/not-a-uuid/results``).
+    """
+    try:
+        return uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=422, detail=f"Invalid {label}: {value!r}")
+
+
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
@@ -195,7 +207,7 @@ async def list_questions(
     session: AsyncSession = Depends(get_session),
 ):
     stmt = select(ExamQuestion).where(
-        ExamQuestion.exam_pack_id == uuid.UUID(exam_id)
+        ExamQuestion.exam_pack_id == _as_uuid(exam_id, "exam_id")
     )
     if subject:
         stmt = stmt.where(ExamQuestion.subject == subject)
@@ -225,7 +237,7 @@ async def generate_practice_test(
 ):
     stmt = (
         select(ExamQuestion)
-        .where(ExamQuestion.exam_pack_id == uuid.UUID(exam_id))
+        .where(ExamQuestion.exam_pack_id == _as_uuid(exam_id, "exam_id"))
         .order_by(func.random())
         .limit(count)
     )
@@ -252,7 +264,7 @@ async def submit_answers(
     body: SubmitRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    qids = [uuid.UUID(k) for k in body.answers]
+    qids = [_as_uuid(k, "question_id") for k in body.answers]
     stmt = select(ExamQuestion).where(ExamQuestion.id.in_(qids))
     rows = (await session.execute(stmt)).scalars().all()
     correct_map = {str(q.id): q.correct_answer for q in rows}
@@ -334,13 +346,14 @@ async def diagnostic_start(
 @router.post("/diagnostic/answer")
 async def diagnostic_answer(
     body: DiagAnswerRequest,
+    x_user_id: str = Header(),
     session: AsyncSession = Depends(get_session),
 ):
-    ds = await session.get(DiagnosticSession, uuid.UUID(body.session_id))
-    if not ds or ds.status != "in_progress":
+    ds = await session.get(DiagnosticSession, _as_uuid(body.session_id, "session_id"))
+    if not ds or ds.user_id != x_user_id or ds.status != "in_progress":
         raise HTTPException(400, "Invalid or completed session")
 
-    q = await session.get(ExamQuestion, uuid.UUID(body.question_id))
+    q = await session.get(ExamQuestion, _as_uuid(body.question_id, "question_id"))
     if not q:
         raise HTTPException(404, "Question not found")
 
@@ -439,10 +452,12 @@ async def diagnostic_answer(
 @router.get("/diagnostic/{session_id}/results", response_model=DiagResultOut)
 async def diagnostic_results(
     session_id: str,
+    x_user_id: str = Header(),
     session: AsyncSession = Depends(get_session),
 ):
-    ds = await session.get(DiagnosticSession, uuid.UUID(session_id))
-    if not ds:
+    ds = await session.get(DiagnosticSession, _as_uuid(session_id, "session_id"))
+    # 404 (not 403) on owner mismatch so a session's existence isn't leaked.
+    if not ds or ds.user_id != x_user_id:
         raise HTTPException(404, "Session not found")
 
     answers_stmt = select(DiagnosticAnswer).where(DiagnosticAnswer.session_id == ds.id)
@@ -663,7 +678,7 @@ async def generate_study_plan(
 
     weak_subjects: list[str] = []
     if diagnostic_session_id:
-        ds = await session.get(DiagnosticSession, uuid.UUID(diagnostic_session_id))
+        ds = await session.get(DiagnosticSession, _as_uuid(diagnostic_session_id, "diagnostic_session_id"))
         if ds:
             answers_stmt = select(DiagnosticAnswer).where(DiagnosticAnswer.session_id == ds.id)
             answers = (await session.execute(answers_stmt)).scalars().all()
@@ -685,7 +700,7 @@ async def generate_study_plan(
 
     days_data = _build_study_plan_days(weak_subjects, exam_type, exam_metadata=exam_metadata or None)
 
-    plan = StudyPlan(user_id=x_user_id, exam_type=exam_type, plan_data=days_data, diagnostic_session_id=uuid.UUID(diagnostic_session_id) if diagnostic_session_id else None)
+    plan = StudyPlan(user_id=x_user_id, exam_type=exam_type, plan_data=days_data, diagnostic_session_id=_as_uuid(diagnostic_session_id, "diagnostic_session_id") if diagnostic_session_id else None)
     session.add(plan)
     await session.flush()
 
@@ -712,10 +727,11 @@ async def generate_study_plan(
 @router.get("/study-plan/{plan_id}")
 async def get_study_plan(
     plan_id: str,
+    x_user_id: str = Header(),
     session: AsyncSession = Depends(get_session),
 ):
-    plan = await session.get(StudyPlan, uuid.UUID(plan_id))
-    if not plan:
+    plan = await session.get(StudyPlan, _as_uuid(plan_id, "plan_id"))
+    if not plan or plan.user_id != x_user_id:
         raise HTTPException(404, "Plan not found")
 
     tasks_stmt = select(StudyPlanTask).where(StudyPlanTask.plan_id == plan.id).order_by(StudyPlanTask.day, StudyPlanTask.order)
@@ -736,10 +752,14 @@ async def get_study_plan(
 @router.post("/study-plan/complete-task")
 async def complete_task(
     body: TaskCompleteRequest,
+    x_user_id: str = Header(),
     session: AsyncSession = Depends(get_session),
 ):
-    task = await session.get(StudyPlanTask, uuid.UUID(body.task_id))
+    task = await session.get(StudyPlanTask, _as_uuid(body.task_id, "task_id"))
     if not task:
+        raise HTTPException(404, "Task not found")
+    plan = await session.get(StudyPlan, task.plan_id)
+    if not plan or plan.user_id != x_user_id:
         raise HTTPException(404, "Task not found")
     task.is_completed = True
     task.completed_at = datetime.now(timezone.utc)
@@ -970,7 +990,7 @@ async def kb_bulk_ingest(
 
     added = 0
     skipped = 0
-    source_uuid = uuid.UUID(body.source_id) if body.source_id else None
+    source_uuid = _as_uuid(body.source_id, "source_id") if body.source_id else None
 
     for item in body.questions:
         dup_stmt = (

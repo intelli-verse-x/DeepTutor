@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic.alias_generators import to_snake
+
 
 @dataclass(frozen=True)
 class ProviderSpec:
@@ -40,9 +42,16 @@ class ProviderSpec:
     strip_model_prefix: bool = False
     supports_max_completion_tokens: bool = False
     supports_prompt_caching: bool = False
+    supports_stream_options: bool = True
     model_overrides: tuple[tuple[str, dict[str, Any]], ...] = ()
     is_oauth: bool = False
     is_direct: bool = False
+    thinking_style: str = ""
+    # Substring patterns (case-insensitive) marking models whose native
+    # reasoning trace should be surfaced. When the caller does not pass an
+    # explicit reasoning_effort, the provider auto-injects "high" so the
+    # thinking_style flag (e.g. extra_body.thinking.type=enabled) is sent.
+    reasoning_model_patterns: tuple[str, ...] = ()
 
     @property
     def mode(self) -> str:
@@ -58,7 +67,7 @@ class ProviderSpec:
 
     @property
     def label(self) -> str:
-        return self.display_name or self.name
+        return self.display_name or self.name.title()
 
 
 PROVIDER_ALIASES = {
@@ -69,12 +78,16 @@ PROVIDER_ALIASES = {
     "google_genai": "gemini",
     "claude": "anthropic",
     "openai_compatible": "custom",
+    "openai-compatible": "custom",
+    "anthropic_compatible": "custom_anthropic",
+    "anthropic-compatible": "custom_anthropic",
     "volcenginecodingplan": "volcengine_coding_plan",
     "volcengineCodingPlan": "volcengine_coding_plan",
     "bytepluscodingplan": "byteplus_coding_plan",
     "byteplusCodingPlan": "byteplus_coding_plan",
     "github-copilot": "github_copilot",
     "openai-codex": "openai_codex",
+    "lm-studio": "lm_studio",
 }
 
 
@@ -85,7 +98,7 @@ def canonical_provider_name(name: str | None) -> str | None:
     key = name.strip()
     if not key:
         return None
-    key = key.replace("-", "_")
+    key = to_snake(key.replace("-", "_"))
     return PROVIDER_ALIASES.get(key, key)
 
 
@@ -101,6 +114,14 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         env_key="",
         display_name="Custom",
         backend="openai_compat",
+        is_direct=True,
+    ),
+    ProviderSpec(
+        name="custom_anthropic",
+        keywords=(),
+        env_key="",
+        display_name="Custom (Anthropic API)",
+        backend="anthropic",
         is_direct=True,
     ),
     ProviderSpec(
@@ -154,6 +175,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_gateway=True,
         detect_by_base_keyword="volces",
         default_api_base="https://ark.cn-beijing.volces.com/api/v3",
+        thinking_style="thinking_type",
     ),
     ProviderSpec(
         name="volcengine_coding_plan",
@@ -164,6 +186,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_gateway=True,
         default_api_base="https://ark.cn-beijing.volces.com/api/coding/v3",
         strip_model_prefix=True,
+        thinking_style="thinking_type",
     ),
     ProviderSpec(
         name="byteplus",
@@ -175,6 +198,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         detect_by_base_keyword="bytepluses",
         default_api_base="https://ark.ap-southeast.bytepluses.com/api/v3",
         strip_model_prefix=True,
+        thinking_style="thinking_type",
     ),
     ProviderSpec(
         name="byteplus_coding_plan",
@@ -185,6 +209,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_gateway=True,
         default_api_base="https://ark.ap-southeast.bytepluses.com/api/coding/v3",
         strip_model_prefix=True,
+        thinking_style="thinking_type",
     ),
     # === Standard providers (matched by model-name keywords) ===============
     ProviderSpec(
@@ -207,10 +232,11 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ),
     ProviderSpec(
         name="openai_codex",
-        keywords=("openai_codex", "codex"),
+        keywords=("openai-codex",),
         env_key="",
         display_name="OpenAI Codex",
         backend="openai_codex",
+        detect_by_base_keyword="codex",
         is_oauth=True,
         default_api_base="https://chatgpt.com/backend-api",
     ),
@@ -223,6 +249,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_oauth=True,
         default_api_base="https://api.githubcopilot.com",
         strip_model_prefix=True,
+        supports_max_completion_tokens=True,
     ),
     ProviderSpec(
         name="deepseek",
@@ -231,6 +258,8 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         display_name="DeepSeek",
         backend="openai_compat",
         default_api_base="https://api.deepseek.com",
+        thinking_style="thinking_type",
+        reasoning_model_patterns=("deepseek-v4-pro", "deepseek-reasoner"),
     ),
     ProviderSpec(
         name="gemini",
@@ -256,6 +285,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         display_name="DashScope",
         backend="openai_compat",
         default_api_base="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        thinking_style="enable_thinking",
     ),
     ProviderSpec(
         name="moonshot",
@@ -263,8 +293,11 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         env_key="MOONSHOT_API_KEY",
         display_name="Moonshot",
         backend="openai_compat",
-        default_api_base="https://api.moonshot.ai/v1",
-        model_overrides=(("kimi-k2.5", {"temperature": 1.0}),),
+        default_api_base="https://api.moonshot.cn/v1",
+        model_overrides=(
+            ("kimi-k2.5", {"temperature": 1.0}),
+            ("kimi-k2.6", {"temperature": 1.0}),
+        ),
     ),
     ProviderSpec(
         name="minimax",
@@ -272,7 +305,16 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         env_key="MINIMAX_API_KEY",
         display_name="MiniMax",
         backend="openai_compat",
-        default_api_base="https://api.minimax.io/v1",
+        default_api_base="https://api.minimaxi.com/v1",
+        thinking_style="reasoning_split",
+    ),
+    ProviderSpec(
+        name="minimax_anthropic",
+        keywords=("minimax_anthropic",),
+        env_key="MINIMAX_API_KEY",
+        display_name="MiniMax (Anthropic)",
+        backend="anthropic",
+        default_api_base="https://api.minimaxi.com/anthropic",
     ),
     ProviderSpec(
         name="mistral",
@@ -303,10 +345,9 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         name="vllm",
         keywords=("vllm",),
         env_key="HOSTED_VLLM_API_KEY",
-        display_name="vLLM",
+        display_name="vLLM/Local",
         backend="openai_compat",
         is_local=True,
-        default_api_base="http://localhost:8000/v1",
     ),
     ProviderSpec(
         name="ollama",
@@ -320,8 +361,8 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ),
     ProviderSpec(
         name="lm_studio",
-        keywords=("lmstudio", "lm_studio"),
-        env_key="",
+        keywords=("lm-studio", "lmstudio", "lm_studio"),
+        env_key="LM_STUDIO_API_KEY",
         display_name="LM Studio",
         backend="openai_compat",
         is_local=True,
@@ -339,6 +380,16 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="http://localhost:8080/v1",
     ),
     ProviderSpec(
+        name="lemonade",
+        keywords=("lemonade",),
+        env_key="LEMONADE_API_KEY",
+        display_name="Lemonade",
+        backend="openai_compat",
+        is_local=True,
+        detect_by_base_keyword="13305",
+        default_api_base="http://localhost:13305/api/v1",
+    ),
+    ProviderSpec(
         name="ovms",
         keywords=("openvino", "ovms"),
         env_key="",
@@ -349,6 +400,18 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="http://localhost:8000/v3",
     ),
     # === Auxiliary ==========================================================
+    ProviderSpec(
+        name="nvidia_nim",
+        keywords=("nvidia_nim", "nvidia-nim", "nim"),
+        env_key="NVIDIA_NIM_API_KEY",
+        display_name="NVIDIA NIM",
+        backend="openai_compat",
+        is_gateway=True,
+        detect_by_key_prefix="nvapi-",
+        detect_by_base_keyword="api.nvidia.com",
+        default_api_base="https://integrate.api.nvidia.com/v1",
+        supports_stream_options=False,
+    ),
     ProviderSpec(
         name="groq",
         keywords=("groq",),

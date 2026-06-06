@@ -142,6 +142,14 @@ async def create_notebook(
     return {"success": True, "notebook": notebook}
 
 
+@router.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "notebook"}
+
+
+# NOTE: dynamic "/{notebook_id}" must stay BELOW all static sub-paths
+# (/list, /statistics, /create, /health) or it shadows them — e.g. a request
+# to /health would otherwise match notebook_id="health".
 @router.get("/{notebook_id}")
 async def get_notebook(
     notebook_id: str,
@@ -253,8 +261,3 @@ async def update_record(
     if not updated:
         raise HTTPException(status_code=404, detail="Record not found")
     return {"success": True, "record": updated}
-
-
-@router.get("/health")
-async def health_check():
-    return {"status": "healthy", "service": "notebook"}

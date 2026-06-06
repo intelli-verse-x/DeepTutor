@@ -1,6 +1,6 @@
-import type { StreamEvent } from "@/lib/unified-ws";
-import { apiUrl } from "@/lib/api";
+import { apiFetch, apiUrl } from "@/lib/api";
 import { invalidateClientCache, withClientCache } from "@/lib/client-cache";
+import type { LLMSelection, StreamEvent } from "@/lib/unified-ws";
 
 export interface SessionMessage {
   id: number;
@@ -15,8 +15,14 @@ export interface SessionMessage {
     base64?: string;
     url?: string;
     mime_type?: string;
+    id?: string;
+    extracted_text?: string;
   }>;
+  metadata?: Record<string, unknown>;
   created_at: number;
+  /** Edit-branching: id of the message this row continues. `null` for the
+   *  first message in a session. Siblings share the same parent. */
+  parent_message_id?: number | null;
 }
 
 export interface SessionSummary {
@@ -27,13 +33,24 @@ export interface SessionSummary {
   updated_at: number;
   message_count: number;
   last_message: string;
-  status?: "idle" | "running" | "completed" | "failed" | "cancelled" | "rejected";
+  status?:
+    | "idle"
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "rejected";
   active_turn_id?: string;
   preferences?: {
     capability?: string;
     tools?: string[];
     knowledge_bases?: string[];
     language?: string;
+    llm_selection?: LLMSelection | null;
+    /** Edit-branching: maps a parent_message_id → the child id currently
+     *  shown at that branch point. Missing keys default to the latest
+     *  sibling (most recently created child). */
+    selected_branches?: Record<string, number>;
   };
 }
 
@@ -56,7 +73,13 @@ export interface SessionDetail {
   title: string;
   created_at: number;
   updated_at: number;
-  status?: "idle" | "running" | "completed" | "failed" | "cancelled" | "rejected";
+  status?:
+    | "idle"
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "rejected";
   active_turn_id?: string;
   compressed_summary?: string;
   summary_up_to_msg_id?: number;
@@ -65,6 +88,11 @@ export interface SessionDetail {
     tools?: string[];
     knowledge_bases?: string[];
     language?: string;
+    llm_selection?: LLMSelection | null;
+    /** Edit-branching: maps a parent_message_id → the child id currently
+     *  shown at that branch point. Missing keys default to the latest
+     *  sibling (most recently created child). */
+    selected_branches?: Record<string, number>;
   };
   messages: SessionMessage[];
   active_turns?: ActiveTurnSummary[];
@@ -83,6 +111,11 @@ export interface QuizResultItem {
 }
 
 async function expectJson<T>(response: Response): Promise<T> {
+  if (response.status === 401 && typeof window !== "undefined") {
+    const next = encodeURIComponent(window.location.pathname);
+    window.location.href = `/login?next=${next}`;
+    return new Promise(() => {});
+  }
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
@@ -94,12 +127,19 @@ export async function listSessions(
   offset = 0,
   options?: { force?: boolean },
 ): Promise<SessionSummary[]> {
+  const qs = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
   return withClientCache<SessionSummary[]>(
     `sessions:${limit}:${offset}`,
     async () => {
-      const response = await fetch(apiUrl(`/api/v1/sessions?limit=${limit}&offset=${offset}`), {
-        cache: "no-store",
-      });
+      const response = await apiFetch(
+        apiUrl(`/api/v1/sessions?${qs.toString()}`),
+        {
+          cache: "no-store",
+        },
+      );
       const data = await expectJson<{ sessions: SessionSummary[] }>(response);
       return data.sessions ?? [];
     },
@@ -111,14 +151,17 @@ export async function listSessions(
 }
 
 export async function getSession(sessionId: string): Promise<SessionDetail> {
-  const response = await fetch(apiUrl(`/api/v1/sessions/${sessionId}`), {
+  const response = await apiFetch(apiUrl(`/api/v1/sessions/${sessionId}`), {
     cache: "no-store",
   });
   return expectJson<SessionDetail>(response);
 }
 
-export async function updateSessionTitle(sessionId: string, title: string): Promise<SessionDetail> {
-  const response = await fetch(apiUrl(`/api/v1/sessions/${sessionId}`), {
+export async function updateSessionTitle(
+  sessionId: string,
+  title: string,
+): Promise<SessionDetail> {
+  const response = await apiFetch(apiUrl(`/api/v1/sessions/${sessionId}`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
@@ -129,7 +172,7 @@ export async function updateSessionTitle(sessionId: string, title: string): Prom
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  const response = await fetch(apiUrl(`/api/v1/sessions/${sessionId}`), {
+  const response = await apiFetch(apiUrl(`/api/v1/sessions/${sessionId}`), {
     method: "DELETE",
   });
   await expectJson<{ deleted: boolean }>(response);
@@ -139,11 +182,41 @@ export async function deleteSession(sessionId: string): Promise<void> {
 export async function recordQuizResults(
   sessionId: string,
   answers: QuizResultItem[],
+  turnId?: string | null,
 ): Promise<void> {
-  const response = await fetch(apiUrl(`/api/v1/sessions/${sessionId}/quiz-results`), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ answers }),
-  });
+  const response = await apiFetch(
+    apiUrl(`/api/v1/sessions/${sessionId}/quiz-results`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers, turn_id: turnId || "" }),
+    },
+  );
   await expectJson<{ recorded: boolean }>(response);
+}
+
+export async function deleteMessage(
+  sessionId: string,
+  messageId: number,
+): Promise<void> {
+  const response = await apiFetch(
+    apiUrl(`/api/v1/sessions/${sessionId}/messages/${messageId}`),
+    { method: "DELETE" },
+  );
+  await expectJson<{ deleted: boolean }>(response);
+}
+
+export async function updateBranchSelection(
+  sessionId: string,
+  selectedBranches: Record<string, number>,
+): Promise<void> {
+  const response = await apiFetch(
+    apiUrl(`/api/v1/sessions/${sessionId}/branch-selection`),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected_branches: selectedBranches }),
+    },
+  );
+  await expectJson<{ selected_branches: Record<string, number> }>(response);
 }

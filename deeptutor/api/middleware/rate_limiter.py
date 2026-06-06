@@ -13,9 +13,9 @@ from typing import Callable
 from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from deeptutor.logging import get_logger
+import logging
 
-logger = get_logger("RateLimiter")
+logger = logging.getLogger("RateLimiter")
 
 
 class TokenBucket:

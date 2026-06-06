@@ -7,19 +7,19 @@ import argparse
 import asyncio
 from datetime import datetime
 import json
-import os
+import logging
 from pathlib import Path
 import shutil
 from typing import Optional
 
-from deeptutor.logging import get_logger
-from deeptutor.services.rag.components.routing import FileTypeRouter
-from deeptutor.services.rag.factory import DEFAULT_PROVIDER, normalize_provider_name
+from deeptutor.knowledge.naming import validate_knowledge_base_name
+from deeptutor.knowledge.progress_tracker import ProgressStage, ProgressTracker
+from deeptutor.services.config import resolve_llm_runtime_config
+from deeptutor.services.rag.factory import DEFAULT_PROVIDER
+from deeptutor.services.rag.file_routing import FileTypeRouter
 from deeptutor.services.rag.service import RAGService
 
-from deeptutor.knowledge.progress_tracker import ProgressStage, ProgressTracker
-
-logger = get_logger("KnowledgeInit")
+logger = logging.getLogger(__name__)
 
 
 class KnowledgeBaseInitializer:
@@ -34,17 +34,17 @@ class KnowledgeBaseInitializer:
         progress_tracker: ProgressTracker | None = None,
         rag_provider: str | None = None,
     ):
-        self.kb_name = kb_name
+        self.kb_name = validate_knowledge_base_name(kb_name)
         self.base_dir = Path(base_dir)
-        self.kb_dir = self.base_dir / kb_name
+        self.kb_dir = self.base_dir / self.kb_name
 
         self.raw_dir = self.kb_dir / "raw"
         self.llamaindex_storage_dir = self.kb_dir / "llamaindex_storage"
 
         self.api_key = api_key
         self.base_url = base_url
-        self.progress_tracker = progress_tracker or ProgressTracker(kb_name, self.base_dir)
-        self.rag_provider = normalize_provider_name(rag_provider or DEFAULT_PROVIDER)
+        self.progress_tracker = progress_tracker or ProgressTracker(self.kb_name, self.base_dir)
+        self.rag_provider = DEFAULT_PROVIDER
 
     def _register_to_config(self) -> None:
         """Register KB in kb_config.json with initializing state."""
@@ -85,8 +85,12 @@ class KnowledgeBaseInitializer:
             except Exception:
                 metadata = {}
 
-        metadata["rag_provider"] = normalize_provider_name(provider)
-        metadata["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        metadata["rag_provider"] = DEFAULT_PROVIDER
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        metadata["last_updated"] = timestamp
+        metadata["last_indexed_at"] = timestamp
+        metadata["last_indexed_count"] = len(FileTypeRouter.collect_supported_files(self.raw_dir))
+        metadata["last_indexed_action"] = "create"
 
         with open(metadata_file, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
@@ -106,7 +110,6 @@ class KnowledgeBaseInitializer:
 
         for dir_path in [
             self.raw_dir,
-            self.llamaindex_storage_dir,
         ]:
             dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -140,8 +143,7 @@ class KnowledgeBaseInitializer:
     async def process_documents(
         self,
     ) -> bool:
-        """Process documents with llamaindex provider.
-        """
+        """Process documents with llamaindex provider."""
         provider = DEFAULT_PROVIDER
 
         self.progress_tracker.update(
@@ -151,9 +153,7 @@ class KnowledgeBaseInitializer:
             total=0,
         )
 
-        doc_files: list[Path] = []
-        for pattern in FileTypeRouter.get_glob_patterns_for_provider(provider):
-            doc_files.extend(list(self.raw_dir.glob(pattern)))
+        doc_files = FileTypeRouter.collect_supported_files(self.raw_dir)
 
         if not doc_files:
             self.progress_tracker.update(
@@ -223,20 +223,18 @@ class KnowledgeBaseInitializer:
         """No-op retained for compatibility with previous pipelines."""
         logger.info("Skipping legacy structure cleanup (llamaindex-only mode)")
 
-    def extract_numbered_items(self, batch_size: int = 20) -> None:
-        """Compatibility no-op: numbered-item extraction is deprecated."""
-        _ = batch_size
-        logger.info("Skipping numbered items extraction (deprecated feature removed)")
-
     async def display_statistics_generic(self) -> None:
         """Display basic statistics."""
         raw_files = list(self.raw_dir.glob("*")) if self.raw_dir.exists() else []
+        from deeptutor.services.rag.index_versioning import list_kb_versions
+
+        index_versions = list_kb_versions(self.kb_dir)
 
         logger.info("=" * 50)
         logger.info("Knowledge Base Statistics")
         logger.info("=" * 50)
         logger.info(f"Raw documents: {len(raw_files)}")
-        logger.info(f"LlamaIndex storage exists: {self.llamaindex_storage_dir.exists()}")
+        logger.info(f"Index versions: {len(index_versions)}")
         logger.info(f"Provider used: {DEFAULT_PROVIDER}")
         logger.info("=" * 50)
 
@@ -247,7 +245,6 @@ async def initialize_knowledge_base(
     base_dir: str = "./data/knowledge_bases",
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
-    skip_extract: bool = False,
 ) -> bool:
     """Convenience initializer used by CLI wrappers."""
     from deeptutor.knowledge.manager import KnowledgeBaseManager
@@ -262,10 +259,8 @@ async def initialize_knowledge_base(
     )
     try:
         initializer.create_directory_structure()
-        initializer.copy_documents(source_files)
+        copied_files = initializer.copy_documents(source_files)
         await initializer.process_documents()
-        if not skip_extract:
-            initializer.extract_numbered_items()
         manager.update_kb_status(
             name=kb_name,
             status="ready",
@@ -278,6 +273,9 @@ async def initialize_knowledge_base(
                 "file_name": "",
                 "error": None,
                 "timestamp": datetime.now().isoformat(),
+                "indexed_count": len(copied_files),
+                "index_changed": True,
+                "index_action": "create",
             },
         )
         return True
@@ -300,16 +298,22 @@ async def initialize_knowledge_base(
 
 
 async def main() -> None:
+    try:
+        llm_config = resolve_llm_runtime_config()
+        default_api_key = llm_config.api_key
+        default_base_url = llm_config.effective_url
+    except Exception:
+        default_api_key = ""
+        default_base_url = ""
+
     parser = argparse.ArgumentParser(description="Initialize a new knowledge base from documents")
     parser.add_argument("name", help="Knowledge base name")
     parser.add_argument("--docs", nargs="+", help="Document files to process")
     parser.add_argument("--docs-dir", help="Directory containing documents to process")
     parser.add_argument("--base-dir", default="./knowledge_bases")
-    parser.add_argument("--api-key", default=os.getenv("LLM_API_KEY"))
-    parser.add_argument("--base-url", default=os.getenv("LLM_HOST"))
+    parser.add_argument("--api-key", default=default_api_key)
+    parser.add_argument("--base-url", default=default_base_url)
     parser.add_argument("--skip-processing", action="store_true")
-    parser.add_argument("--skip-extract", action="store_true")
-    parser.add_argument("--batch-size", type=int, default=20)
 
     args = parser.parse_args()
 
@@ -319,8 +323,7 @@ async def main() -> None:
     if args.docs_dir:
         docs_dir = Path(args.docs_dir)
         if docs_dir.exists() and docs_dir.is_dir():
-            for pattern in FileTypeRouter.get_glob_patterns_for_provider(DEFAULT_PROVIDER):
-                doc_files.extend([str(f) for f in docs_dir.glob(pattern)])
+            doc_files.extend(str(f) for f in FileTypeRouter.collect_supported_files(docs_dir))
 
     initializer = KnowledgeBaseInitializer(
         kb_name=args.name,
@@ -335,8 +338,6 @@ async def main() -> None:
 
     if not args.skip_processing:
         await initializer.process_documents()
-    if not args.skip_processing and not args.skip_extract:
-        initializer.extract_numbered_items(batch_size=args.batch_size)
 
 
 if __name__ == "__main__":
