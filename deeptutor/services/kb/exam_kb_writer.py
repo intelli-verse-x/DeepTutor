@@ -23,15 +23,14 @@ agent / coordinator path. KB writes must never break paper generation.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Any, Optional
 
 import httpx
 
-from deeptutor.logging import get_logger
-
-logger = get_logger("services.kb.exam_kb_writer", level="INFO")
+logger = logging.getLogger(__name__)
 
 EXAM_SLUG_REGEX = re.compile(r"^[a-z0-9_]{2,40}$")
 

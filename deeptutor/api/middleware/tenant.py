@@ -12,9 +12,7 @@ from __future__ import annotations
 import contextvars
 import os
 
-from fastapi import Header, Request
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
+from fastapi import Header
 
 _DEFAULT_USER_ID = os.getenv("DEEPTUTOR_DEFAULT_USER_ID", "default")
 
@@ -62,21 +60,41 @@ def _bridge_upstream_user(uid: str):
         return None, None
 
 
-class TenantMiddleware(BaseHTTPMiddleware):
-    """Starlette middleware that sets current_user_id from the x-user-id header.
+class TenantMiddleware:
+    """Pure-ASGI middleware that binds the per-request tenant.
 
-    Also bridges the id into upstream's ``multi_user`` context so upstream's
-    per-user scoping (memory/knowledge/workspaces) follows the same tenant.
+    Implemented as raw ASGI (NOT ``BaseHTTPMiddleware``) on purpose: Starlette's
+    ``BaseHTTPMiddleware`` runs the endpoint in a separate task, so ContextVars
+    set inside its ``dispatch`` are **not** visible to route handlers. That
+    silently broke per-user isolation — ``set_current_user`` had no effect on the
+    handler's context, so every tenant fell back to the shared global workspace
+    (cross-user data leak across memory / knowledge / books).
+
+    A pure-ASGI middleware sets the ContextVars in the *same* task that runs the
+    downstream app, so both the fork's ``current_user_id`` and upstream's
+    ``multi_user`` context propagate correctly. It also covers ``websocket``
+    scopes (chat / question / book streams), which ``BaseHTTPMiddleware`` skips.
     """
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
-        uid = request.headers.get("x-user-id", "").strip() or _DEFAULT_USER_ID
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        uid = ""
+        for key, value in scope.get("headers", []):
+            if key == b"x-user-id":
+                uid = value.decode("latin-1").strip()
+                break
+        uid = uid or _DEFAULT_USER_ID
+
         token = current_user_id.set(uid)
         upstream_token, upstream_reset = _bridge_upstream_user(uid)
         try:
-            return await call_next(request)
+            await self.app(scope, receive, send)
         finally:
             current_user_id.reset(token)
             if upstream_reset is not None and upstream_token is not None:
