@@ -5,19 +5,38 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
 } from "react";
 import {
+  LANGUAGE_EVENT,
+  LANGUAGE_STORAGE_KEY,
+  normalizeLanguage,
   readStoredLanguage,
   writeStoredActiveSessionId,
-} from "@/context/AppShellContext";
-import type { StreamEvent, ChatMessage } from "@/lib/unified-ws";
+} from "@/context/app-shell-storage";
+import type { StreamEvent, ChatMessage, LLMSelection } from "@/lib/unified-ws";
 import { UnifiedWSClient } from "@/lib/unified-ws";
-import { getSession, type SessionMessage } from "@/lib/session-api";
+import {
+  getSession,
+  deleteMessage,
+  updateBranchSelection,
+  updateSessionTitle,
+  type SessionMessage,
+} from "@/lib/session-api";
 import { normalizeMarkdownForDisplay } from "@/lib/markdown-display";
+import { normalizeMessageContent } from "@/lib/message-content";
+import { buildVisiblePath, tipMessageId } from "@/lib/message-branches";
 import { shouldAppendEventContent } from "@/lib/stream";
+import { hasPendingAskUserInMessages } from "@/lib/ask-user-state";
+import { notify } from "@/lib/notifications";
+import i18n from "i18next";
+import {
+  normalizeBookReferences,
+  type BookReferencePayload,
+} from "@/lib/book-references";
 
 type SessionRuntimeStatus =
   | "idle"
@@ -42,21 +61,35 @@ interface NotebookReferencePayload {
 
 type HistoryReferencePayload = string[];
 
+type QuestionNotebookReferencePayload = number[];
+
+type MemoryReferencePayload = Array<"summary" | "profile">;
+
 export interface SendMessageOptions {
   displayUserMessage?: boolean;
   persistUserMessage?: boolean;
   requestSnapshotOverride?: MessageRequestSnapshot;
+  bookReferences?: BookReferencePayload[];
+  /** Edit-branching: when set, the new user message is inserted as a
+   *  sibling under this parent rather than appended to the session tail.
+   *  ``null`` means "explicitly attach to the session root". */
+  parentMessageId?: number | null;
 }
 
 export interface ChatState {
   sessionId: string | null;
+  sessionTitle: string;
   enabledTools: string[];
   activeCapability: string | null;
   knowledgeBases: string[];
+  llmSelection: LLMSelection | null;
   messages: MessageItem[];
   isStreaming: boolean;
   currentStage: string;
   language: string;
+  /** Edit-branching: keyed by stringified parent_message_id (or "null"
+   *  for the root). Empty means "default to latest sibling everywhere". */
+  selectedBranches: Record<string, number>;
 }
 
 interface SessionStatusSnapshot {
@@ -72,6 +105,11 @@ export interface MessageAttachment {
   base64?: string;
   url?: string;
   mime_type?: string;
+  /** Stable per-attachment id; matches the URL segment served by /api/attachments. */
+  id?: string;
+  /** Plain-text rendering of office docs, populated by the backend extractor.
+   *  Used by the preview drawer to show "what the LLM saw" for binary docs. */
+  extracted_text?: string;
 }
 
 export interface MessageRequestSnapshot {
@@ -84,15 +122,23 @@ export interface MessageRequestSnapshot {
   config?: Record<string, unknown>;
   notebookReferences?: NotebookReferencePayload[];
   historyReferences?: HistoryReferencePayload;
+  questionNotebookReferences?: QuestionNotebookReferencePayload;
+  bookReferences?: BookReferencePayload[];
+  skills?: string[];
+  memoryReferences?: MemoryReferencePayload;
+  llmSelection?: LLMSelection | null;
 }
 
 export interface MessageItem {
+  id?: number;
   role: "user" | "assistant" | "system";
   content: string;
   capability?: string;
   events?: StreamEvent[];
   attachments?: MessageAttachment[];
   requestSnapshot?: MessageRequestSnapshot;
+  /** Edit-branching: id of the message this row continues. */
+  parentMessageId?: number | null;
 }
 
 interface SessionEntry extends ChatState {
@@ -101,6 +147,9 @@ interface SessionEntry extends ChatState {
   activeTurnId: string | null;
   lastSeq: number;
   updatedAt: number;
+  /** Edit-branching: maps a parent_message_id (stringified, or "null" for
+   *  the session root) to the chosen child id at that branch point. */
+  selectedBranches: Record<string, number>;
 }
 
 interface ProviderState {
@@ -113,6 +162,7 @@ type Action =
   | { type: "SET_TOOLS"; tools: string[] }
   | { type: "SET_CAPABILITY"; cap: string | null }
   | { type: "SET_KB"; kbs: string[] }
+  | { type: "SET_LLM_SELECTION"; selection: LLMSelection | null }
   | { type: "SET_LANGUAGE"; lang: string }
   | {
       type: "ADD_USER_MSG";
@@ -121,32 +171,67 @@ type Action =
       capability?: string | null;
       attachments?: MessageAttachment[];
       requestSnapshot?: MessageRequestSnapshot;
+      parentMessageId?: number | null;
     }
+  | { type: "POP_LAST_ASSISTANT"; key: string }
+  | { type: "RESTORE_ASSISTANT"; key: string; message: MessageItem }
   | { type: "STREAM_START"; key: string }
   | { type: "STREAM_EVENT"; key: string; event: StreamEvent }
-  | { type: "STREAM_END"; key: string; status?: SessionRuntimeStatus; turnId?: string | null }
-  | { type: "BIND_SERVER_SESSION"; key: string; sessionId: string; turnId?: string | null }
+  | {
+      type: "STREAM_END";
+      key: string;
+      status?: SessionRuntimeStatus;
+      turnId?: string | null;
+    }
+  | {
+      type: "BIND_SERVER_SESSION";
+      key: string;
+      sessionId: string;
+      turnId?: string | null;
+    }
   | {
       type: "LOAD_SESSION";
       key: string;
       sessionId: string;
+      title?: string;
       messages: MessageItem[];
       activeTurnId?: string | null;
       status?: SessionRuntimeStatus;
       tools?: string[];
       capability?: string | null;
       knowledgeBases?: string[];
+      llmSelection?: LLMSelection | null;
       language?: string;
+      selectedBranches?: Record<string, number>;
     }
-  | { type: "NEW_SESSION"; key: string };
+  | { type: "SET_SESSION_TITLE"; key: string; title: string }
+  | { type: "DELETE_TURN"; key: string; messageId: number }
+  | { type: "NEW_SESSION"; key: string }
+  | {
+      type: "SET_SELECTED_BRANCH";
+      key: string;
+      parentKey: string;
+      childId: number;
+    }
+  | {
+      type: "REPLACE_SELECTED_BRANCHES";
+      key: string;
+      selectedBranches: Record<string, number>;
+    }
+  | { type: "BUMP_SIDEBAR_REFRESH" };
 
-function createSessionEntry(key: string, sessionId: string | null = null): SessionEntry {
+function createSessionEntry(
+  key: string,
+  sessionId: string | null = null,
+): SessionEntry {
   return {
     key,
     sessionId,
+    sessionTitle: "",
     enabledTools: [],
     activeCapability: null,
     knowledgeBases: [],
+    llmSelection: null,
     messages: [],
     isStreaming: false,
     currentStage: "",
@@ -155,6 +240,7 @@ function createSessionEntry(key: string, sessionId: string | null = null): Sessi
     activeTurnId: null,
     lastSeq: 0,
     updatedAt: Date.now(),
+    selectedBranches: {},
   };
 }
 
@@ -182,6 +268,15 @@ function updateSelectedSession(
   };
 }
 
+function isSameTurnEvent(a: StreamEvent, b: StreamEvent): boolean {
+  const aSeq = Number(a.seq || 0);
+  const bSeq = Number(b.seq || 0);
+  if (aSeq <= 0 || bSeq <= 0 || aSeq !== bSeq) return false;
+  const aTurn = a.turn_id || "";
+  const bTurn = b.turn_id || "";
+  return Boolean(aTurn && bTurn && aTurn === bTurn);
+}
+
 function reducer(state: ProviderState, action: Action): ProviderState {
   switch (action.type) {
     case "SET_TOOLS":
@@ -199,13 +294,19 @@ function reducer(state: ProviderState, action: Action): ProviderState {
         ...session,
         knowledgeBases: action.kbs,
       }));
+    case "SET_LLM_SELECTION":
+      return updateSelectedSession(state, (session) => ({
+        ...session,
+        llmSelection: action.selection,
+      }));
     case "SET_LANGUAGE":
       return updateSelectedSession(state, (session) => ({
         ...session,
         language: action.lang,
       }));
     case "ADD_USER_MSG": {
-      const session = state.sessions[action.key] ?? createSessionEntry(action.key);
+      const session =
+        state.sessions[action.key] ?? createSessionEntry(action.key);
       return {
         ...state,
         sessions: {
@@ -215,11 +316,20 @@ function reducer(state: ProviderState, action: Action): ProviderState {
             messages: [
               ...session.messages,
               {
+                id: -Date.now(),
                 role: "user",
                 content: action.content,
                 capability: action.capability || "",
-                ...(action.attachments?.length ? { attachments: action.attachments } : {}),
-                ...(action.requestSnapshot ? { requestSnapshot: action.requestSnapshot } : {}),
+                parentMessageId:
+                  action.parentMessageId === undefined
+                    ? null
+                    : action.parentMessageId,
+                ...(action.attachments?.length
+                  ? { attachments: action.attachments }
+                  : {}),
+                ...(action.requestSnapshot
+                  ? { requestSnapshot: action.requestSnapshot }
+                  : {}),
               },
             ],
             updatedAt: Date.now(),
@@ -227,41 +337,123 @@ function reducer(state: ProviderState, action: Action): ProviderState {
         },
       };
     }
-    case "STREAM_START":
+    case "POP_LAST_ASSISTANT": {
+      const session = state.sessions[action.key];
+      if (!session || session.messages.length === 0) return state;
+      const last = session.messages[session.messages.length - 1];
+      if (last.role !== "assistant") return state;
       return {
         ...state,
         sessions: {
           ...state.sessions,
           [action.key]: {
-            ...(state.sessions[action.key] ?? createSessionEntry(action.key)),
+            ...session,
+            messages: session.messages.slice(0, -1),
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }
+    case "RESTORE_ASSISTANT": {
+      // Revert an optimistic POP_LAST_ASSISTANT when the server rejects a
+      // regenerate request (e.g. ``regenerate_busy``), so the user doesn't
+      // silently lose their last reply.
+      const session = state.sessions[action.key];
+      if (!session) return state;
+      const messages = [...session.messages];
+      // Drop any placeholder STREAM_START assistant bubble before restoring.
+      while (
+        messages.length > 0 &&
+        messages[messages.length - 1].role === "assistant" &&
+        (messages[messages.length - 1].content ?? "") === "" &&
+        (messages[messages.length - 1].events?.length ?? 0) === 0
+      ) {
+        messages.pop();
+      }
+      messages.push(action.message);
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [action.key]: {
+            ...session,
+            messages,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }
+    case "STREAM_START": {
+      const session =
+        state.sessions[action.key] ?? createSessionEntry(action.key);
+      const existing = session.messages ?? [];
+      // Chain the placeholder assistant onto whatever message currently
+      // sits at the tip — this is normally the user row just added by
+      // ADD_USER_MSG (possibly an optimistic negative id during an edit).
+      const tip = existing.length > 0 ? existing[existing.length - 1] : null;
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [action.key]: {
+            ...session,
             isStreaming: true,
             status: "running",
             messages: [
-              ...(state.sessions[action.key]?.messages ?? []),
+              ...existing,
               {
+                id: -Date.now(),
                 role: "assistant",
                 content: "",
                 events: [],
-                capability: (state.sessions[action.key] ?? createSessionEntry(action.key)).activeCapability || "",
+                capability: session.activeCapability || "",
+                parentMessageId: tip?.id ?? null,
               },
             ],
             updatedAt: Date.now(),
           },
         },
       };
+    }
     case "STREAM_EVENT": {
-      const session = state.sessions[action.key] ?? createSessionEntry(action.key);
+      // If the session entry has been removed (e.g., BIND_SERVER_SESSION
+      // just renamed ``draft_X`` to a real id but a stray event still
+      // targets the old key), drop the event rather than synthesise an
+      // orphan session with no user message — that would scrub the
+      // user's just-sent bubble from view.
+      if (!state.sessions[action.key]) return state;
+      const session = state.sessions[action.key];
       const msgs = [...session.messages];
       let last = msgs[msgs.length - 1];
       if (last?.role !== "assistant") {
-        msgs.push({ role: "assistant", content: "", events: [], capability: session.activeCapability || "" });
+        msgs.push({
+          id: -Date.now(),
+          role: "assistant",
+          content: "",
+          events: [],
+          capability: session.activeCapability || "",
+          parentMessageId: last?.id ?? null,
+        });
         last = msgs[msgs.length - 1];
+      }
+      if (
+        (last?.events || []).some((event) =>
+          isSameTurnEvent(event, action.event),
+        )
+      ) {
+        return state;
       }
       const events = [...(last?.events || []), action.event];
       let content = last?.content || "";
-      if (shouldAppendEventContent(action.event)) content += action.event.content;
+      if (shouldAppendEventContent(action.event))
+        content += action.event.content;
       const capability = last?.capability || session.activeCapability || "";
-      msgs[msgs.length - 1] = { ...(last || { role: "assistant", content: "" }), content, events, capability };
+      msgs[msgs.length - 1] = {
+        ...(last || { role: "assistant", content: "" }),
+        content,
+        events,
+        capability,
+      };
       return {
         ...state,
         sessions: {
@@ -294,7 +486,9 @@ function reducer(state: ProviderState, action: Action): ProviderState {
             status: action.status ?? "completed",
             activeTurnId:
               action.status === "running"
-                ? action.turnId || state.sessions[action.key]?.activeTurnId || null
+                ? action.turnId ||
+                  state.sessions[action.key]?.activeTurnId ||
+                  null
                 : null,
             updatedAt: Date.now(),
           },
@@ -302,7 +496,8 @@ function reducer(state: ProviderState, action: Action): ProviderState {
         sidebarRefreshToken: state.sidebarRefreshToken + 1,
       };
     case "BIND_SERVER_SESSION": {
-      const current = state.sessions[action.key] ?? createSessionEntry(action.key);
+      const current =
+        state.sessions[action.key] ?? createSessionEntry(action.key);
       const targetKey = action.sessionId;
       const existing = state.sessions[targetKey];
       const merged: SessionEntry = {
@@ -310,6 +505,7 @@ function reducer(state: ProviderState, action: Action): ProviderState {
         ...current,
         key: targetKey,
         sessionId: action.sessionId,
+        sessionTitle: current.sessionTitle || existing?.sessionTitle || "",
         activeTurnId: action.turnId || current.activeTurnId,
         status: current.isStreaming ? "running" : current.status,
         updatedAt: Date.now(),
@@ -319,13 +515,16 @@ function reducer(state: ProviderState, action: Action): ProviderState {
       nextSessions[targetKey] = merged;
       return {
         ...state,
-        selectedKey: state.selectedKey === action.key ? targetKey : state.selectedKey,
+        selectedKey:
+          state.selectedKey === action.key ? targetKey : state.selectedKey,
         sessions: nextSessions,
         sidebarRefreshToken: state.sidebarRefreshToken + 1,
       };
     }
     case "LOAD_SESSION": {
-      const existing = state.sessions[action.key] ?? createSessionEntry(action.key, action.sessionId);
+      const existing =
+        state.sessions[action.key] ??
+        createSessionEntry(action.key, action.sessionId);
       return {
         ...state,
         selectedKey: action.key,
@@ -335,29 +534,136 @@ function reducer(state: ProviderState, action: Action): ProviderState {
             ...existing,
             key: action.key,
             sessionId: action.sessionId,
+            sessionTitle:
+              action.title !== undefined ? action.title : existing.sessionTitle,
             enabledTools: action.tools ?? existing.enabledTools,
             activeCapability:
-              action.capability !== undefined ? action.capability : existing.activeCapability,
+              action.capability !== undefined
+                ? action.capability
+                : existing.activeCapability,
             knowledgeBases: action.knowledgeBases ?? existing.knowledgeBases,
+            llmSelection:
+              action.llmSelection !== undefined
+                ? action.llmSelection
+                : existing.llmSelection,
             messages: action.messages,
             isStreaming: (action.status || "idle") === "running",
             currentStage: "",
             activeTurnId: action.activeTurnId || null,
             status: action.status || "idle",
             language: action.language ?? existing.language,
+            selectedBranches:
+              action.selectedBranches ?? existing.selectedBranches,
             updatedAt: Date.now(),
           },
         },
       };
     }
+    case "SET_SESSION_TITLE": {
+      const session = state.sessions[action.key];
+      if (!session) return state;
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [action.key]: {
+            ...session,
+            sessionTitle: action.title,
+            updatedAt: Date.now(),
+          },
+        },
+        sidebarRefreshToken: state.sidebarRefreshToken + 1,
+      };
+    }
+    case "SET_SELECTED_BRANCH": {
+      const session = state.sessions[action.key];
+      if (!session) return state;
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [action.key]: {
+            ...session,
+            selectedBranches: {
+              ...session.selectedBranches,
+              [action.parentKey]: action.childId,
+            },
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }
+    case "REPLACE_SELECTED_BRANCHES": {
+      const session = state.sessions[action.key];
+      if (!session) return state;
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [action.key]: {
+            ...session,
+            selectedBranches: { ...action.selectedBranches },
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    }
+    case "DELETE_TURN": {
+      const session = state.sessions[action.key];
+      if (!session) return state;
+      const idx = session.messages.findIndex((m) => m.id === action.messageId);
+      if (idx === -1) return state;
+      const msg = session.messages[idx];
+      const toRemove = new Set<number>();
+      toRemove.add(idx);
+      if (msg.role === "user") {
+        if (
+          idx + 1 < session.messages.length &&
+          session.messages[idx + 1].role === "assistant"
+        ) {
+          toRemove.add(idx + 1);
+        }
+      } else if (msg.role === "assistant") {
+        if (idx - 1 >= 0 && session.messages[idx - 1].role === "user") {
+          toRemove.add(idx - 1);
+        }
+      }
+      const nextMessages = session.messages.filter((_, i) => !toRemove.has(i));
+      return {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          [action.key]: {
+            ...session,
+            messages: nextMessages,
+            isStreaming: false,
+            status: "idle",
+            updatedAt: Date.now(),
+          },
+        },
+        sidebarRefreshToken: state.sidebarRefreshToken + 1,
+      };
+    }
+    case "BUMP_SIDEBAR_REFRESH":
+      return {
+        ...state,
+        sidebarRefreshToken: state.sidebarRefreshToken + 1,
+      };
     case "NEW_SESSION": {
       const MAX_CACHED_SESSIONS = 20;
-      let nextSessions = { ...state.sessions, [action.key]: createSessionEntry(action.key) };
+      let nextSessions = {
+        ...state.sessions,
+        [action.key]: createSessionEntry(action.key),
+      };
       const keys = Object.keys(nextSessions);
       if (keys.length > MAX_CACHED_SESSIONS) {
         const evictable = keys
-          .filter((k) => k !== action.key && nextSessions[k].status !== "running")
-          .sort((a, b) => nextSessions[a].updatedAt - nextSessions[b].updatedAt);
+          .filter(
+            (k) => k !== action.key && nextSessions[k].status !== "running",
+          )
+          .sort(
+            (a, b) => nextSessions[a].updatedAt - nextSessions[b].updatedAt,
+          );
         const toRemove = evictable.slice(0, keys.length - MAX_CACHED_SESSIONS);
         for (const k of toRemove) delete nextSessions[k];
       }
@@ -374,11 +680,17 @@ const initialState: ProviderState = {
   sidebarRefreshToken: 0,
 };
 
+// Grace window between the orchestrator's ``done`` event and the actual
+// WS disconnect. Keeps the connection alive long enough for post-turn
+// pushes like the LLM-generated ``session_meta`` title update to land.
+const POST_DONE_DISCONNECT_DELAY_MS = 15_000;
+
 interface ChatContextValue {
   state: ChatState;
   setTools: (tools: string[]) => void;
   setCapability: (cap: string | null) => void;
   setKBs: (kbs: string[]) => void;
+  setLLMSelection: (selection: LLMSelection | null) => void;
   setLanguage: (lang: string) => void;
   sendMessage: (
     content: string,
@@ -387,8 +699,39 @@ interface ChatContextValue {
     notebookReferences?: NotebookReferencePayload[],
     historyReferences?: HistoryReferencePayload,
     options?: SendMessageOptions,
+    questionNotebookReferences?: QuestionNotebookReferencePayload,
+    skills?: string[],
+    memoryReferences?: MemoryReferencePayload,
   ) => void;
   cancelStreamingTurn: () => void;
+  /**
+   * Deliver the user's reply for a turn that is paused on an
+   * ``ask_user`` tool call. Sends the reply via the unified WS so the
+   * backend can substitute it into the matching ``role=tool`` message
+   * and resume the agentic loop on the **same** turn. No-op when the
+   * active session has no live turn waiting on input.
+   *
+   * Accepts a plain string (legacy single-question reply) or a
+   * structured object with ``answers`` (v2 multi-question reply).
+   */
+  submitUserReply: (
+    reply:
+      | string
+      | {
+          text?: string;
+          answers?: Array<{ questionId: string; text: string }>;
+        },
+  ) => void;
+  regenerateLastMessage: () => void;
+  deleteTurn: (messageId: number) => Promise<void>;
+  /** Re-send a user message under a new branch (sibling of the original).
+   *  Uses the composer's current capability / refs — only the text is
+   *  taken from ``newContent``. Re-runs the turn from the original's
+   *  parent context. */
+  editMessage: (messageId: number, newContent: string) => Promise<void>;
+  /** Switch which sibling is currently visible at a branch point. */
+  switchBranch: (parentMessageId: number | null, childId: number) => void;
+  renameSessionTitle: (title: string) => Promise<void>;
   newSession: () => void;
   loadSession: (sessionId: string) => Promise<void>;
   selectedSessionId: string | null;
@@ -398,7 +741,140 @@ interface ChatContextValue {
 
 const ChatCtx = createContext<ChatContextValue | null>(null);
 
-export function UnifiedChatProvider({ children }: { children: React.ReactNode }) {
+function hydrateMessageAttachments(
+  attachments: SessionMessage["attachments"],
+): MessageAttachment[] {
+  return Array.isArray(attachments)
+    ? attachments.map((item) => ({
+        type: item.type,
+        filename: item.filename,
+        base64: item.base64,
+        url: item.url,
+        mime_type: item.mime_type,
+        id: item.id,
+        extracted_text: item.extracted_text,
+      }))
+    : [];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string => typeof item === "string" && item.length > 0,
+      )
+    : [];
+}
+
+function asLLMSelection(value: unknown): LLMSelection | null {
+  const record = asRecord(value);
+  const profileId =
+    typeof record?.profile_id === "string" ? record.profile_id.trim() : "";
+  const modelId =
+    typeof record?.model_id === "string" ? record.model_id.trim() : "";
+  return profileId && modelId
+    ? { profile_id: profileId, model_id: modelId }
+    : null;
+}
+
+function normalizeSelectedBranches(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, number> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const n = typeof v === "number" ? v : Number(v);
+    if (Number.isInteger(n) && n > 0) result[k] = n;
+  }
+  return result;
+}
+
+function asMemoryReferences(value: unknown): MemoryReferencePayload {
+  return asStringArray(value).filter(
+    (item): item is "summary" | "profile" =>
+      item === "summary" || item === "profile",
+  );
+}
+
+function asNotebookReferences(value: unknown): NotebookReferencePayload[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const ref = asRecord(item);
+    const notebookId =
+      typeof ref?.notebook_id === "string" ? ref.notebook_id : "";
+    const recordIds = asStringArray(ref?.record_ids);
+    return notebookId && recordIds.length
+      ? [{ notebook_id: notebookId, record_ids: recordIds }]
+      : [];
+  });
+}
+
+function asQuestionReferences(
+  value: unknown,
+): QuestionNotebookReferencePayload {
+  return Array.isArray(value)
+    ? value
+        .map((item) => (typeof item === "number" ? item : Number(item)))
+        .filter((item) => Number.isInteger(item))
+    : [];
+}
+
+function hydrateRequestSnapshot(
+  message: SessionMessage,
+  content: string,
+  attachments: MessageAttachment[],
+): MessageRequestSnapshot | undefined {
+  const metadata = asRecord(message.metadata);
+  const stored = asRecord(
+    metadata?.request_snapshot ?? metadata?.requestSnapshot,
+  );
+  if (!stored) return undefined;
+
+  const snapshot: MessageRequestSnapshot = {
+    content: typeof stored.content === "string" ? stored.content : content,
+    capability:
+      typeof stored.capability === "string"
+        ? stored.capability
+        : message.capability || "",
+    enabledTools: asStringArray(stored.enabledTools),
+    knowledgeBases: asStringArray(stored.knowledgeBases),
+    language: typeof stored.language === "string" ? stored.language : "en",
+    ...(attachments.length ? { attachments } : {}),
+  };
+
+  const config = asRecord(stored.config);
+  const notebookReferences = asNotebookReferences(stored.notebookReferences);
+  const historyReferences = asStringArray(stored.historyReferences);
+  const questionNotebookReferences = asQuestionReferences(
+    stored.questionNotebookReferences,
+  );
+  const skills = asStringArray(stored.skills);
+  const memoryReferences = asMemoryReferences(stored.memoryReferences);
+  const bookReferences = normalizeBookReferences(stored.bookReferences);
+  const llmSelection = asLLMSelection(stored.llmSelection);
+
+  if (config && Object.keys(config).length) snapshot.config = config;
+  if (notebookReferences.length)
+    snapshot.notebookReferences = notebookReferences;
+  if (historyReferences.length) snapshot.historyReferences = historyReferences;
+  if (questionNotebookReferences.length) {
+    snapshot.questionNotebookReferences = questionNotebookReferences;
+  }
+  if (bookReferences.length) snapshot.bookReferences = bookReferences;
+  if (skills.length) snapshot.skills = skills;
+  if (memoryReferences.length) snapshot.memoryReferences = memoryReferences;
+  if (llmSelection) snapshot.llmSelection = llmSelection;
+  return snapshot;
+}
+
+export function UnifiedChatProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const stateRef = useRef(initialState);
   const runnersRef = useRef<
@@ -412,8 +888,18 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
   >(new Map());
   const draftCounterRef = useRef(0);
   const retryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // Tracks in-flight regenerate requests so we can restore the popped
+  // assistant message if the server rejects the request (e.g. ``regenerate_busy``
+  // or ``nothing_to_regenerate``). Keyed by session entry key.
+  const pendingRegenerateRef = useRef<Map<string, MessageItem>>(new Map());
+  // Forward-declared so ``handleRunnerEvent`` (created above
+  // ``loadSession`` in source order) can trigger a server refresh after
+  // a turn finishes without taking a stale closure of ``loadSession``.
+  const loadSessionRef = useRef<((sessionId: string) => Promise<void>) | null>(
+    null,
+  );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     stateRef.current = state;
   }, [state]);
 
@@ -432,26 +918,38 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
     return `draft_${Date.now()}_${draftCounterRef.current}`;
   }, []);
 
-  const hydrateMessages = useCallback((messages: SessionMessage[]): MessageItem[] => {
-    return messages.map((message) => ({
-      role: message.role,
-      content:
-        message.role === "assistant"
-          ? normalizeMarkdownForDisplay(message.content)
-          : message.content,
-      capability: message.capability || "",
-      events: Array.isArray(message.events) ? message.events : [],
-      attachments: Array.isArray(message.attachments)
-        ? message.attachments.map((item) => ({
-            type: item.type,
-            filename: item.filename,
-            base64: item.base64,
-            url: item.url,
-            mime_type: item.mime_type,
-          }))
-        : [],
-    }));
-  }, []);
+  const hydrateMessages = useCallback(
+    (messages: SessionMessage[]): MessageItem[] => {
+      return messages
+        .filter((message) => message.role !== "system")
+        .map((message) => {
+          const raw = normalizeMessageContent(message.content as unknown);
+          const attachments = hydrateMessageAttachments(message.attachments);
+          const requestSnapshot = hydrateRequestSnapshot(
+            message,
+            raw,
+            attachments,
+          );
+          return {
+            id: message.id,
+            role: message.role,
+            content:
+              message.role === "assistant"
+                ? normalizeMarkdownForDisplay(raw)
+                : raw,
+            capability: message.capability || "",
+            events: Array.isArray(message.events) ? message.events : [],
+            attachments,
+            parentMessageId:
+              message.parent_message_id === undefined
+                ? null
+                : message.parent_message_id,
+            ...(requestSnapshot ? { requestSnapshot } : {}),
+          };
+        });
+    },
+    [],
+  );
 
   const moveRunner = useCallback((oldKey: string, newKey: string) => {
     if (oldKey === newKey) return;
@@ -472,7 +970,9 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
           event.session_id ||
           "";
         const turnId =
-          (event.metadata as { turn_id?: string } | undefined)?.turn_id || event.turn_id || null;
+          (event.metadata as { turn_id?: string } | undefined)?.turn_id ||
+          event.turn_id ||
+          null;
         if (sessionId) {
           dispatch({
             type: "BIND_SERVER_SESSION",
@@ -484,25 +984,99 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
         }
         return;
       }
+      if (event.type === "session_meta") {
+        // Post-turn metadata push (currently only used for the
+        // LLM-generated session title). The backend writes the new
+        // title to its store *before* sending this event. Update the
+        // active header immediately and bump the sidebar so history
+        // rows refresh to the generated title without a flicker.
+        const title = String(
+          (event.metadata as { title?: string } | undefined)?.title || "",
+        ).trim();
+        if (title) {
+          dispatch({
+            type: "SET_SESSION_TITLE",
+            key: effectiveKey,
+            title,
+          });
+        } else {
+          dispatch({ type: "BUMP_SIDEBAR_REFRESH" });
+        }
+        return;
+      }
       if (event.type === "done") {
-        const status = String((event.metadata as { status?: string } | undefined)?.status || "completed");
+        const status = String(
+          (event.metadata as { status?: string } | undefined)?.status ||
+            "completed",
+        );
         dispatch({
           type: "STREAM_END",
           key: effectiveKey,
           status: (status as SessionRuntimeStatus) || "completed",
           turnId: event.turn_id || null,
         });
+        pendingRegenerateRef.current.delete(effectiveKey);
         const runner = runnersRef.current.get(effectiveKey);
-        runner?.client.disconnect();
-        runnersRef.current.delete(effectiveKey);
+        // Hold the WS open briefly so post-turn ``session_meta`` events
+        // (e.g. the LLM-generated title for the first user/assistant
+        // pair) can still reach us. The backend generates the title
+        // before its finally block sends the subscriber sentinel, but
+        // the title model can take a couple of seconds — disconnecting
+        // synchronously on ``done`` would race that publish.
+        if (runner) {
+          runnersRef.current.delete(effectiveKey);
+          window.setTimeout(() => {
+            runner.client.disconnect();
+          }, POST_DONE_DISCONNECT_DELAY_MS);
+        }
+        // Reconcile optimistic client-side message ids with the
+        // server's real ids after the turn finishes. Without this the
+        // Edit button (which needs a real id to attach the new branch
+        // under) and branch navigation (which keys off real ids) would
+        // stay disabled until the user navigates away and back.
+        if (status === "completed") {
+          const finishedSession = stateRef.current.sessions[effectiveKey];
+          const sessionId = finishedSession?.sessionId;
+          if (sessionId) {
+            loadSessionRef.current?.(sessionId).catch(() => {
+              /* non-fatal — local state remains usable */
+            });
+          }
+        }
         return;
       }
       dispatch({ type: "STREAM_EVENT", key: effectiveKey, event });
       if (
         event.type === "error" &&
-        Boolean((event.metadata as { turn_terminal?: boolean } | undefined)?.turn_terminal)
+        Boolean(
+          (event.metadata as { turn_terminal?: boolean } | undefined)
+            ?.turn_terminal,
+        )
       ) {
-        const status = String((event.metadata as { status?: string } | undefined)?.status || "failed");
+        const reason = String(
+          (event.metadata as { reason?: string } | undefined)?.reason || "",
+        );
+        // Pre-flight regenerate rejections never mutate server state, so we
+        // roll back the optimistic POP_LAST_ASSISTANT/STREAM_START placeholder
+        // to keep the transcript in sync with the server.
+        if (
+          reason === "regenerate_busy" ||
+          reason === "nothing_to_regenerate"
+        ) {
+          const stash = pendingRegenerateRef.current.get(effectiveKey);
+          if (stash) {
+            dispatch({
+              type: "RESTORE_ASSISTANT",
+              key: effectiveKey,
+              message: stash,
+            });
+          }
+        }
+        pendingRegenerateRef.current.delete(effectiveKey);
+        const status = String(
+          (event.metadata as { status?: string } | undefined)?.status ||
+            "failed",
+        );
         dispatch({
           type: "STREAM_END",
           key: effectiveKey,
@@ -532,12 +1106,37 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
           () => {
             const session = stateRef.current.sessions[record.key];
             if (session?.isStreaming) {
-              dispatch({ type: "STREAM_END", key: record.key, status: "failed" });
+              if (
+                hasPendingAskUserInMessages(
+                  session.messages,
+                  session.activeTurnId,
+                )
+              ) {
+                return;
+              }
+              dispatch({
+                type: "STREAM_END",
+                key: record.key,
+                status: "failed",
+              });
+              // Surface the disconnect to the user. The WS client already
+              // logs to console — we add a toast so non-debugging users
+              // don't see streaming silently flatline.
+              notify(
+                i18n.t(
+                  "Connection lost while generating. Please retry your message.",
+                ),
+                { tone: "error", durationMs: 6000 },
+              );
             }
           },
         ),
       };
       runnersRef.current.set(key, record);
+      const session = stateRef.current.sessions[key];
+      if (session?.activeTurnId) {
+        record.client.setResumeState(session.activeTurnId, session.lastSeq);
+      }
       record.client.connect();
       return record;
     },
@@ -551,6 +1150,15 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
         if (attempt >= 10) {
           console.error("WebSocket failed to connect after retries");
           dispatch({ type: "STREAM_END", key, status: "failed" });
+          // Surfaces the dead-after-N-retries case (different code path
+          // from the close-while-streaming handler above). Same user
+          // mental model, so same toast copy.
+          notify(
+            i18n.t(
+              "Couldn't reach the server. Please check your connection and retry.",
+            ),
+            { tone: "error", durationMs: 6000 },
+          );
           return;
         }
         const timerId = setTimeout(() => {
@@ -568,20 +1176,34 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
   const loadSession = useCallback(
     async (sessionId: string) => {
       const session = await getSession(sessionId);
-      const activeTurn = Array.isArray(session.active_turns) ? session.active_turns[0] : undefined;
+      const activeTurn = Array.isArray(session.active_turns)
+        ? session.active_turns[0]
+        : undefined;
       dispatch({
         type: "LOAD_SESSION",
         key: session.session_id || session.id,
         sessionId: session.session_id || session.id,
+        title: session.title || "",
         messages: hydrateMessages(session.messages ?? []),
         activeTurnId: activeTurn?.turn_id || activeTurn?.id || null,
-        status: (session.status as SessionRuntimeStatus | undefined) || (activeTurn ? "running" : "idle"),
-        tools: Array.isArray(session.preferences?.tools) ? session.preferences.tools : [],
+        status:
+          (session.status as SessionRuntimeStatus | undefined) ||
+          (activeTurn ? "running" : "idle"),
+        tools: Array.isArray(session.preferences?.tools)
+          ? session.preferences.tools
+          : [],
         capability: session.preferences?.capability || null,
         knowledgeBases: Array.isArray(session.preferences?.knowledge_bases)
           ? session.preferences.knowledge_bases
           : [],
-        language: session.preferences?.language || "en",
+        llmSelection: asLLMSelection(session.preferences?.llm_selection),
+        // The Settings language is global UI state. Historical sessions may
+        // have stale persisted preferences, so new turns follow the current
+        // app language rather than the language saved when the session began.
+        language: readStoredLanguage(),
+        selectedBranches: normalizeSelectedBranches(
+          session.preferences?.selected_branches,
+        ),
       });
       if (activeTurn?.turn_id || activeTurn?.id) {
         const key = session.session_id || session.id;
@@ -595,11 +1217,39 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
     [hydrateMessages, sendThroughRunner],
   );
 
+  useLayoutEffect(() => {
+    loadSessionRef.current = loadSession;
+  }, [loadSession]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const current = state.selectedKey ? state.sessions[state.selectedKey] : null;
+    const current = state.selectedKey
+      ? state.sessions[state.selectedKey]
+      : null;
     writeStoredActiveSessionId(current?.sessionId ?? null);
   }, [state.selectedKey, state.sessions]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const syncLanguage = (language: string | null | undefined) => {
+      dispatch({ type: "SET_LANGUAGE", lang: normalizeLanguage(language) });
+    };
+    const onLanguage = (event: Event) => {
+      const detail = (event as CustomEvent<{ language?: string }>).detail;
+      syncLanguage(detail?.language);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === LANGUAGE_STORAGE_KEY) syncLanguage(event.newValue);
+    };
+
+    window.addEventListener(LANGUAGE_EVENT, onLanguage);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(LANGUAGE_EVENT, onLanguage);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
 
   // URL is now the source of truth for session loading.
   // Chat pages load sessions based on URL params; no sessionStorage restore needed.
@@ -620,6 +1270,11 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
       const current = stateRef.current;
       for (const [key, session] of Object.entries(current.sessions)) {
         if (!session.isStreaming) continue;
+        if (
+          hasPendingAskUserInMessages(session.messages, session.activeTurnId)
+        ) {
+          continue;
+        }
         if (Date.now() - session.updatedAt <= IDLE_TIMEOUT_MS) continue;
 
         dispatch({
@@ -629,7 +1284,8 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
             type: "error",
             source: "client",
             stage: "",
-            content: "Connection timed out — no response received for 60 seconds.",
+            content:
+              "Connection timed out — no response received for 60 seconds.",
             metadata: { turn_terminal: true, status: "failed" },
             timestamp: Date.now() / 1000,
           },
@@ -655,6 +1311,9 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
       notebookReferences?: NotebookReferencePayload[],
       historyReferences?: HistoryReferencePayload,
       options?: SendMessageOptions,
+      questionNotebookReferences?: QuestionNotebookReferencePayload,
+      skills?: string[],
+      memoryReferences?: MemoryReferencePayload,
     ) => {
       const msgAttachments = attachments?.map((a) => ({
         type: a.type,
@@ -671,59 +1330,153 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
       }
       const session = currentState.sessions[key] ?? createSessionEntry(key);
       const replaySnapshot = options?.requestSnapshotOverride;
-      const effectiveCapability = replaySnapshot?.capability ?? session.activeCapability;
-      const effectiveTools = replaySnapshot?.enabledTools ?? session.enabledTools;
-      const effectiveKnowledgeBases = replaySnapshot?.knowledgeBases ?? session.knowledgeBases;
-      const effectiveLanguage = replaySnapshot?.language ?? session.language;
-      const researchSources = Array.isArray(config?.sources)
-        ? config.sources.filter((value): value is string => typeof value === "string")
-        : [];
-      const shouldSendKnowledgeBases =
-        effectiveTools.includes("rag") ||
-        (effectiveCapability === "deep_research" && researchSources.includes("kb"));
+      const effectiveCapability =
+        replaySnapshot?.capability ?? session.activeCapability;
+      const effectiveTools =
+        replaySnapshot?.enabledTools ?? session.enabledTools;
+      const effectiveKnowledgeBases =
+        replaySnapshot?.knowledgeBases ?? session.knowledgeBases;
+      const effectiveLLMSelection =
+        replaySnapshot && "llmSelection" in replaySnapshot
+          ? (replaySnapshot.llmSelection ?? null)
+          : session.llmSelection;
+      const effectiveLanguage =
+        replaySnapshot?.language ?? readStoredLanguage();
+      const effectiveSkills = replaySnapshot?.skills ?? skills;
+      const effectiveMemoryReferences =
+        replaySnapshot?.memoryReferences ?? memoryReferences;
+      const effectiveBookReferences =
+        replaySnapshot?.bookReferences ?? options?.bookReferences;
+      const effectiveAttachments =
+        replaySnapshot?.attachments?.map((a) => ({
+          type: a.type,
+          filename: a.filename,
+          base64: a.base64,
+          url: a.url,
+          mime_type: a.mime_type,
+        })) ?? msgAttachments;
+      const effectiveConfig = config ?? replaySnapshot?.config;
+      const effectiveNotebookReferences =
+        replaySnapshot?.notebookReferences ?? notebookReferences;
+      const effectiveHistoryReferences =
+        replaySnapshot?.historyReferences ?? historyReferences;
+      const effectiveQuestionNotebookReferences =
+        replaySnapshot?.questionNotebookReferences ??
+        questionNotebookReferences;
       const requestSnapshot: MessageRequestSnapshot = replaySnapshot ?? {
         content,
         capability: effectiveCapability,
         enabledTools: [...effectiveTools],
-        knowledgeBases: shouldSendKnowledgeBases ? [...effectiveKnowledgeBases] : [],
+        knowledgeBases: [...effectiveKnowledgeBases],
         language: effectiveLanguage,
-        ...(msgAttachments?.length ? { attachments: msgAttachments } : {}),
-        ...(config && Object.keys(config).length > 0 ? { config } : {}),
-        ...(notebookReferences?.length ? { notebookReferences } : {}),
-        ...(historyReferences?.length ? { historyReferences: [...historyReferences] } : {}),
+        ...(effectiveAttachments?.length
+          ? { attachments: effectiveAttachments }
+          : {}),
+        ...(effectiveConfig && Object.keys(effectiveConfig).length > 0
+          ? { config: effectiveConfig }
+          : {}),
+        ...(effectiveNotebookReferences?.length
+          ? { notebookReferences: effectiveNotebookReferences }
+          : {}),
+        ...(effectiveHistoryReferences?.length
+          ? { historyReferences: [...effectiveHistoryReferences] }
+          : {}),
+        ...(effectiveQuestionNotebookReferences?.length
+          ? {
+              questionNotebookReferences: [
+                ...effectiveQuestionNotebookReferences,
+              ],
+            }
+          : {}),
+        ...(effectiveBookReferences?.length
+          ? { bookReferences: effectiveBookReferences }
+          : {}),
+        ...(effectiveSkills?.length ? { skills: [...effectiveSkills] } : {}),
+        ...(effectiveMemoryReferences?.length
+          ? { memoryReferences: [...effectiveMemoryReferences] }
+          : {}),
+        ...(effectiveLLMSelection
+          ? { llmSelection: effectiveLLMSelection }
+          : {}),
       };
+      // Default the new message's parent to the tip of the currently-
+      // visible path so the local chat tree stays connected during
+      // streaming. The wire-level ``parent_message_id`` is computed
+      // separately further down: only persisted (positive) ids or an
+      // explicit ``null`` (root edit) are sent — optimistic negative ids
+      // would be meaningless to the server.
+      const visible = buildVisiblePath(
+        session.messages,
+        session.selectedBranches,
+      ).messages;
+      const tipId = tipMessageId(visible);
+      const localParentId =
+        options?.parentMessageId !== undefined
+          ? options.parentMessageId
+          : tipId;
+      const wireParentId: number | null | undefined =
+        options?.parentMessageId !== undefined
+          ? options.parentMessageId
+          : tipId !== null && tipId > 0
+            ? tipId
+            : undefined;
       if (options?.displayUserMessage !== false) {
         dispatch({
           type: "ADD_USER_MSG",
           key,
           content,
           capability: effectiveCapability,
-          attachments: msgAttachments,
+          attachments: effectiveAttachments,
           requestSnapshot,
+          parentMessageId: localParentId,
         });
       }
       dispatch({ type: "STREAM_START", key });
-      const effectiveConfig =
+      const effectiveTurnConfig =
         options?.persistUserMessage === false
-          ? { ...(config || {}), _persist_user_message: false }
-          : config;
+          ? { ...(effectiveConfig || {}), _persist_user_message: false }
+          : effectiveConfig;
       sendThroughRunner(key, {
         type: "start_turn",
         content,
         tools: effectiveTools,
         capability: effectiveCapability,
-        knowledge_bases: shouldSendKnowledgeBases ? effectiveKnowledgeBases : [],
+        knowledge_bases: effectiveKnowledgeBases,
         session_id: session.sessionId,
-        attachments,
+        attachments: effectiveAttachments,
         language: effectiveLanguage,
-        ...(notebookReferences?.length
-          ? { notebook_references: notebookReferences }
+        ...(effectiveNotebookReferences?.length
+          ? { notebook_references: effectiveNotebookReferences }
           : {}),
-        ...(historyReferences?.length
-          ? { history_references: historyReferences }
+        ...(effectiveHistoryReferences?.length
+          ? { history_references: effectiveHistoryReferences }
           : {}),
-        ...(effectiveConfig && Object.keys(effectiveConfig).length > 0
-          ? { config: effectiveConfig }
+        ...(effectiveQuestionNotebookReferences?.length
+          ? {
+              question_notebook_references: effectiveQuestionNotebookReferences,
+            }
+          : {}),
+        ...(effectiveBookReferences?.length
+          ? { book_references: effectiveBookReferences }
+          : {}),
+        ...(effectiveSkills?.length ? { skills: effectiveSkills } : {}),
+        ...(effectiveMemoryReferences?.length
+          ? { memory_references: effectiveMemoryReferences }
+          : {}),
+        ...(effectiveLLMSelection
+          ? { llm_selection: effectiveLLMSelection }
+          : {}),
+        ...(effectiveTurnConfig && Object.keys(effectiveTurnConfig).length > 0
+          ? { config: effectiveTurnConfig }
+          : {}),
+        // Send ``parent_message_id`` only when we have a real (positive)
+        // server id to chain under, or when the caller explicitly pinned
+        // a parent (incl. ``null`` for editing the session's first
+        // message). When the visible tip is still an optimistic
+        // negative id, omit the key and let the backend auto-append to
+        // the latest persisted row.
+        ...(wireParentId !== undefined
+          ? { parent_message_id: wireParentId }
           : {}),
       });
     },
@@ -746,17 +1499,89 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
     dispatch({ type: "STREAM_END", key, status: "cancelled" });
   }, []);
 
+  const submitUserReply = useCallback(
+    (
+      reply:
+        | string
+        | {
+            text?: string;
+            answers?: Array<{ questionId: string; text: string }>;
+          },
+    ) => {
+      const currentState = stateRef.current;
+      const key = currentState.selectedKey;
+      if (!key) return;
+      const session = currentState.sessions[key];
+      const turnId = session?.activeTurnId;
+      const pendingAskUser = session
+        ? hasPendingAskUserInMessages(session.messages, turnId)
+        : false;
+      // Only meaningful while a turn is live. A paused ask_user turn can be
+      // silent long enough for the socket to reconnect, so allow submission
+      // whenever the unresolved card and active turn id are still present.
+      if (!session || !turnId || (!session.isStreaming && !pendingAskUser)) {
+        return;
+      }
+      const message: import("@/lib/unified-ws").SubmitUserReplyMessage = {
+        type: "submit_user_reply",
+        turn_id: turnId,
+      };
+      if (typeof reply === "string") {
+        message.text = reply;
+      } else {
+        if (typeof reply.text === "string") message.text = reply.text;
+        if (Array.isArray(reply.answers)) message.answers = reply.answers;
+      }
+      sendThroughRunner(key, message);
+    },
+    [sendThroughRunner],
+  );
+
+  const regenerateLastMessage = useCallback(() => {
+    const currentState = stateRef.current;
+    const key = currentState.selectedKey;
+    if (!key) return;
+    const session = currentState.sessions[key];
+    if (!session || !session.sessionId) return;
+    if (session.isStreaming) return;
+    const lastUser = [...session.messages]
+      .reverse()
+      .find((m) => m.role === "user");
+    if (!lastUser) return;
+    // Snapshot the trailing assistant (if any) so we can put it back when the
+    // server rejects the request. We intentionally keep events/attachments so
+    // the restored bubble round-trips identically.
+    const lastMessage = session.messages[session.messages.length - 1];
+    if (lastMessage && lastMessage.role === "assistant") {
+      pendingRegenerateRef.current.set(key, { ...lastMessage });
+    } else {
+      pendingRegenerateRef.current.delete(key);
+    }
+    dispatch({ type: "POP_LAST_ASSISTANT", key });
+    dispatch({ type: "STREAM_START", key });
+    sendThroughRunner(key, {
+      type: "regenerate",
+      session_id: session.sessionId,
+      overrides: {
+        language: readStoredLanguage(),
+      },
+    });
+  }, [sendThroughRunner]);
+
   const derivedState = useMemo<ChatState>(() => {
     const current = ensureSelectedSession(state);
     return {
       sessionId: current.sessionId,
+      sessionTitle: current.sessionTitle,
       enabledTools: current.enabledTools,
       activeCapability: current.activeCapability,
       knowledgeBases: current.knowledgeBases,
+      llmSelection: current.llmSelection,
       messages: current.messages,
       isStreaming: current.isStreaming,
       currentStage: current.currentStage,
       language: current.language,
+      selectedBranches: current.selectedBranches,
     };
   }, [state]);
 
@@ -786,34 +1611,212 @@ export function UnifiedChatProvider({ children }: { children: React.ReactNode })
     dispatch({ type: "SET_KB", kbs });
   }, []);
 
+  const setLLMSelection = useCallback((selection: LLMSelection | null) => {
+    dispatch({ type: "SET_LLM_SELECTION", selection });
+  }, []);
+
   const setLanguage = useCallback((lang: string) => {
     dispatch({ type: "SET_LANGUAGE", lang });
+  }, []);
+
+  const renameSessionTitle = useCallback(async (title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    const currentState = stateRef.current;
+    const key = currentState.selectedKey;
+    if (!key) return;
+    const session = currentState.sessions[key];
+    const sessionId = session?.sessionId;
+    if (!sessionId) return;
+    const updated = await updateSessionTitle(sessionId, trimmed);
+    dispatch({
+      type: "SET_SESSION_TITLE",
+      key,
+      title: updated.title || trimmed,
+    });
   }, []);
 
   const newSession = useCallback(() => {
     dispatch({ type: "NEW_SESSION", key: makeDraftKey() });
   }, [makeDraftKey]);
 
-  const value: ChatContextValue = {
-    state: derivedState,
-    setTools,
-    setCapability,
-    setKBs,
-    setLanguage,
-    sendMessage,
-    cancelStreamingTurn,
-    newSession,
-    loadSession,
-    selectedSessionId: derivedState.sessionId,
-    sessionStatuses,
-    sidebarRefreshToken: state.sidebarRefreshToken,
-  };
+  const editMessage = useCallback(
+    async (messageId: number, newContent: string) => {
+      const trimmed = newContent.trim();
+      if (!trimmed) return;
+      const currentState = stateRef.current;
+      const key = currentState.selectedKey;
+      if (!key) return;
+      const session = currentState.sessions[key];
+      if (!session) return;
+      // Edits create a new branch via a fresh turn — block while one is
+      // already running so we don't queue against an in-flight stream
+      // (matches the delete-turn guard).
+      if (session.isStreaming) return;
+      const idx = session.messages.findIndex(
+        (m) => m.id === messageId && m.role === "user",
+      );
+      if (idx === -1) return;
+      let original = session.messages[idx];
+      // Optimistic in-flight rows have a negative client-side id — we
+      // need a real server id to hang the new sibling under. Refresh
+      // from the server, then re-resolve the row by its position in the
+      // (now-persisted) thread before continuing.
+      if (typeof original.id === "number" && original.id < 0) {
+        if (!session.sessionId) return;
+        try {
+          await loadSession(session.sessionId);
+        } catch {
+          return;
+        }
+        const refreshed = stateRef.current.sessions[key];
+        const candidate = refreshed?.messages[idx];
+        if (
+          !candidate ||
+          candidate.role !== "user" ||
+          typeof candidate.id !== "number" ||
+          candidate.id < 0
+        ) {
+          return;
+        }
+        original = candidate;
+      }
+      if (typeof original.id !== "number" || original.id < 0) return;
+      const parentId = original.parentMessageId ?? null;
+      sendMessage(
+        trimmed,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { parentMessageId: parentId },
+        undefined,
+        undefined,
+        undefined,
+      );
+    },
+    [loadSession, sendMessage],
+  );
+
+  const switchBranch = useCallback(
+    (parentMessageId: number | null, childId: number) => {
+      const currentState = stateRef.current;
+      const key = currentState.selectedKey;
+      if (!key) return;
+      const session = currentState.sessions[key];
+      if (!session) return;
+      const parentKey =
+        parentMessageId == null ? "null" : String(parentMessageId);
+      dispatch({
+        type: "SET_SELECTED_BRANCH",
+        key,
+        parentKey,
+        childId,
+      });
+      const sessionId = session.sessionId;
+      if (!sessionId) return;
+      const nextSelections = {
+        ...session.selectedBranches,
+        [parentKey]: childId,
+      };
+      // Fire-and-forget — local state is the source of truth for the UI;
+      // the server copy only matters for reload-time hydration.
+      updateBranchSelection(sessionId, nextSelections).catch((err) => {
+        console.warn("Failed to persist branch selection:", err);
+      });
+    },
+    [],
+  );
+
+  const deleteTurn = useCallback(
+    async (messageId: number) => {
+      const currentState = stateRef.current;
+      const key = currentState.selectedKey;
+      if (!key) return;
+      const session = currentState.sessions[key];
+      if (!session || !session.sessionId) return;
+      if (session.isStreaming) return;
+      let effectiveId = messageId;
+      if (messageId < 0) {
+        const origIdx = session.messages.findIndex((m) => m.id === messageId);
+        if (origIdx === -1) return;
+        try {
+          await loadSession(session.sessionId);
+        } catch {
+          return;
+        }
+        const refreshed = stateRef.current.sessions[key];
+        const realId = refreshed?.messages[origIdx]?.id;
+        if (realId == null || realId < 0) return;
+        effectiveId = realId;
+      }
+      try {
+        await deleteMessage(session.sessionId, effectiveId);
+        dispatch({ type: "DELETE_TURN", key, messageId: effectiveId });
+      } catch (err) {
+        console.error("Failed to delete turn:", err);
+      }
+    },
+    [loadSession],
+  );
+
+  // Memoize the context value so consumers don't re-render on every render of
+  // this provider. Without this wrap, every stream-event-driven reducer
+  // dispatch produced a fresh object identity, cascading a re-render through
+  // every `useUnifiedChat()` consumer (chat page, composer, sidebar) on each
+  // token. The callbacks below are already stable via useCallback; the only
+  // things that should change identity are derivedState, sessionStatuses,
+  // and sidebarRefreshToken.
+  const value = useMemo<ChatContextValue>(
+    () => ({
+      state: derivedState,
+      setTools,
+      setCapability,
+      setKBs,
+      setLLMSelection,
+      setLanguage,
+      sendMessage,
+      cancelStreamingTurn,
+      submitUserReply,
+      regenerateLastMessage,
+      deleteTurn,
+      editMessage,
+      switchBranch,
+      renameSessionTitle,
+      newSession,
+      loadSession,
+      selectedSessionId: derivedState.sessionId,
+      sessionStatuses,
+      sidebarRefreshToken: state.sidebarRefreshToken,
+    }),
+    [
+      derivedState,
+      setTools,
+      setCapability,
+      setKBs,
+      setLLMSelection,
+      setLanguage,
+      sendMessage,
+      cancelStreamingTurn,
+      submitUserReply,
+      regenerateLastMessage,
+      deleteTurn,
+      editMessage,
+      switchBranch,
+      renameSessionTitle,
+      newSession,
+      loadSession,
+      sessionStatuses,
+      state.sidebarRefreshToken,
+    ],
+  );
 
   return <ChatCtx.Provider value={value}>{children}</ChatCtx.Provider>;
 }
 
 export function useUnifiedChat() {
   const ctx = useContext(ChatCtx);
-  if (!ctx) throw new Error("useUnifiedChat must be inside UnifiedChatProvider");
+  if (!ctx)
+    throw new Error("useUnifiedChat must be inside UnifiedChatProvider");
   return ctx;
 }

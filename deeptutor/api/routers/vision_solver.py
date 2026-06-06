@@ -4,18 +4,18 @@ WebSocket endpoint for real-time image analysis with GeoGebra visualization.
 """
 
 import asyncio
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from deeptutor.agents.vision_solver import VisionSolverAgent
-from deeptutor.logging import get_logger
 from deeptutor.services.llm import get_llm_config
 from deeptutor.services.settings.interface_settings import get_ui_language
 from deeptutor.tools.vision import ImageError, resolve_image_input
 
-logger = get_logger("VisionSolverAPI", level="INFO")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -144,6 +144,13 @@ async def websocket_vision_solve(websocket: WebSocket):
        - {"type": "text", "content": "..."}
        - {"type": "done"}
     """
+    from deeptutor.api.routers.auth import ws_auth_failed, ws_require_auth
+    from deeptutor.multi_user.context import reset_current_user
+
+    user_token = await ws_require_auth(websocket)
+    if user_token is ws_auth_failed:
+        return
+
     await websocket.accept()
 
     connection_closed = asyncio.Event()
@@ -247,3 +254,8 @@ async def websocket_vision_solve(websocket: WebSocket):
             pass
         except Exception as e:
             logger.debug(f"Error closing WebSocket: {e}")
+        if user_token is not None:
+            try:
+                reset_current_user(user_token)
+            except Exception:
+                pass

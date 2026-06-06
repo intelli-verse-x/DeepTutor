@@ -5,23 +5,26 @@ Unified BaseAgent - Base class for all module agents.
 This is the single source of truth for agent base functionality across:
 - solve module
 - research module
-- guide module
 - co_writer module
 - question module (unified in Jan 2026 refactor)
 """
 
 from abc import ABC, abstractmethod
-import os
-import time
 import inspect
+import logging
+import time
 from typing import Any, AsyncGenerator, Awaitable, Callable
 
 from deeptutor.config.settings import settings
-from deeptutor.logging import LLMStats, get_logger
+from deeptutor.logging import LLMStats
 from deeptutor.services.config import get_agent_params
 from deeptutor.services.llm import complete as llm_complete
-from deeptutor.services.llm import get_llm_config, get_token_limit_kwargs, supports_response_format
-from deeptutor.services.llm import prepare_multimodal_messages, supports_vision
+from deeptutor.services.llm import (
+    get_llm_config,
+    get_token_limit_kwargs,
+    prepare_multimodal_messages,
+    supports_response_format,
+)
 from deeptutor.services.llm import stream as llm_stream
 from deeptutor.services.prompt import get_prompt_manager
 
@@ -63,7 +66,7 @@ class BaseAgent(ABC):
         Initialize base Agent.
 
         Args:
-            module_name: Module name (solve/research/guide/co_writer/question)
+            module_name: Module name (solve/research/co_writer/question)
             agent_name: Agent name (e.g., "solve_agent", "note_agent")
             api_key: API key (optional, defaults to environment variable)
             base_url: API endpoint (optional, defaults to environment variable)
@@ -100,13 +103,12 @@ class BaseAgent(ABC):
             self.model = model or env_llm.model
             self.api_version = api_version or getattr(env_llm, "api_version", None)
             self.binding = binding or getattr(env_llm, "binding", "openai")
-        except ValueError:
-            # Fallback if env config not available
-            self.api_key = api_key or os.getenv("LLM_API_KEY")
-            self.base_url = base_url or os.getenv("LLM_HOST")
-            self.model = model or os.getenv("LLM_MODEL")
-            self.api_version = api_version or os.getenv("LLM_API_VERSION")
-            self.binding = binding or os.getenv("LLM_BINDING", "openai")
+        except Exception:
+            self.api_key = api_key
+            self.base_url = base_url
+            self.model = model
+            self.api_version = api_version
+            self.binding = binding or "openai"
 
         # Get Agent-specific configuration (if config provided)
         self.agent_config = self.config.get("agents", {}).get(agent_name, {})
@@ -127,7 +129,7 @@ class BaseAgent(ABC):
 
         # Initialize logger
         logger_name = f"{module_name.capitalize()}.{agent_name}"
-        self.logger = get_logger(logger_name, log_dir=log_dir)
+        self.logger = logging.getLogger(f"deeptutor.{logger_name}")
 
         # Load prompts using unified PromptManager
         try:
@@ -170,14 +172,9 @@ class BaseAgent(ABC):
         if self.model:
             return self.model
 
-        # 4. Fallback to environment variable
-        env_model = os.getenv("LLM_MODEL")
-        if env_model:
-            return env_model
-
         raise ValueError(
             f"Model not configured for agent {self.agent_name}. "
-            "Please set LLM_MODEL in .env or activate a provider."
+            "Please activate a model in Settings > Catalog."
         )
 
     def get_temperature(self) -> float:
@@ -413,12 +410,19 @@ class BaseAgent(ABC):
             else:
                 self.logger.debug(f"response_format not supported for {binding}/{model}, skipping")
 
+        # Keep non-streaming calls aligned with stream_llm/chat: when images
+        # are attached, convert the final user message to multimodal content.
+        if attachments:
+            if not messages:
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
+            mm_result = prepare_multimodal_messages(
+                messages, attachments, binding=self.binding, model=model
+            )
+            messages = mm_result.messages
         if messages:
-            if attachments:
-                mm_result = prepare_multimodal_messages(
-                    messages, attachments, binding=self.binding, model=model
-                )
-                messages = mm_result.messages
             kwargs["messages"] = messages
 
         # Log input
@@ -435,14 +439,14 @@ class BaseAgent(ABC):
             **(trace_meta or {}),
         }
         await self._emit_trace_event(trace_payload_base)
-        if hasattr(self.logger, "log_llm_input"):
-            self.logger.log_llm_input(
-                agent_name=self.agent_name,
-                stage=stage_label,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                metadata={"model": model, "temperature": temperature, "max_tokens": max_tokens},
-            )
+        self.logger.debug(
+            "LLM input %s:%s model=%s system_chars=%d user_chars=%d",
+            self.agent_name,
+            stage_label,
+            model,
+            len(system_prompt),
+            len(user_prompt),
+        )
 
         # Call LLM via factory (routes to cloud or local provider)
         response = None
@@ -490,13 +494,13 @@ class BaseAgent(ABC):
                 "duration": call_duration,
             }
         )
-        if hasattr(self.logger, "log_llm_output"):
-            self.logger.log_llm_output(
-                agent_name=self.agent_name,
-                stage=stage_label,
-                response=response,
-                metadata={"length": len(response), "duration": call_duration},
-            )
+        self.logger.debug(
+            "LLM output %s:%s chars=%d duration=%.2fs",
+            self.agent_name,
+            stage_label,
+            len(response),
+            call_duration,
+        )
 
         # Verbose output
         if verbose:
@@ -565,7 +569,12 @@ class BaseAgent(ABC):
                 self.logger.debug(f"response_format not supported for {binding}/{model}, skipping")
 
         # Inject image attachments into messages when provided
-        if messages and attachments:
+        if attachments:
+            if not messages:
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
             mm_result = prepare_multimodal_messages(
                 messages, attachments, binding=self.binding, model=model
             )
@@ -585,14 +594,14 @@ class BaseAgent(ABC):
             **(trace_meta or {}),
         }
         await self._emit_trace_event(trace_payload_base)
-        if hasattr(self.logger, "log_llm_input"):
-            self.logger.log_llm_input(
-                agent_name=self.agent_name,
-                stage=stage_label,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                metadata={"model": model, "temperature": temperature, "streaming": True},
-            )
+        self.logger.debug(
+            "LLM stream input %s:%s model=%s system_chars=%d user_chars=%d",
+            self.agent_name,
+            stage_label,
+            model,
+            len(system_prompt),
+            len(user_prompt),
+        )
 
         # Track start time
         start_time = time.time()
@@ -641,19 +650,13 @@ class BaseAgent(ABC):
                     "duration": call_duration,
                 }
             )
-            if hasattr(self.logger, "log_llm_output"):
-                self.logger.log_llm_output(
-                    agent_name=self.agent_name,
-                    stage=stage_label,
-                    response=full_response[:200] + "..."
-                    if len(full_response) > 200
-                    else full_response,
-                    metadata={
-                        "length": len(full_response),
-                        "duration": call_duration,
-                        "streaming": True,
-                    },
-                )
+            self.logger.debug(
+                "LLM stream output %s:%s chars=%d duration=%.2fs",
+                self.agent_name,
+                stage_label,
+                len(full_response),
+                call_duration,
+            )
 
         except Exception as e:
             await self._emit_trace_event(

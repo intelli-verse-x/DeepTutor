@@ -9,10 +9,10 @@ Note: This is a legacy interface. Prefer using the factory functions directly:
 """
 
 from collections.abc import Awaitable, Callable
+import logging
 from typing import cast
 
-from deeptutor.logging import get_logger
-
+from .capabilities import supports_vision
 from .config import LLMConfig, get_llm_config
 from .utils import sanitize_url
 
@@ -34,7 +34,7 @@ class LLMClient:
         """
 
         self.config = config or get_llm_config()
-        self.logger = get_logger("LLMClient")
+        self.logger = logging.getLogger(__name__)
 
         # Keep OPENAI_* env vars aligned for libraries that still read from env.
         self._setup_openai_env_vars()
@@ -55,6 +55,7 @@ class LLMClient:
 
             if self.config.base_url:
                 from .utils import sanitize_url as _sanitize
+
                 clean_url = _sanitize(self.config.base_url)
                 os.environ["OPENAI_BASE_URL"] = clean_url
                 self.logger.debug(f"Set OPENAI_BASE_URL env var to {clean_url}")
@@ -138,6 +139,10 @@ class LLMClient:
             Callable that can be used as vision_model_func
         """
         return self._build_factory_model_func(allow_multimodal=True)
+
+    def supports_multimodal_images(self) -> bool:
+        """Return whether the configured LLM can accept image input."""
+        return supports_vision(getattr(self.config, "binding", "openai"), self.config.model)
 
     def _build_factory_model_func(self, allow_multimodal: bool) -> Callable[..., object]:
         """Build adapter callables on top of the unified factory.complete API."""

@@ -1,4 +1,4 @@
-"""Normalized embedding configuration resolved from catalog + env compatibility."""
+"""Normalized embedding configuration resolved from the model catalog."""
 
 from __future__ import annotations
 
@@ -20,7 +20,8 @@ class EmbeddingConfig:
     provider_mode: str = "standard"
     api_version: str | None = None
     extra_headers: dict[str, str] | None = None
-    dim: int = 3072
+    dim: int = 0
+    send_dimensions: bool | None = None
     request_timeout: int = 60
     batch_size: int = 10
     batch_delay: float = 0.0
@@ -31,7 +32,7 @@ def get_embedding_config() -> EmbeddingConfig:
     resolved = resolve_embedding_runtime_config()
 
     if not resolved.model:
-        raise ValueError("EMBEDDING_MODEL not set. Please configure it in Settings > Catalog.")
+        raise ValueError("Embedding model not set. Please configure it in Settings > Catalog.")
 
     if not resolved.effective_url:
         raise ValueError(
@@ -40,7 +41,7 @@ def get_embedding_config() -> EmbeddingConfig:
 
     if resolved.provider_mode != "local" and not resolved.api_key:
         raise ValueError(
-            "EMBEDDING_API_KEY not set. Please configure it in Settings > Catalog or via env fallback."
+            "Embedding API key not set. Please configure the active profile in Settings > Catalog."
         )
 
     return EmbeddingConfig(
@@ -54,8 +55,8 @@ def get_embedding_config() -> EmbeddingConfig:
         api_version=resolved.api_version,
         extra_headers=resolved.extra_headers,
         dim=resolved.dimension,
+        send_dimensions=resolved.send_dimensions,
         request_timeout=max(1, resolved.request_timeout),
         batch_size=max(1, resolved.batch_size),
         batch_delay=max(0.0, resolved.batch_delay),
     )
-

@@ -1,17 +1,24 @@
-import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
+import logging
 
-from fastapi import FastAPI
-from fastapi import HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from deeptutor.logging import get_logger
+from deeptutor.logging import configure_logging
+from deeptutor.services.config import (
+    ensure_runtime_settings_files,
+    export_runtime_settings_to_env,
+    load_auth_settings,
+    load_system_settings,
+)
+from deeptutor.services.config.origins import normalize_origins
 from deeptutor.services.path_service import get_path_service
 
-# Note: Don't set service_prefix here - start_web.py already adds [Backend] prefix
-logger = get_logger("API")
+ensure_runtime_settings_files()
+export_runtime_settings_to_env(overwrite=True)
+configure_logging()
+logger = logging.getLogger(__name__)
 
 
 class _SuppressWsNoise(logging.Filter):
@@ -74,6 +81,37 @@ def validate_tool_consistency():
         raise
 
 
+def _build_cors_settings() -> dict[str, object]:
+    """Build CORS settings for both localhost and remote Docker deployments."""
+    system_settings = load_system_settings()
+    auth_settings = load_auth_settings()
+    frontend_port = str(system_settings["frontend_port"])
+    extra_origins = normalize_origins(
+        [system_settings["cors_origin"], system_settings["cors_origins"]]
+    )
+    origins = [
+        f"http://localhost:{frontend_port}",
+        f"http://127.0.0.1:{frontend_port}",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    for origin in extra_origins:
+        if origin not in origins:
+            origins.append(origin)
+
+    # Auth is disabled by default. In that local/single-user mode, mirror the
+    # pre-v1.3.8 behavior and allow remote Docker/LAN origins out of the box.
+    # When auth is enabled, require explicit CORS_ORIGIN(S) for credentialed
+    # cross-origin requests.
+    allow_origin_regex = None if auth_settings["enabled"] else r"https?://.*"
+    mode = "explicit" if auth_settings["enabled"] else "permissive"
+    return {
+        "allow_origins": origins,
+        "allow_origin_regex": allow_origin_regex,
+        "mode": mode,
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -122,9 +160,29 @@ async def lifespan(app: FastAPI):
 
     try:
         from deeptutor.services.tutorbot import get_tutorbot_manager
+
         await get_tutorbot_manager().auto_start_bots()
     except Exception as e:
         logger.warning(f"Failed to auto-start TutorBots: {e}")
+
+    # Ping PocketBase if configured — logs a warning (not an error) if unreachable
+    try:
+        from deeptutor.services.pocketbase_client import ping_pocketbase
+
+        await ping_pocketbase()
+    except Exception as e:
+        logger.warning(f"PocketBase startup check failed: {e}")
+
+    # Migrate any v1 memory files (PROFILE.md / SUMMARY.md) into a
+    # backup folder so the v2 three-layer subsystem starts clean.
+    try:
+        from deeptutor.services.memory import migrate_v1_if_needed
+
+        backup = migrate_v1_if_needed()
+        if backup is not None:
+            logger.info("v1 memory archived to %s", backup)
+    except Exception as e:
+        logger.warning(f"v1 memory migration failed: {e}")
 
     yield
 
@@ -141,7 +199,8 @@ async def lifespan(app: FastAPI):
     # Stop TutorBots
     try:
         from deeptutor.services.tutorbot import get_tutorbot_manager
-        await get_tutorbot_manager().stop_all()
+
+        await get_tutorbot_manager().stop_all(preserve_auto_start=True)
         logger.info("TutorBots stopped")
     except Exception as e:
         logger.warning(f"Failed to stop TutorBots: {e}")
@@ -177,19 +236,27 @@ async def selective_access_log(request, call_next):
     response = await call_next(request)
     if response.status_code != 200:
         _access_logger.info(
-            '%s - "%s %s" %d',
+            '%s - "%s %s HTTP/%s" %d',
             request.client.host if request.client else "-",
             request.method,
             request.url.path,
+            request.scope.get("http_version", "1.1"),
             response.status_code,
         )
     return response
 
 
-# Configure CORS
+_cors_settings = _build_cors_settings()
+logger.info(
+    "CORS configured: mode=%s allow_origins=%s allow_origin_regex=%s",
+    _cors_settings["mode"],
+    _cors_settings["allow_origins"],
+    _cors_settings["allow_origin_regex"],
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific frontend origin
+    allow_origins=_cors_settings["allow_origins"],
+    allow_origin_regex=_cors_settings["allow_origin_regex"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -224,54 +291,134 @@ app.mount(
 # Some router modules load YAML settings at import time.
 from deeptutor.api.routers import (
     agent_config,
+    attachments,
+    auth,
+    book,
+    capabilities_settings,
     chat,
     co_writer,
     dashboard,
     exams,
     external_notes,
-    guide,
-    referral,
     knowledge,
     memory,
     notebook,
     plugins_api,
     question,
+    question_notebook,
+    quiz_judge,
+    referral,
     sessions,
     settings,
-    solve,
+    skills,
     system,
     tutorbot,
     unified_ws,
     vision_solver,
-    question_notebook,
+)
+from deeptutor.api.routers import (
+    tools as tools_router,
+)
+from deeptutor.multi_user.router import router as multi_user_router  # noqa: E402
+
+# Auth router is public — login/logout/register/status require no token
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+
+# All other routers require a valid session when AUTH_ENABLED=true.
+# require_auth is a no-op when AUTH_ENABLED=false, so this is safe for local use.
+from deeptutor.api.routers.auth import require_auth  # noqa: E402
+
+_auth = [Depends(require_auth)]
+
+app.include_router(
+    multi_user_router,
+    prefix="/api/v1/multi-user",
+    tags=["multi-user"],
+    dependencies=_auth,
 )
 
-# Include routers
-app.include_router(solve.router, prefix="/api/v1", tags=["solve"])
-app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
-app.include_router(question.router, prefix="/api/v1/question", tags=["question"])
-app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"])
-app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
-app.include_router(co_writer.router, prefix="/api/v1/co_writer", tags=["co_writer"])
-app.include_router(notebook.router, prefix="/api/v1/notebook", tags=["notebook"])
-app.include_router(guide.router, prefix="/api/v1/guide", tags=["guide"])
-app.include_router(memory.router, prefix="/api/v1/memory", tags=["memory"])
-app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["sessions"])
-app.include_router(question_notebook.router, prefix="/api/v1/question-notebook", tags=["question-notebook"])
-app.include_router(settings.router, prefix="/api/v1/settings", tags=["settings"])
-app.include_router(system.router, prefix="/api/v1/system", tags=["system"])
-app.include_router(plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"])
-app.include_router(agent_config.router, prefix="/api/v1/agent-config", tags=["agent-config"])
-app.include_router(vision_solver.router, prefix="/api/v1", tags=["vision-solver"])
-app.include_router(tutorbot.router, prefix="/api/v1/tutorbot", tags=["tutorbot"])
-app.include_router(external_notes.router, prefix="/api/v1/external", tags=["external-notes"])
-app.include_router(referral.router, prefix="/api/v1/referral", tags=["referral"])
+app.include_router(chat.router, prefix="/api/v1", tags=["chat"], dependencies=_auth)
+app.include_router(
+    question.router, prefix="/api/v1/question", tags=["question"], dependencies=_auth
+)
+app.include_router(
+    knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"], dependencies=_auth
+)
+app.include_router(
+    dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"], dependencies=_auth
+)
+app.include_router(
+    co_writer.router, prefix="/api/v1/co_writer", tags=["co_writer"], dependencies=_auth
+)
+app.include_router(
+    notebook.router, prefix="/api/v1/notebook", tags=["notebook"], dependencies=_auth
+)
+app.include_router(book.router, prefix="/api/v1/book", tags=["book"], dependencies=_auth)
+app.include_router(memory.router, prefix="/api/v1/memory", tags=["memory"], dependencies=_auth)
+app.include_router(
+    capabilities_settings.router,
+    prefix="/api/v1/capabilities",
+    tags=["capabilities"],
+    dependencies=_auth,
+)
+app.include_router(
+    sessions.router, prefix="/api/v1/sessions", tags=["sessions"], dependencies=_auth
+)
+app.include_router(
+    question_notebook.router,
+    prefix="/api/v1/question-notebook",
+    tags=["question-notebook"],
+    dependencies=_auth,
+)
+app.include_router(
+    settings.router, prefix="/api/v1/settings", tags=["settings"], dependencies=_auth
+)
+app.include_router(skills.router, prefix="/api/v1/skills", tags=["skills"], dependencies=_auth)
+app.include_router(tools_router.router, prefix="/api/v1/tools", tags=["tools"], dependencies=_auth)
+app.include_router(system.router, prefix="/api/v1/system", tags=["system"], dependencies=_auth)
+app.include_router(
+    plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"], dependencies=_auth
+)
+app.include_router(
+    agent_config.router, prefix="/api/v1/agent-config", tags=["agent-config"], dependencies=_auth
+)
+app.include_router(
+    vision_solver.router, prefix="/api/v1", tags=["vision-solver"], dependencies=_auth
+)
+app.include_router(
+    tutorbot.router, prefix="/api/v1/tutorbot", tags=["tutorbot"], dependencies=_auth
+)
+app.include_router(
+    attachments.router,
+    prefix="/api/attachments",
+    tags=["attachments"],
+    dependencies=_auth,
+)
 
-# Exam Packs, Diagnostic, Study Plan, Score Predictor, Knowledge Base
-app.include_router(exams.router, prefix="/api/v1/exams", tags=["exams"])
+# ── Fork (IntelliVerseX / QuizVerse) routers ─────────────────────────────
+# Exam Packs, Diagnostic, Study Plan, Score Predictor, Knowledge Base,
+# external notes, and referral. Tenancy is driven by the x-user-id header
+# (TenantMiddleware) which is also bridged into upstream's multi_user context.
+app.include_router(
+    exams.router, prefix="/api/v1/exams", tags=["exams"], dependencies=_auth
+)
+app.include_router(
+    external_notes.router,
+    prefix="/api/v1/external",
+    tags=["external-notes"],
+    dependencies=_auth,
+)
+app.include_router(
+    referral.router, prefix="/api/v1/referral", tags=["referral"], dependencies=_auth
+)
 
-# Unified WebSocket endpoint
+# Unified WebSocket endpoint — auth is checked inside the handler (WebSockets
+# cannot use FastAPI dependencies in the standard way)
 app.include_router(unified_ws.router, prefix="/api/v1", tags=["unified-ws"])
+
+# Quiz AI-judge WebSocket — same caveat as unified_ws above; auth is checked
+# inside the handler so the WS upgrade isn't rejected by an HTTP-style dep.
+app.include_router(quiz_judge.router, prefix="/api/v1", tags=["quiz-judge"])
 
 
 @app.get("/")

@@ -10,6 +10,7 @@ import ast
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -17,7 +18,6 @@ import sys
 import time
 from typing import Any
 
-from deeptutor.logging import get_logger
 from deeptutor.services.path_service import get_path_service
 
 RUN_CODE_WORKSPACE_ENV = "RUN_CODE_WORKSPACE"
@@ -26,9 +26,24 @@ DEFAULT_WORKSPACE_NAME = "_detached_code_execution"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_SAFE_IMPORTS = [
-    "math", "numpy", "pandas", "matplotlib", "plt", "seaborn",
-    "scipy", "statsmodels", "json", "datetime", "re", "collections",
-    "itertools", "functools", "random", "time", "statistics", "sympy",
+    "math",
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "plt",
+    "seaborn",
+    "scipy",
+    "statsmodels",
+    "json",
+    "datetime",
+    "re",
+    "collections",
+    "itertools",
+    "functools",
+    "random",
+    "time",
+    "statistics",
+    "sympy",
 ]
 DISALLOWED_CALL_NAMES = {
     "open",
@@ -50,7 +65,7 @@ DISALLOWED_ATTRIBUTE_BASES = {
     "builtins",
 }
 
-logger = get_logger("CodeExecutor")
+logger = logging.getLogger(__name__)
 
 # Files managed by the executor itself (excluded from user-artifact lists)
 _META_FILES = frozenset({"code.py", "output.log", ".gitkeep"})
@@ -388,9 +403,7 @@ def _resolve_task_workspace(
         return None
 
     identifier = (
-        str(task_id or "").strip()
-        or str(turn_id or "").strip()
-        or str(session_id or "").strip()
+        str(task_id or "").strip() or str(turn_id or "").strip() or str(session_id or "").strip()
     )
     if not identifier:
         return None

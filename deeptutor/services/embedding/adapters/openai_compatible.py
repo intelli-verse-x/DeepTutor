@@ -6,17 +6,34 @@ from typing import Any, Dict
 
 import httpx
 
-from .base import BaseEmbeddingAdapter, EmbeddingRequest, EmbeddingResponse
+from deeptutor.services.llm.openai_http_client import disable_ssl_verify_enabled
+
+from .base import (
+    BaseEmbeddingAdapter,
+    EmbeddingProviderError,
+    EmbeddingRequest,
+    EmbeddingResponse,
+    looks_like_multimodal_embedding_model,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class OpenAICompatibleEmbeddingAdapter(BaseEmbeddingAdapter):
+    NO_KEY_SENTINEL = "sk-no-key-required"
+
     MODELS_INFO = {
         "text-embedding-3-large": {"default": 3072, "dimensions": [256, 512, 1024, 3072]},
         "text-embedding-3-small": {"default": 1536, "dimensions": [512, 1536]},
         "text-embedding-ada-002": 1536,
     }
+
+    def _auth_api_key(self) -> str:
+        """Return a real API key, suppressing local-provider placeholder keys."""
+        key = str(self.api_key or "").strip()
+        if key == self.NO_KEY_SENTINEL:
+            return ""
+        return key
 
     @staticmethod
     def _extract_embeddings_from_response(data: Any) -> list[list[float]]:
@@ -85,7 +102,7 @@ class OpenAICompatibleEmbeddingAdapter(BaseEmbeddingAdapter):
             first = c[0]
             # list of {"embedding":[...]}
             if isinstance(first, dict) and "embedding" in first:
-                return [item.get("embedding", []) for item in c if isinstance(item, dict)]
+                return [item.get("embedding") or [] for item in c if isinstance(item, dict)]
             # list of vectors [[...], ...]
             if isinstance(first, list):
                 return [item for item in c if isinstance(item, list)]
@@ -100,31 +117,71 @@ class OpenAICompatibleEmbeddingAdapter(BaseEmbeddingAdapter):
     _RETRY_BACKOFF = 1.0
     _RATE_LIMIT_BACKOFF = 5.0
 
+    def _should_send_dimensions(self, model_name: str | None) -> bool:
+        """Decide whether to attach `dimensions` to the request payload.
+
+        Tri-state semantics driven by `self.send_dimensions`:
+        * ``True``  -> always send (user explicitly opted in)
+        * ``False`` -> never send (user explicitly opted out)
+        * ``None``  -> auto: send for known model families that accept the
+          OpenAI-style ``dimensions`` parameter — OpenAI ``text-embedding-3*``,
+          Qwen3-Embedding, Qwen3-VL-Embedding.
+        """
+        if self.send_dimensions is True:
+            return True
+        if self.send_dimensions is False:
+            return False
+        if not model_name:
+            return False
+        lname = model_name.lower()
+        if lname.startswith("text-embedding-3"):
+            return True
+        if "qwen3-embedding" in lname or "qwen3-vl-embedding" in lname:
+            return True
+        return False
+
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         import asyncio
 
         headers = {"Content-Type": "application/json"}
+        api_key = self._auth_api_key()
         if self.api_version:
-            if self.api_key:
-                headers["api-key"] = self.api_key
-        elif self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            if api_key:
+                headers["api-key"] = api_key
+        elif api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         headers.update({str(k): str(v) for k, v in self.extra_headers.items()})
 
+        # Multimodal: pass `contents` through as `input` only for model names
+        # that clearly advertise image/vision embedding support. This prevents
+        # image indexing from accidentally hitting ordinary text-embedding
+        # models just because the provider family has some multimodal models.
+        model = request.model or self.model
+        if request.contents and not looks_like_multimodal_embedding_model(model):
+            raise ValueError(
+                f"OpenAI-compatible embedding model '{model}' does not support "
+                "multimodal `contents`."
+            )
+        input_payload: Any = request.contents if request.contents else request.texts
+
         payload = {
-            "input": request.texts,
-            "model": request.model or self.model,
+            "input": input_payload,
+            "model": model,
             "encoding_format": request.encoding_format or "float",
         }
 
-        if request.dimensions or self.dimensions:
-            payload["dimensions"] = request.dimensions or self.dimensions
+        # `dimensions` is opt-in. The user's `send_dimensions` flag wins when set
+        # explicitly (True/False); otherwise we fall back to a model-family
+        # heuristic since only OpenAI's text-embedding-3* family officially
+        # supports the param — other providers (e.g. Qwen text-embedding-v4 via
+        # litellm gateway) return HTTP 400 if we send it.
+        dim_value = request.dimensions or self.dimensions
+        if dim_value and self._should_send_dimensions(model):
+            payload["dimensions"] = dim_value
 
-        base = self.base_url.rstrip('/')
-        if base.endswith('/embeddings'):
-            url = base
-        else:
-            url = f"{base}/embeddings"
+        # URL transparency: hit `base_url` verbatim. Azure's `?api-version=...`
+        # is a query param (not a path component) so we still append it.
+        url = self.base_url
         if self.api_version:
             if "?" not in url:
                 url += f"?api-version={self.api_version}"
@@ -142,39 +199,91 @@ class OpenAICompatibleEmbeddingAdapter(BaseEmbeddingAdapter):
         last_exc: Exception | None = None
         for attempt in range(1 + self._MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(
+                    timeout=timeout, verify=not disable_ssl_verify_enabled()
+                ) as client:
                     response = await client.post(url, json=payload, headers=headers)
 
                     # Handle rate limiting (429) with retry
                     if response.status_code == 429:
                         retry_after = float(response.headers.get("Retry-After", 0))
-                        wait = max(retry_after, self._RATE_LIMIT_BACKOFF * (2 ** attempt))
+                        wait = max(retry_after, self._RATE_LIMIT_BACKOFF * (2**attempt))
                         logger.warning(
                             f"Rate limited (429) on attempt {attempt + 1}/{1 + self._MAX_RETRIES}, "
                             f"retrying in {wait:.1f}s..."
                         )
                         await asyncio.sleep(wait)
-                        last_exc = Exception(f"HTTP 429 Too Many Requests")
+                        last_exc = Exception("HTTP 429 Too Many Requests")
                         continue
 
                     if response.status_code >= 400:
-                        logger.error(f"HTTP {response.status_code} response body: {response.text}")
+                        body_text = response.text
+                        logger.error(f"HTTP {response.status_code} from {url}: {body_text[:2000]}")
+                        raise EmbeddingProviderError(
+                            f"Embedding provider returned HTTP {response.status_code}",
+                            status=response.status_code,
+                            body=body_text,
+                            model=model,
+                            url=url,
+                            provider="openai_compat",
+                        )
 
-                    response.raise_for_status()
-                    data = response.json()
+                    # A 2xx response with non-JSON body usually means the
+                    # endpoint/model pairing is wrong or a gateway routed us to
+                    # an HTML page. Surface that as structured diagnostics.
+                    try:
+                        data = response.json()
+                    except (json.JSONDecodeError, ValueError) as exc:
+                        body_text = response.text
+                        content_type = response.headers.get("content-type", "")
+                        body_preview = body_text.strip()[:200] or "<empty body>"
+                        hint = ""
+                        if not body_text.strip():
+                            hint = (
+                                " The response body was empty — the endpoint may "
+                                "not support embeddings or the selected model "
+                                "may not be an embedding model."
+                            )
+                        elif (
+                            "text/html" in content_type.lower()
+                            or body_preview.lstrip().startswith("<")
+                        ):
+                            hint = (
+                                " The response was HTML, not JSON — the URL is "
+                                "likely wrong or the gateway does not expose "
+                                "`/v1/embeddings`."
+                            )
+                        raise EmbeddingProviderError(
+                            (
+                                f"Embedding provider returned non-JSON response "
+                                f"(content-type={content_type!r}): {exc}.{hint}"
+                            ),
+                            status=response.status_code,
+                            body=body_text,
+                            model=model,
+                            url=url,
+                            provider="openai_compat",
+                        ) from exc
                 break
-            except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            except httpx.TransportError as exc:
+                # httpx.TransportError covers all transient transport-layer
+                # failures: ConnectError, ReadError, WriteError, ConnectTimeout,
+                # ReadTimeout, WriteTimeout, PoolTimeout, RemoteProtocolError, etc.
+                # Retrying any of these with backoff is safe and obviates the
+                # need to keep extending an explicit allow-list.
                 last_exc = exc
                 if attempt < self._MAX_RETRIES:
-                    wait = self._RETRY_BACKOFF * (2 ** attempt)
+                    wait = self._RETRY_BACKOFF * (2**attempt)
                     logger.warning(
-                        f"Embedding request timeout (attempt {attempt + 1}/{1 + self._MAX_RETRIES}), "
+                        f"Embedding request transport error ({type(exc).__name__}: {exc}) "
+                        f"on attempt {attempt + 1}/{1 + self._MAX_RETRIES}, "
                         f"retrying in {wait:.1f}s..."
                     )
                     await asyncio.sleep(wait)
                 else:
                     logger.error(
-                        f"Embedding request failed after {1 + self._MAX_RETRIES} attempts: {exc}"
+                        f"Embedding request failed after {1 + self._MAX_RETRIES} attempts "
+                        f"({type(exc).__name__}: {exc})"
                     )
                     raise
         else:
@@ -189,7 +298,7 @@ class OpenAICompatibleEmbeddingAdapter(BaseEmbeddingAdapter):
         expected_dims = request.dimensions or self.dimensions
         model_name = data.get("model") if isinstance(data, dict) else None
         if not model_name:
-            model_name = request.model or self.model
+            model_name = model
 
         if expected_dims and actual_dims != expected_dims:
             logger.warning(
@@ -218,6 +327,7 @@ class OpenAICompatibleEmbeddingAdapter(BaseEmbeddingAdapter):
                 "dimensions": model_info.get("default", self.dimensions),
                 "supported_dimensions": model_info.get("dimensions", []),
                 "supports_variable_dimensions": len(model_info.get("dimensions", [])) > 1,
+                "multimodal": looks_like_multimodal_embedding_model(self.model),
                 "provider": "openai_compatible",
             }
         else:
@@ -225,5 +335,6 @@ class OpenAICompatibleEmbeddingAdapter(BaseEmbeddingAdapter):
                 "model": self.model,
                 "dimensions": model_info or self.dimensions,
                 "supports_variable_dimensions": False,
+                "multimodal": looks_like_multimodal_embedding_model(self.model),
                 "provider": "openai_compatible",
             }
