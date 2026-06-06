@@ -314,8 +314,15 @@ async def _openai_complete(
     if messages:
         msg_list = messages
     else:
+        # Ensure system_prompt is not empty to prevent API errors
+        effective_system = system_prompt if system_prompt and system_prompt.strip() else "You are a helpful assistant."
+        if not system_prompt or not system_prompt.strip():
+            logger.warning(
+                "Empty system_prompt in cloud_provider._openai_complete(). "
+                "Using default fallback. This indicates a bug in the calling code."
+            )
         msg_list = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": effective_system},
             {"role": "user", "content": prompt},
         ]
 
@@ -488,8 +495,15 @@ async def _openai_stream(
     if messages:
         msg_list = messages
     else:
+        # Ensure system_prompt is not empty to prevent API errors
+        effective_system = system_prompt if system_prompt and system_prompt.strip() else "You are a helpful assistant."
+        if not system_prompt or not system_prompt.strip():
+            logger.warning(
+                "Empty system_prompt in cloud_provider._openai_stream(). "
+                "Using default fallback. This indicates a bug in the calling code."
+            )
         msg_list = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": effective_system},
             {"role": "user", "content": prompt},
         ]
 

@@ -68,7 +68,7 @@ class VisionSolverAgent(BaseAgent):
         prompts_dir = Path(__file__).parent / "prompts"
 
         self.prompt_templates = {}
-        for prompt_name in ["bbox", "analysis", "ggbscript", "reflection", "tutor"]:
+        for prompt_name in ["bbox", "analysis", "ggbscript", "reflection", "tutor", "question_answer"]:
             prompt_file = prompts_dir / f"{prompt_name}.md"
             if prompt_file.exists():
                 self.prompt_templates[prompt_name] = prompt_file.read_text(encoding="utf-8")
@@ -84,9 +84,18 @@ class VisionSolverAgent(BaseAgent):
             context: Dictionary of variables to substitute
 
         Returns:
-            Rendered prompt string
+            Rendered prompt string with language-aware system instructions
         """
         template = self.prompt_templates.get(template_name, "")
+
+        # Add language-specific instruction at the beginning if language is English
+        if self.language == "en":
+            language_instruction = """
+IMPORTANT: You MUST respond ONLY in English. All analysis, descriptions, and outputs must be in English.
+Even though the following template may contain Chinese instructions (for reference), your entire response must be in English.
+
+"""
+            template = language_instruction + template
 
         # Simple Jinja2-like variable substitution
         for key, value in context.items():
@@ -133,7 +142,8 @@ class VisionSolverAgent(BaseAgent):
             try:
                 return json.loads(json_str)
             except json.JSONDecodeError:
-                self.logger.error(f"JSON parsing failed, response: {response[:500]}...")
+                self.logger.error(f"JSON parsing failed, FULL response: {response}")
+                self.logger.error(f"JSON string attempted: {json_str[:500]}")
                 raise
 
     async def _call_vision_llm(
@@ -142,7 +152,7 @@ class VisionSolverAgent(BaseAgent):
         image_base64: str,
         temperature: float = 0.3,
     ) -> str:
-        """Call vision LLM with image input.
+        """Call vision LLM with image input and retry logic.
 
         Args:
             prompt: Text prompt
@@ -151,31 +161,66 @@ class VisionSolverAgent(BaseAgent):
 
         Returns:
             LLM response text
+            
+        Raises:
+            Exception: If all retries fail
         """
-        # Build multimodal message
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": image_base64}},
-                ],
-            }
-        ]
+        from deeptutor.utils.retry import retry_with_exponential_backoff
+        
+        model_to_use = self.vision_model or self.get_model()
+        self.logger.info(f"[VISION_CALL] Starting vision LLM call with model: {model_to_use}")
+        self.logger.debug(f"[VISION_CALL] Prompt length: {len(prompt)} chars")
+        self.logger.debug(f"[VISION_CALL] Image data length: {len(image_base64)} chars")
+        
+        async def _make_vision_call() -> str:
+            """Inner function for retry logic."""
+            # Build multimodal message
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_base64}},
+                    ],
+                }
+            ]
+            
+            self.logger.debug(f"[VISION_CALL] Calling stream_llm with vision model...")
 
-        _chunks: list[str] = []
-        async for _c in self.stream_llm(
-            user_prompt="",
-            system_prompt="",
-            messages=messages,
-            temperature=temperature,
-            model=self.vision_model or self.get_model(),
-            verbose=False,
-        ):
-            _chunks.append(_c)
-        response = "".join(_chunks)
+            _chunks: list[str] = []
+            async for _c in self.stream_llm(
+                user_prompt="",
+                system_prompt="You are a helpful AI assistant specialized in geometry and mathematics.",
+                messages=messages,
+                temperature=temperature,
+                model=model_to_use,
+            ):
+                _chunks.append(_c)
+            response = "".join(_chunks)
+            
+            if not response or not response.strip():
+                raise Exception("Empty response from vision LLM")
+            
+            self.logger.info(f"[VISION_CALL] Response received, length: {len(response)} chars")
+            self.logger.debug(f"[VISION_CALL] Response preview: {response[:200]}...")
 
-        return response
+            return response
+        
+        # Retry with exponential backoff
+        try:
+            return await retry_with_exponential_backoff(
+                _make_vision_call,
+                max_retries=3,
+                initial_delay=2.0,
+                max_delay=10.0,
+                timeout=60.0,  # 60 second timeout per attempt
+                on_retry=lambda attempt, error: self.logger.warning(
+                    f"Vision LLM call failed (attempt {attempt}): {str(error)[:100]}"
+                ),
+            )
+        except Exception as e:
+            self.logger.error(f"[VISION_CALL] All retry attempts failed: {e}")
+            raise Exception(f"Vision API call failed after retries: {str(e)[:100]}")
 
     # ==================== Stage Processors ====================
 
@@ -189,12 +234,16 @@ class VisionSolverAgent(BaseAgent):
             BBox output with element coordinates
         """
         self.logger.info(f"BBox stage - session: {state.session_id}")
+        self.logger.info(f"BBox stage - vision_model: {self.vision_model}, base_model: {self.get_model()}")
 
         try:
             prompt = self._render_prompt(
                 "bbox",
                 {"question_text": state.question_text},
             )
+            
+            self.logger.info(f"BBox stage - prompt length: {len(prompt)} chars")
+            self.logger.info(f"BBox stage - image_base64 length: {len(state.image_base64)} chars")
 
             response = await self._call_vision_llm(
                 prompt=prompt,
@@ -342,6 +391,70 @@ class VisionSolverAgent(BaseAgent):
             return create_empty_reflection_output(), state.ggbscript_output.get("commands", [])
 
     # ==================== Main Pipeline ====================
+
+    async def answer_question(
+        self,
+        question_text: str,
+        image_base64: str | None = None,
+    ) -> dict[str, Any]:
+        """Simple question answering mode - just analyze image and answer the question.
+        
+        Args:
+            question_text: User's question about the image
+            image_base64: Base64 encoded image
+            
+        Returns:
+            Dictionary with answer and explanation
+        """
+        if not image_base64:
+            return {
+                "has_image": False,
+                "answer": "No image provided",
+                "confidence": "low",
+            }
+        
+        # Prepare prompt with language instruction
+        language_instruction = "You MUST respond ONLY in English." if self.language == "en" else "请用中文回答。"
+        
+        prompt = self._render_prompt(
+            "question_answer",
+            {
+                "question_text": question_text,
+                "language_instruction": language_instruction,
+            }
+        )
+        
+        try:
+            # Call vision LLM
+            response = await self._call_vision_llm(
+                prompt=prompt,
+                image_base64=image_base64,
+                temperature=0.3,
+            )
+            
+            # Extract JSON response
+            result = self._extract_json_from_response(response)
+            
+            return {
+                "has_image": True,
+                "question": question_text,
+                "image_description": result.get("image_description", ""),
+                "question_understanding": result.get("question_understanding", ""),
+                "answer": result.get("answer", ""),
+                "confidence": result.get("confidence", "medium"),
+                "additional_notes": result.get("additional_notes", ""),
+                "raw_response": response,
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error in answer_question: {e}")
+            self.logger.error(traceback.format_exc())
+            return {
+                "has_image": True,
+                "error": str(e),
+                "answer": f"Failed to analyze image: {str(e)}",
+                "confidence": "low",
+            }
 
     async def process(
         self,
@@ -523,14 +636,14 @@ class VisionSolverAgent(BaseAgent):
         return "\n".join(lines)
 
     def format_ggb_block(
-        self, commands: list[GGBCommand], page_id: str = "main", title: str = "题目图形"
+        self, commands: list[GGBCommand], page_id: str = "main", title: str | None = None
     ) -> str:
         """Format commands into a ggbscript block.
 
         Args:
             commands: List of GGB commands
             page_id: Page identifier
-            title: Block title
+            title: Block title (auto-generates based on language if None)
 
         Returns:
             Formatted ggbscript block string
@@ -538,6 +651,10 @@ class VisionSolverAgent(BaseAgent):
         content = self._format_ggb_commands(commands)
         if not content:
             return ""
+
+        # Auto-generate title based on language if not provided
+        if title is None:
+            title = "Geometry Figure" if self.language == "en" else "题目图形"
 
         return f"```ggbscript[{page_id};{title}]\n{content}\n```"
 
@@ -576,7 +693,7 @@ class VisionSolverAgent(BaseAgent):
             constraints_count = len(constraints) if isinstance(constraints, list) else 0
             image_is_reference = analysis_output.get("image_reference_detected", False)
 
-        # Render tutor prompt
+        # Render tutor prompt with language-aware system prompt
         tutor_prompt = self._render_prompt(
             "tutor",
             {
@@ -584,22 +701,33 @@ class VisionSolverAgent(BaseAgent):
                 "ggb_commands": ggb_commands_str,
                 "elements_count": len(final_ggb_commands),
                 "constraints_count": constraints_count,
-                "image_is_reference": "是" if image_is_reference else "否",
+                "image_is_reference": "yes" if image_is_reference else "no",
             },
         )
+
+        # System prompt based on language
+        if self.language == "en":
+            system_prompt = (
+                "You are a professional mathematics teacher skilled in explaining mathematical concepts "
+                "using visual methods. Based on the image analysis results, provide clear and detailed "
+                "problem-solving steps for students. You must respond entirely in English."
+            )
+        else:
+            system_prompt = "你是一位专业的数学教师,善于使用可视化方式解释数学问题。请基于图像分析结果,为学生提供清晰、详细的解题过程。"
 
         # Stream response from LLM
         try:
             async for chunk in self.stream_llm(
                 user_prompt=tutor_prompt,
-                system_prompt="你是一位专业的数学教师，善于使用可视化方式解释数学问题。请基于图像分析结果，为学生提供清晰、详细的解题过程。",
+                system_prompt=system_prompt,
                 temperature=0.7,
             ):
                 yield chunk
 
         except Exception as e:
             self.logger.error(f"[{session_id}] Tutor response error: {e}")
-            yield f"\n\n抱歉，解题过程生成出现错误：{e}"
+            error_msg = f"\n\nSorry, there was an error generating the solution: {e}" if self.language == "en" else f"\n\n抱歉,解题过程生成出现错误:{e}"
+            yield error_msg
 
     async def stream_process_with_tutor(
         self,
@@ -700,12 +828,21 @@ class VisionSolverAgent(BaseAgent):
 
         # Analysis message with GGB block
         ggb_script_content = self._format_ggb_commands(state.final_ggb_commands)
+        
+        # Language-aware titles and messages
+        if self.language == "en":
+            ggb_title = "Image Reconstruction"
+            page_id = "image-analysis-restore"
+        else:
+            ggb_title = "题目配图还原"
+            page_id = "image-analysis-restore"
+        
         yield {
             "event": "analysis_message_complete",
             "data": {
                 "ggb_block": {
-                    "page_id": "image-analysis-restore",
-                    "title": "题目配图还原",
+                    "page_id": page_id,
+                    "title": ggb_title,
                     "content": ggb_script_content,
                 }
                 if ggb_script_content

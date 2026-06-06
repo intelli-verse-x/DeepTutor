@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import logging
+import os
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -94,6 +95,12 @@ def _build_cors_settings() -> dict[str, object]:
         f"http://127.0.0.1:{frontend_port}",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        # Production frontends — preserved from fork prod hotfixes (#11/#13) so
+        # they stay allowed even when auth is enabled and CORS becomes explicit.
+        "https://tutor.intelli-verse-x.ai",
+        "https://quiz.intelli-verse-x.ai",
+        "https://tutorx.quizverse.world",
     ]
     for origin in extra_origins:
         if origin not in origins:
@@ -258,13 +265,21 @@ app.add_middleware(
     allow_origins=_cors_settings["allow_origins"],
     allow_origin_regex=_cors_settings["allow_origin_regex"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # Tenant middleware — extracts x-user-id header and sets contextvars
 from deeptutor.api.middleware.tenant import TenantMiddleware  # noqa: E402
+from deeptutor.api.middleware.rate_limiter import RateLimiterMiddleware  # noqa: E402
+
 app.add_middleware(TenantMiddleware)
+
+# Rate limiting middleware - enable/disable via environment variable
+rate_limit_enabled = os.getenv("ENABLE_RATE_LIMITING", "true").lower() == "true"
+app.add_middleware(RateLimiterMiddleware, enable=rate_limit_enabled)
+logger.info(f"Rate limiting: {'enabled' if rate_limit_enabled else 'disabled'}")
 
 # Mount a filtered view over user outputs.
 # Only whitelisted artifact paths are readable through the static handler.
