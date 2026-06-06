@@ -136,14 +136,25 @@ const AUTH_ENABLED = process.env.NEXT_PUBLIC_AUTH_ENABLED === "true";
 /**
  * Authenticated fetch wrapper. Behaves identically to `fetch` but automatically
  * redirects to /login when the backend returns 401 (expired / invalid token).
+ *
+ * Pass `skipAuthRedirect: true` for endpoints where a 401 is an expected,
+ * recoverable response that the caller wants to handle inline — most notably
+ * the login/register endpoints, where 401 means "wrong credentials" and must
+ * surface as a form error rather than reload the page.
  */
 export async function apiFetch(
   input: RequestInfo | URL,
-  init?: RequestInit,
+  init?: RequestInit & { skipAuthRedirect?: boolean },
 ): Promise<Response> {
-  const res = await fetch(input, { credentials: "include", ...init });
+  const { skipAuthRedirect, ...fetchInit } = init ?? {};
+  const res = await fetch(input, { credentials: "include", ...fetchInit });
 
-  if (res.status === 401 && AUTH_ENABLED && typeof window !== "undefined") {
+  if (
+    res.status === 401 &&
+    AUTH_ENABLED &&
+    !skipAuthRedirect &&
+    typeof window !== "undefined"
+  ) {
     const next = encodeURIComponent(window.location.pathname);
     window.location.href = `/login?next=${next}`;
     return new Promise(() => {});
