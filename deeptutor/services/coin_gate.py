@@ -13,9 +13,9 @@ Flow:
 import os
 import httpx
 from dataclasses import dataclass
-from deeptutor.logging import get_logger
+import logging
 
-logger = get_logger("CoinGate")
+logger = logging.getLogger("CoinGate")
 
 NAKAMA_SERVER_KEY = os.getenv("NAKAMA_SERVER_KEY", "defaultkey")
 NAKAMA_HTTP_URL = os.getenv("NAKAMA_HTTP_URL", "http://localhost:7350")

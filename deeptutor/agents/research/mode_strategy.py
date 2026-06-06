@@ -10,8 +10,8 @@ surface warnings when the LLM drifted away from the mode contract.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
+import re
 from typing import Literal
 
 ResearchMode = Literal["notes", "report", "comparison", "learning_path"]
@@ -33,9 +33,14 @@ class ModeStrategy:
     enable_inline_citations: bool = True
     deduplicate_enabled: bool = False
     allow_code_execution_on_deep: bool = False
-    _rephrase_iterations_by_depth: dict[str, int] = field(default_factory=lambda: {
-        "quick": 1, "standard": 1, "deep": 1, "manual": 1,
-    })
+    _rephrase_iterations_by_depth: dict[str, int] = field(
+        default_factory=lambda: {
+            "quick": 1,
+            "standard": 1,
+            "deep": 1,
+            "manual": 1,
+        }
+    )
 
     def rephrase_iterations(self, depth: str) -> int:
         return self._rephrase_iterations_by_depth.get(depth, 1)
@@ -94,7 +99,7 @@ STRATEGIES: dict[ResearchMode, ModeStrategy] = {
     "notes": ModeStrategy(
         name="notes",
         style="study_notes",
-        rephrase_enabled=False,
+        rephrase_enabled=True,
         decompose_mode="manual",
         single_pass_threshold=99,
         min_section_length=260,
@@ -102,7 +107,7 @@ STRATEGIES: dict[ResearchMode, ModeStrategy] = {
     "report": ModeStrategy(
         name="report",
         style="report",
-        rephrase_enabled=False,
+        rephrase_enabled=True,
         decompose_mode="auto",
         single_pass_threshold=2,
         min_section_length=650,
@@ -116,7 +121,10 @@ STRATEGIES: dict[ResearchMode, ModeStrategy] = {
         min_section_length=520,
         allow_code_execution_on_deep=True,
         _rephrase_iterations_by_depth={
-            "quick": 1, "standard": 1, "deep": 2, "manual": 1,
+            "quick": 1,
+            "standard": 1,
+            "deep": 2,
+            "manual": 1,
         },
     ),
     "learning_path": ModeStrategy(

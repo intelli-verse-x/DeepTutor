@@ -7,10 +7,13 @@
 # ============================================
 # Runtime data (knowledge bases, tutorbot workspaces, memory, etc.)
 data/
+/multi-user/
 run_code_workspace/
 deeptutor/agents/question/reference_papers/
 deeptutor/services/rag/eg_only_for_analysis/
 DeepTutor_arxiv-4/
+/docs/
+.claude
 
 # LaTeX build artifacts
 *.aux
@@ -52,7 +55,9 @@ wheels/
 MANIFEST
 
 # Virtual Environments
+.env
 *.env
+*.env.local
 !.env.example
 env/
 venv/
@@ -100,6 +105,7 @@ cache/
 **/cache/
 .cache/
 .ruff_cache
+.playwright-cli/
 
 # Log files
 *.log

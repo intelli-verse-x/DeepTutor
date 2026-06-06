@@ -29,6 +29,16 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, object]] = {
         "system_in_messages": True,  # System prompt goes in messages array
         "newer_models_use_max_completion_tokens": True,
     },
+    # Custom / user-defined OpenAI-compatible endpoints
+    "custom": {
+        "supports_response_format": True,
+        "supports_streaming": True,
+        "supports_tools": True,  # Most OpenAI-compat endpoints support function calling
+        "supports_vision": False,  # Per-model; set True via MODEL_OVERRIDES
+        "vision_url_supported": True,
+        "system_in_messages": True,
+        "has_thinking_tags": False,  # Per-model; MODEL_OVERRIDES handles qwen/deepseek etc.
+    },
     "azure_openai": {
         "supports_response_format": True,
         "supports_streaming": True,
@@ -44,6 +54,7 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, object]] = {
         "supports_streaming": True,
         "supports_tools": True,
         "supports_vision": True,
+        "vision_url_supported": False,  # Our adapter only emits base64 image source
         "system_in_messages": False,  # System is a separate parameter
         "has_thinking_tags": False,
     },
@@ -52,6 +63,25 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, object]] = {
         "supports_streaming": True,
         "supports_tools": True,
         "supports_vision": True,
+        "vision_url_supported": False,
+        "system_in_messages": False,
+        "has_thinking_tags": False,
+    },
+    "custom_anthropic": {
+        "supports_response_format": False,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": True,
+        "vision_url_supported": False,
+        "system_in_messages": False,
+        "has_thinking_tags": False,
+    },
+    "minimax_anthropic": {
+        "supports_response_format": False,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": True,
+        "vision_url_supported": False,
         "system_in_messages": False,
         "has_thinking_tags": False,
     },
@@ -63,6 +93,28 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, object]] = {
         "supports_vision": False,
         "system_in_messages": True,
         "has_thinking_tags": True,  # DeepSeek reasoner has thinking tags
+    },
+    # VolcEngine Ark (Doubao) and BytePlus — OpenAI-compatible gateways that
+    # host natively multimodal models (Doubao-Vision). ``supports_vision`` is
+    # the Stage-2 fallback hint (see ``multimodal.py``), not a pre-flight gate:
+    # marking these True means a transient failure never causes images to be
+    # silently dropped. The Ark API expects inline base64 image data, so
+    # url-only attachments are resolved to bytes before sending.
+    "volcengine": {
+        "supports_response_format": True,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": True,
+        "vision_url_supported": False,
+        "system_in_messages": True,
+    },
+    "byteplus": {
+        "supports_response_format": True,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": True,
+        "vision_url_supported": False,
+        "system_in_messages": True,
     },
     # OpenRouter (aggregator, generally OpenAI-compatible)
     "openrouter": {
@@ -103,6 +155,38 @@ PROVIDER_CAPABILITIES: dict[str, dict[str, object]] = {
         "supports_vision": True,
         "system_in_messages": True,
     },
+    # DashScope / Alibaba Cloud (Qwen family)
+    # Uses OpenAI-compatible API with native function calling support.
+    "dashscope": {
+        "supports_response_format": True,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": False,  # Per-model; set True via MODEL_OVERRIDES
+        "system_in_messages": True,
+        "has_thinking_tags": True,  # Qwen reasoner models emit <think/> tags
+    },
+    # Moonshot / Kimi — vision is per-model (see MODEL_OVERRIDES below).
+    # Per the official docs the image input must be base64-encoded inline; URL
+    # form is rejected. We therefore force the multimodal layer to resolve any
+    # url-only attachment to bytes before sending.
+    "moonshot": {
+        "supports_response_format": True,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": False,
+        "vision_url_supported": False,
+        "system_in_messages": True,
+    },
+    # MiniMax's OpenAI-compatible endpoint supports Chat Completions tools /
+    # function calling for M-series text models. Response-format support is
+    # still disabled by the model override below.
+    "minimax": {
+        "supports_response_format": False,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": False,
+        "system_in_messages": True,
+    },
     # Local providers (generally OpenAI-compatible)
     "ollama": {
         "supports_response_format": True,  # Ollama supports JSON mode
@@ -140,6 +224,7 @@ DEFAULT_CAPABILITIES: dict[str, object] = {
     "supports_streaming": True,
     "supports_tools": False,
     "supports_vision": False,
+    "vision_url_supported": True,  # Most OpenAI-compat providers accept image_url URLs
     "system_in_messages": True,
     "has_thinking_tags": False,
     "forced_temperature": None,  # None means no forced value, use requested temperature
@@ -159,8 +244,20 @@ MODEL_OVERRIDES: dict[str, dict[str, object]] = {
         "has_thinking_tags": True,
         "supports_vision": False,
     },
+    # Qwen text models often share the same provider/gateway as Qwen-VL.
+    # Keep thinking-tag handling broad, but only mark explicit VL/vision model
+    # names as image-capable so RAG image indexing can fail closed.
+    "qwen/qwen2.5-vl": {"has_thinking_tags": True, "supports_vision": True},
+    "qwen/qwen3-vl": {"has_thinking_tags": True, "supports_vision": True},
+    "qwen/qwen2-vl": {"has_thinking_tags": True, "supports_vision": True},
+    "qwen/qwen-vl": {"has_thinking_tags": True, "supports_vision": True},
+    "qwen2.5-vl": {"has_thinking_tags": True, "supports_vision": True},
+    "qwen3-vl": {"has_thinking_tags": True, "supports_vision": True},
+    "qwen2-vl": {"has_thinking_tags": True, "supports_vision": True},
+    "qwen-vl": {"has_thinking_tags": True, "supports_vision": True},
     "qwen": {
         "has_thinking_tags": True,
+        "supports_vision": False,
     },
     "qwq": {
         "has_thinking_tags": True,
@@ -192,12 +289,19 @@ MODEL_OVERRIDES: dict[str, dict[str, object]] = {
     "claude-3": {"supports_vision": True},
     "claude-4": {"supports_vision": True},
     "gemini": {"supports_vision": True},
-    "gemma": {"supports_vision": False},
+    "gemma": {"supports_vision": False, "supports_response_format": False},
     "llava": {"supports_vision": True},
     "bakllava": {"supports_vision": True},
     "moondream": {"supports_vision": True},
     "minicpm-v": {"supports_vision": True},
     "gpt-3.5": {"supports_vision": False},
+    # Moonshot / Kimi vision models
+    # https://platform.kimi.com/docs/guide/use-kimi-vision-model
+    "moonshot-v1-8k-vision": {"supports_vision": True},
+    "moonshot-v1-32k-vision": {"supports_vision": True},
+    "moonshot-v1-128k-vision": {"supports_vision": True},
+    "kimi-k2.5": {"supports_vision": True},
+    "kimi-k2.6": {"supports_vision": True},
 }
 
 
@@ -249,11 +353,43 @@ def get_capability(
     return default
 
 
+# Runtime cache for response_format incompatibilities discovered at request time.
+# Keyed by (binding_lower, model_lower). Populated when a provider rejects a
+# request with response_format={"type": "json_object"} (commonly LM Studio /
+# Ollama serving Gemma/Qwen-style models that only accept "json_schema" or "text").
+# Once a pair is recorded here, subsequent calls skip response_format entirely
+# instead of paying the cost of a failed request + retry.
+_RUNTIME_DISABLED_RESPONSE_FORMAT: set[tuple[str, str]] = set()
+
+
+def disable_response_format_at_runtime(binding: str | None, model: str | None) -> None:
+    """Mark a (binding, model) pair as not supporting ``response_format``.
+
+    Subsequent calls to :func:`supports_response_format` for the same pair
+    will return ``False`` without re-checking the static configuration. This
+    is useful when a provider unexpectedly rejects ``response_format`` at
+    runtime (e.g. LM Studio + ``gemma-4-e2b`` returning
+    ``"'response_format.type' must be 'json_schema' or 'text'"``).
+    """
+    if not binding or not model:
+        return
+    _RUNTIME_DISABLED_RESPONSE_FORMAT.add((binding.lower(), model.lower()))
+
+
+def is_response_format_disabled_at_runtime(binding: str | None, model: str | None) -> bool:
+    """Return True if (binding, model) was disabled via :func:`disable_response_format_at_runtime`."""
+    if not binding or not model:
+        return False
+    return (binding.lower(), model.lower()) in _RUNTIME_DISABLED_RESPONSE_FORMAT
+
+
 def supports_response_format(binding: str, model: str | None = None) -> bool:
     """
     Check if the provider/model supports response_format parameter.
 
     This is a convenience function for the most common capability check.
+    A runtime override (set via :func:`disable_response_format_at_runtime`)
+    always wins over static capability configuration.
 
     Args:
         binding: Provider binding name
@@ -262,6 +398,8 @@ def supports_response_format(binding: str, model: str | None = None) -> bool:
     Returns:
         True if response_format is supported
     """
+    if is_response_format_disabled_at_runtime(binding, model):
+        return False
     value = get_capability(binding, "supports_response_format", model, default=True)
     return bool(value)
 
@@ -342,6 +480,18 @@ def supports_vision(binding: str, model: str | None = None) -> bool:
     return bool(value)
 
 
+def supports_vision_url(binding: str, model: str | None = None) -> bool:
+    """Whether the provider accepts remote URL image references.
+
+    Some providers (Moonshot, our Anthropic adapter) only accept inline
+    base64-encoded image bytes. The multimodal layer consults this flag to
+    decide whether url-only attachments need to be resolved to bytes before
+    being forwarded.
+    """
+    value = get_capability(binding, "vision_url_supported", model, default=True)
+    return bool(value)
+
+
 def requires_api_version(binding: str, model: str | None = None) -> bool:
     """
     Check if the provider requires an API version parameter (e.g., Azure OpenAI).
@@ -395,4 +545,6 @@ __all__ = [
     "supports_vision",
     "requires_api_version",
     "get_effective_temperature",
+    "disable_response_format_at_runtime",
+    "is_response_format_disabled_at_runtime",
 ]

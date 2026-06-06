@@ -1,0 +1,1839 @@
+---
+import "../../styles/global.css";
+
+const features = [
+  {
+    chapter: "I",
+    title: "聊天工作台",
+    body: "五种模式 —— Chat / Solve / Quiz / Research / Visualize —— 共享同一个 session、知识库和引用历史，对话中段切换不丢上下文。",
+    href: "/zh-cn/docs/explore/chat-workspace/",
+  },
+  {
+    chapter: "II",
+    title: "Co-Writer",
+    body: "双栏 Markdown 工作台，AI 是一等公民协作者。选中、改写、扩展，全部基于你的知识库。",
+    href: "/zh-cn/docs/explore/co-writer/",
+  },
+  {
+    chapter: "III",
+    title: "Book Engine",
+    body: "多 agent 流水线把你的材料编成可交互的「活书」—— 13 种 block，含 GeoGebra viewer 和动画。",
+    href: "/zh-cn/docs/explore/book/",
+  },
+  {
+    chapter: "IV",
+    title: "知识库",
+    body: "端到端 LlamaIndex 的带版本管理 RAG 文档库。每一次（重新）索引都可追溯、可对比、可回滚。",
+    href: "/zh-cn/docs/explore/knowledge/",
+  },
+  {
+    chapter: "V",
+    title: "Space",
+    body: "你的个人图书馆 —— chat history、notebook、question bank、自定义 skill。每个活跃界面的「阅读 / 回顾」对偶面。",
+    href: "/zh-cn/docs/explore/space/",
+  },
+  {
+    chapter: "VI",
+    title: "记忆系统",
+    body: "Append-only 的 L1 trace、带引用的 L2 精炼事实、跨界面综合的 L3。Memory Graph 让你随时审计 DeepTutor 为什么知道某件事。",
+    href: "/zh-cn/docs/explore/memory/",
+  },
+];
+
+const installs = [
+  {
+    id: "pypi",
+    label: "PyPI",
+    tag: "推荐",
+    cmd: "pip install -U deeptutor",
+    blurb: "最顺滑的路径：完整本地 Web 应用 + CLI，无需 clone。",
+    code: `# 1. 准备一个工作区目录
+mkdir -p my-deeptutor && cd my-deeptutor
+
+# 2. 安装、配置、启动
+pip install -U deeptutor
+deeptutor init
+deeptutor start`,
+    foot: "然后打开 127.0.0.1:3782",
+    href: "/zh-cn/docs/get-started/pypi/",
+  },
+  {
+    id: "docker",
+    label: "Docker",
+    tag: "单容器",
+    cmd: "docker run … ghcr.io/hkuds/deeptutor",
+    blurb: "单容器跑完整 Web 应用，镜像来自 GitHub Container Registry。",
+    code: `docker run --rm --name deeptutor \\
+  -p 127.0.0.1:3782:3782 \\
+  -p 127.0.0.1:8001:8001 \\
+  -v deeptutor-data:/app/data \\
+  ghcr.io/hkuds/deeptutor:latest`,
+    foot: "记得同时映射 3782（UI）和 8001（API）。数据持久化在命名 volume 里。",
+    href: "/zh-cn/docs/get-started/docker/",
+  },
+  {
+    id: "source",
+    label: "源码",
+    tag: "贡献者",
+    cmd: "git clone … && pip install -e .",
+    blurb: "前端热重载、后端可改、完全对齐 CI。",
+    code: `git clone https://github.com/HKUDS/DeepTutor.git
+cd DeepTutor
+
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+( cd web && npm ci --legacy-peer-deps )
+
+deeptutor init && deeptutor start`,
+    foot: "Python 3.11+ · Node.js 22 LTS。Next.js 以 dev 模式运行 ./web。",
+    href: "/zh-cn/docs/get-started/from-source/",
+  },
+  {
+    id: "cli",
+    label: "CLI",
+    tag: "无头",
+    cmd: "pip install -e ./packaging/deeptutor-cli",
+    blurb: "面向无界面服务器、agent harness、Claude Code / Codex 等场景的轻量安装。",
+    code: `git clone https://github.com/HKUDS/DeepTutor.git
+cd DeepTutor
+
+python3 -m venv .venv-cli && source .venv-cli/bin/activate
+pip install -e ./packaging/deeptutor-cli
+
+deeptutor init --cli
+deeptutor chat`,
+    foot: "没有后端 / 前端端口。Embedding 默认关闭 —— 用 RAG 时再开启。",
+    href: "/zh-cn/docs/get-started/cli-only/",
+  },
+];
+
+---
+
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DeepTutor —— Agent-native 的开源个性化学习伴侣</title>
+    <meta
+      name="description"
+      content="开源 AI 学习伴侣。五种模式，一个工作区。专属 TutorBot。知识驱动的学习。"
+    />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <script is:inline>
+      (() => {
+        const key = "starlight-theme";
+        const resolve = (preference) =>
+          preference === "light" || preference === "dark"
+            ? preference
+            : window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark";
+        let stored = "auto";
+        try {
+          const value = localStorage.getItem(key);
+          stored = value === "light" || value === "dark" ? value : "auto";
+        } catch {}
+        document.documentElement.dataset.theme = resolve(stored);
+      })();
+    </script>
+  </head>
+  <body>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-brand" href="/zh-cn/" aria-label="DeepTutor">
+          <img src="/logo.png" alt="DeepTutor" />
+        </a>
+        <nav class="nav-links">
+          <a
+            class="nav-icon"
+            href="https://github.com/HKUDS/DeepTutor"
+            target="_blank"
+            rel="noopener"
+            aria-label="GitHub"
+            title="GitHub"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
+            </svg>
+          </a>
+          <a
+            class="nav-icon"
+            href="https://discord.gg/eRsjPgMU4t"
+            target="_blank"
+            rel="noopener"
+            aria-label="Discord"
+            title="Discord"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.34-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.03.01.06 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.26.04.03.04.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.32.61.68 1.19 1.07 1.74.03.01.06.02.09.01 1.72-.53 3.45-1.33 5.25-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02zM8.52 14.91c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.83 2.12-1.89 2.12z"/>
+            </svg>
+          </a>
+          <a
+            class="nav-icon"
+            href="https://github.com/HKUDS/DeepTutor/issues/78"
+            target="_blank"
+            rel="noopener"
+            aria-label="微信社区"
+            title="微信社区"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8.69 4C4.55 4 1.2 6.68 1.2 10c0 1.86 1.04 3.51 2.69 4.61l-.7 2.4 2.79-1.5c.83.3 1.74.49 2.7.49.34 0 .67-.02 1-.06-.13-.46-.21-.94-.21-1.43 0-3.07 2.97-5.5 6.7-5.5.33 0 .67.02 1 .07C16.39 6.32 12.86 4 8.69 4ZM6.18 8.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm5 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm5 1c-3.3 0-6 2.24-6 5s2.7 5 6 5c.74 0 1.45-.12 2.1-.34L20.2 20l-.7-2.05c1.07-.95 1.7-2.15 1.7-3.45 0-2.76-2.7-5-6-5Zm-2 4a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Zm4 0a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z"/>
+            </svg>
+          </a>
+          <span class="nav-tool-divider nav-links-divider" aria-hidden="true"></span>
+          <a class="nav-text" href="/zh-cn/docs/">文档</a>
+        </nav>
+        <div class="nav-tools" aria-label="偏好设置">
+          <label class="nav-tool" aria-label="主题">
+            <svg class="nav-tool-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2.5" y="4" width="19" height="13" rx="2"/>
+              <path d="M8 21h8M12 17v4"/>
+            </svg>
+            <select class="nav-select" data-theme-select aria-label="主题">
+              <option value="auto">自动</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+            <svg class="nav-tool-caret" width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 4.5 6 7.5 9 4.5"/>
+            </svg>
+          </label>
+          <span class="nav-tool-divider" aria-hidden="true"></span>
+          <label class="nav-tool" aria-label="语言">
+            <svg class="nav-tool-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9.5"/>
+              <path d="M2.5 12h19"/>
+              <path d="M12 2.5a14 14 0 0 1 4 9.5 14 14 0 0 1-4 9.5 14 14 0 0 1-4-9.5 14 14 0 0 1 4-9.5z"/>
+            </svg>
+            <select class="nav-select" data-locale-select aria-label="语言">
+              <option value="/">English</option>
+              <option value="/zh-cn/" selected>简体中文</option>
+            </select>
+            <svg class="nav-tool-caret" width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 4.5 6 7.5 9 4.5"/>
+            </svg>
+          </label>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-bg" aria-hidden="true"></div>
+        <img class="hero-wordmark" src="/banner.png" alt="DeepTutor" />
+        <h1 class="hero-tagline">
+          个性化学习，<br />
+          <em>重新想象。</em>
+        </h1>
+        <p class="hero-sub">
+          Agent-native 学习伴侣，与你一起成长。<br />
+          完全开源。
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="/zh-cn/docs/">文档</a>
+          <a
+            class="btn btn-ghost btn-gh"
+            href="https://github.com/HKUDS/DeepTutor"
+            target="_blank"
+            rel="noopener"
+            aria-label="DeepTutor on GitHub"
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
+            </svg>
+            <span>GitHub</span>
+            <span class="btn-gh-sep" aria-hidden="true"></span>
+            <span class="btn-gh-count" data-gh-stars>—</span>
+            <span class="btn-gh-label">Stars</span>
+          </a>
+        </div>
+        <div class="hero-meta">
+          <span><strong>Apache 2.0</strong></span>
+          <span class="sep">·</span>
+          <span>来自 <strong>香港大学数据智能实验室</strong></span>
+        </div>
+      </section>
+
+      <section class="showcase">
+        <div class="showcase-frame">
+          <div class="showcase-chrome">
+            <span class="dot red"></span>
+            <span class="dot amber"></span>
+            <span class="dot green"></span>
+            <span class="showcase-title">DeepTutor —— 聊天工作台</span>
+          </div>
+          <img
+            class="showcase-shot"
+            src="/screenshots/dt-home.png"
+            alt="DeepTutor 聊天工作台 —— 侧栏 Chat / TutorBot / Co-Writer / Book / 知识库 / Space / 记忆；主区域显示问候语和输入框。"
+            loading="eager"
+            decoding="async"
+          />
+        </div>
+      </section>
+
+      <section class="section">
+        <header class="section-head">
+          <span class="section-eyebrow">里面是什么</span>
+          <h2>六根支柱，<em>同一份</em>运行时上下文。</h2>
+          <p>
+            每个界面都从同一份记忆、知识库、导师那里读写。
+            切换上下文不再意味着丢失当前位置。
+          </p>
+        </header>
+        <div class="feature-grid">
+          {
+            features.map((f) => (
+              <a class="feature" href={f.href}>
+                <span class="feature-mark">{f.chapter}</span>
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+                <span class="feature-arrow">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path
+                      d="M3 11L11 3M11 3H5M11 3V9"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </span>
+              </a>
+            ))
+          }
+        </div>
+      </section>
+
+      <section class="section section-quiet">
+        <header class="section-head">
+          <span class="section-eyebrow">安装</span>
+          <h2>几<em>分钟</em>就能跑起来。</h2>
+          <p>
+            四种安装方式 —— 挑一个适合你的。
+            最终都落到同一个配置好的工作区。
+          </p>
+        </header>
+        <div class="install" id="install" data-active="pypi">
+          <div class="install-tabs" role="tablist">
+            {
+              installs.map((opt, i) => (
+                <button
+                  class={`install-tab${i === 0 ? " is-active" : ""}`}
+                  role="tab"
+                  aria-selected={i === 0 ? "true" : "false"}
+                  data-target={opt.id}
+                >
+                  <span class="install-tab-label">{opt.label}</span>
+                </button>
+              ))
+            }
+          </div>
+          <div class="install-body">
+          {
+            installs.map((opt, i) => (
+              <div
+                class={`install-panel${i === 0 ? " is-active" : ""}`}
+                role="tabpanel"
+                data-panel={opt.id}
+              >
+                <p class="install-blurb">{opt.blurb}</p>
+                <pre class="install-code"><code>{opt.code}</code></pre>
+                <div class="install-foot">
+                  <span class="install-foot-note">{opt.foot}</span>
+                  <a class="install-foot-link" href={opt.href}>
+                    完整指南
+                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <path d="M3 11L11 3M11 3H5M11 3V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </a>
+                </div>
+              </div>
+            ))
+          }
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div class="footer-inner">
+          <a class="footer-brand" href="/zh-cn/">
+            <img src="/logo.png" alt="" />
+            <span>DeepTutor</span>
+          </a>
+          <div class="footer-cols">
+            <div class="footer-col">
+              <h4>文档</h4>
+              <a href="/zh-cn/docs/get-started/">快速上手</a>
+              <a href="/zh-cn/docs/explore/">探索 DeepTutor</a>
+              <a href="/zh-cn/docs/tutorbot/">TutorBot 渠道</a>
+              <a href="/zh-cn/docs/cli/">CLI</a>
+            </div>
+            <div class="footer-col">
+              <h4>社区</h4>
+              <a href="https://discord.gg/eRsjPgMU4t" target="_blank" rel="noopener">Discord</a>
+              <a href="https://github.com/HKUDS/DeepTutor/issues/78" target="_blank" rel="noopener">
+                微信社区
+              </a>
+              <a href="https://github.com/HKUDS/DeepTutor/discussions" target="_blank" rel="noopener">
+                讨论区
+              </a>
+              <a href="https://github.com/HKUDS/DeepTutor/issues" target="_blank" rel="noopener">
+                Issues
+              </a>
+            </div>
+            <div class="footer-col">
+              <h4>项目</h4>
+              <a href="https://github.com/HKUDS/DeepTutor" target="_blank" rel="noopener">
+                GitHub
+              </a>
+              <a
+                href="https://github.com/HKUDS/DeepTutor/blob/main/LICENSE"
+                target="_blank"
+                rel="noopener">协议</a
+              >
+              <a href="https://arxiv.org/abs/2604.26962" target="_blank" rel="noopener">arXiv</a>
+            </div>
+          </div>
+        </div>
+        <div class="footer-rule"></div>
+
+        <div class="footer-credo">
+          <p class="footer-tagline">
+            源自<em>社区</em>，连接<em>世界</em>。
+          </p>
+          <div class="footer-pulse" id="footer-pulse" data-hidden="true" aria-live="polite">
+            <span class="footer-pulse-dot" aria-hidden="true"></span>
+            最新：
+            <a class="footer-pulse-tag" data-pulse="release-link" href="https://github.com/HKUDS/DeepTutor/releases" target="_blank" rel="noopener">
+              <span data-pulse="release-tag">—</span>
+            </a>
+            <span class="sep">·</span>
+            <span class="num"><span data-pulse="requests">—</span> 次浏览</span>
+          </div>
+        </div>
+
+        <div class="footer-fine">
+          <span>
+            © 2026 <a href="https://github.com/HKUDS" target="_blank" rel="noopener">
+              港大数据智能实验室
+            </a>
+          </span>
+          <span>基于 Apache 2.0 协议发布</span>
+        </div>
+      </footer>
+
+      <script is:inline>
+        (async () => {
+          const pulse = document.getElementById("footer-pulse");
+          if (!pulse) return;
+
+          const fmtNum = (n) => {
+            if (n == null) return "0";
+            if (n >= 1e9) return (n / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B";
+            if (n >= 1e6) return (n / 1e6).toFixed(2).replace(/\.?0+$/, "") + "M";
+            if (n >= 1e3) return (n / 1e3).toFixed(2).replace(/\.?0+$/, "") + "k";
+            return String(n);
+          };
+          const fmtBytes = (b) => {
+            if (b == null) return "0 B";
+            const KB = 1024, MB = KB * 1024, GB = MB * 1024, TB = GB * 1024;
+            if (b >= TB) return (b / TB).toFixed(2) + " TB";
+            if (b >= GB) return (b / GB).toFixed(2) + " GB";
+            if (b >= MB) return (b / MB).toFixed(2) + " MB";
+            if (b >= KB) return (b / KB).toFixed(2) + " KB";
+            return b + " B";
+          };
+          const setText = (key, value) => {
+            const el = pulse.querySelector('[data-pulse="' + key + '"]');
+            if (el) el.textContent = value;
+          };
+
+          const isLocal =
+            location.hostname === "localhost" ||
+            location.hostname === "127.0.0.1" ||
+            location.hostname === "0.0.0.0";
+
+          const sample = isLocal
+            ? {
+                traffic: {
+                  window: "total",
+                  requests: 78400,
+                  bytes: 1530000000,
+                  uniques: 18200,
+                },
+                release: {
+                  tag: "v1.4.0-beta",
+                  name: "v1.4.0-beta",
+                  url: "https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0-beta",
+                  published_at: "2026-05-21T00:00:00Z",
+                  prerelease: true,
+                },
+              }
+            : null;
+
+          const [traffic, release] = await Promise.allSettled([
+            isLocal
+              ? Promise.resolve(sample.traffic)
+              : fetch("/api/traffic", { cache: "no-store" }).then((r) =>
+                  r.ok ? r.json() : Promise.reject(new Error("status=" + r.status)),
+                ),
+            isLocal
+              ? Promise.resolve(sample.release)
+              : fetch("/api/release", { cache: "no-store" }).then((r) =>
+                  r.ok ? r.json() : Promise.reject(new Error("status=" + r.status)),
+                ),
+          ]);
+
+          let trafficOK = false;
+          let releaseOK = false;
+
+          if (traffic.status === "fulfilled" && traffic.value && !traffic.value.error) {
+            setText("requests", fmtNum(traffic.value.requests));
+            setText("bytes", fmtBytes(traffic.value.bytes));
+            trafficOK = true;
+          }
+          if (release.status === "fulfilled" && release.value && !release.value.error) {
+            setText("release-tag", release.value.tag);
+            const link = pulse.querySelector('[data-pulse="release-link"]');
+            if (link && release.value.url) link.setAttribute("href", release.value.url);
+            releaseOK = true;
+          }
+
+          if (releaseOK || trafficOK) {
+            pulse.setAttribute("data-hidden", "false");
+          }
+        })();
+      </script>
+    </main>
+
+    <style>
+      /* ───────── Nav ───────── */
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        background: rgba(250, 248, 243, 0.78);
+        backdrop-filter: saturate(180%) blur(14px);
+        -webkit-backdrop-filter: saturate(180%) blur(14px);
+        border-bottom: 1px solid var(--rule);
+      }
+      .nav-inner {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 3px 32px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .nav-brand {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        text-decoration: none;
+        color: var(--ink);
+      }
+      .nav-brand img {
+        width: 22px;
+        height: 22px;
+        display: block;
+        object-fit: contain;
+      }
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-left: 6px;
+      }
+      .nav-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        color: var(--ink-soft);
+        border-radius: 8px;
+        text-decoration: none;
+        transition: color 0.15s ease, background 0.15s ease;
+      }
+      .nav-icon svg {
+        width: 17px;
+        height: 17px;
+      }
+      .nav-icon:hover {
+        color: var(--ink);
+        background: rgba(24, 24, 28, 0.05);
+      }
+      .nav-text {
+        text-decoration: none;
+        color: var(--ink-soft);
+        font-size: 14px;
+        font-weight: 500;
+        padding: 0 6px;
+        transition: color 0.15s ease;
+      }
+      .nav-text:hover {
+        color: var(--ink);
+      }
+      .nav-links-divider {
+        margin: 0 8px;
+      }
+      .nav-tools {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .nav-tool {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--ink-soft);
+        font-size: 13.5px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: color 0.15s ease;
+      }
+      .nav-tool:hover {
+        color: var(--ink);
+      }
+      .nav-tool-icon {
+        flex-shrink: 0;
+        color: var(--ink-faint);
+        transition: color 0.15s ease;
+      }
+      .nav-tool:hover .nav-tool-icon {
+        color: var(--ink-soft);
+      }
+      .nav-select {
+        appearance: none;
+        -webkit-appearance: none;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+        padding: 4px 16px 4px 0;
+        outline: none;
+        line-height: 1;
+      }
+      .nav-tool-caret {
+        position: absolute;
+        right: 0;
+        pointer-events: none;
+        opacity: 0.5;
+      }
+      .nav-tool-divider {
+        width: 1px;
+        height: 14px;
+        background: var(--rule-strong);
+        opacity: 0.6;
+      }
+      @media (max-width: 900px) {
+        .nav-links {
+          display: none;
+        }
+      }
+      @media (max-width: 620px) {
+        .nav-inner {
+          padding: 3px 16px;
+          gap: 8px;
+        }
+      }
+
+      /* ───────── Hero ───────── */
+      .hero {
+        position: relative;
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 96px 32px 80px;
+        text-align: center;
+        overflow: hidden;
+      }
+      .hero-bg {
+        position: absolute;
+        top: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 760px;
+        height: 380px;
+        background: var(--warm-glow);
+        filter: blur(40px);
+        z-index: -1;
+        pointer-events: none;
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 36px;
+        padding: 6px 14px;
+        border: 1px solid var(--rule);
+        background: rgba(250, 248, 243, 0.6);
+        border-radius: 999px;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        font-weight: 500;
+        letter-spacing: 0.04em;
+        color: var(--ink-soft);
+      }
+      .eyebrow .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+      .hero-wordmark {
+        display: block;
+        max-width: 380px;
+        width: min(72%, 380px);
+        height: auto;
+        margin: 0 auto 32px;
+        user-select: none;
+      }
+      .hero-tagline {
+        font-family: var(--font-display);
+        font-weight: 500;
+        font-size: clamp(36px, 5.4vw, 60px);
+        line-height: 1.05;
+        letter-spacing: -0.03em;
+        color: var(--ink);
+        margin: 0 auto 24px;
+        max-width: 760px;
+        font-variation-settings: "opsz" 72, "SOFT" 30;
+      }
+      .hero-tagline em {
+        font-style: italic;
+        font-weight: 400;
+        color: var(--accent);
+        font-variation-settings: "opsz" 72, "SOFT" 100;
+      }
+      .hero-sub {
+        font-size: 17px;
+        line-height: 1.55;
+        color: var(--ink-soft);
+        margin: 0 auto 40px;
+        max-width: 560px;
+        font-weight: 400;
+      }
+      .hero-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-bottom: 56px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 46px;
+        padding: 0 22px;
+        border-radius: 999px;
+        font-size: 14.5px;
+        font-weight: 500;
+        text-decoration: none;
+        transition: transform 0.15s ease, background 0.15s ease,
+          border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+        border: 1px solid transparent;
+      }
+      .btn-primary {
+        background: var(--ink);
+        color: var(--paper);
+      }
+      .btn-primary:hover {
+        background: #000;
+        transform: translateY(-1px);
+        box-shadow: 0 10px 28px -10px rgba(24, 24, 28, 0.5);
+      }
+      .btn-ghost {
+        background: transparent;
+        border-color: var(--rule-strong);
+        color: var(--ink);
+      }
+      .btn-ghost:hover {
+        border-color: var(--ink);
+        transform: translateY(-1px);
+      }
+      .btn-gh {
+        gap: 9px;
+        padding: 0 18px;
+        font-family: var(--font-mono);
+        font-size: 13.5px;
+      }
+      .btn-gh svg {
+        flex-shrink: 0;
+      }
+      .btn-gh-sep {
+        width: 1px;
+        height: 18px;
+        background: var(--rule-strong);
+        opacity: 0.8;
+      }
+      .btn-gh-count {
+        font-family: var(--font-mono);
+        font-weight: 600;
+        font-size: 13.5px;
+        letter-spacing: 0.01em;
+        color: var(--ink);
+        min-width: 1.5ch;
+        text-align: right;
+      }
+      .btn-gh-label {
+        font-family: var(--font-mono);
+        color: var(--ink-soft);
+        font-weight: 500;
+      }
+      .btn-gh:hover .btn-gh-count {
+        color: var(--ink);
+      }
+      .hero-meta {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        color: var(--ink-faint);
+        letter-spacing: 0.02em;
+        display: inline-flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 8px;
+      }
+      .hero-meta strong {
+        color: var(--ink-soft);
+        font-weight: 600;
+      }
+      .hero-meta .sep {
+        opacity: 0.4;
+      }
+
+      /* ───────── Product showcase ───────── */
+      .showcase {
+        max-width: 1180px;
+        margin: 0 auto 16px;
+        padding: 0 32px;
+      }
+      .showcase-frame {
+        border-radius: 20px;
+        overflow: hidden;
+        border: 1px solid var(--rule-strong);
+        background: var(--paper-soft);
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.6) inset,
+          0 40px 80px -40px rgba(24, 24, 28, 0.22),
+          0 16px 32px -20px rgba(24, 24, 28, 0.1);
+      }
+      .showcase-chrome {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 11px 16px;
+        border-bottom: 1px solid var(--rule);
+        background: rgba(250, 248, 243, 0.7);
+      }
+      .showcase-chrome .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+      }
+      .showcase-chrome .dot.red {
+        background: #f15a55;
+      }
+      .showcase-chrome .dot.amber {
+        background: #f9bb3f;
+      }
+      .showcase-chrome .dot.green {
+        background: #4dc44d;
+      }
+      .showcase-title {
+        margin-left: 12px;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        color: var(--ink-faint);
+        letter-spacing: 0.02em;
+      }
+      .showcase-frame img {
+        width: 100%;
+        display: block;
+      }
+
+      /* ───────── Section ───────── */
+      .section {
+        position: relative;
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 128px 32px;
+      }
+      .section-quiet {
+        background: var(--paper-soft);
+        max-width: none;
+        margin: 96px 0 0;
+        padding-left: 32px;
+        padding-right: 32px;
+      }
+      .section-quiet > .chapter-mark,
+      .section-quiet > .section-head,
+      .section-quiet > .install {
+        max-width: 1180px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .chapter-mark {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--ink-faint);
+        text-align: center;
+        letter-spacing: 0.04em;
+        margin-bottom: 24px;
+        font-variation-settings: "opsz" 24;
+      }
+      .section-head {
+        text-align: center;
+        margin-bottom: 72px;
+        max-width: 720px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .section-eyebrow {
+        display: inline-block;
+        margin-bottom: 18px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .section-head h2 {
+        font-family: var(--font-display);
+        margin: 0 0 16px;
+        font-size: clamp(34px, 4.4vw, 52px);
+        font-weight: 500;
+        letter-spacing: -0.032em;
+        line-height: 1.05;
+        color: var(--ink);
+        font-variation-settings: "opsz" 56, "SOFT" 30;
+      }
+      .section-head h2 em {
+        font-style: italic;
+        font-weight: 400;
+        color: var(--ink-soft);
+        font-variation-settings: "opsz" 56, "SOFT" 100;
+      }
+      .section-head p {
+        margin: 0 auto;
+        max-width: 580px;
+        font-size: 17px;
+        color: var(--ink-soft);
+        line-height: 1.55;
+      }
+
+      /* ───────── Feature grid ───────── */
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        border: 1px solid var(--rule);
+        border-radius: 16px;
+        overflow: hidden;
+        background: var(--paper-soft);
+        gap: 1px;
+      }
+      .feature {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        padding: 44px 36px 48px;
+        background: var(--paper);
+        text-decoration: none;
+        color: var(--ink);
+        transition: background 0.25s ease, transform 0.2s ease;
+      }
+      .feature:hover {
+        background: rgba(77, 143, 191, 0.04);
+      }
+      .feature-mark {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 26px;
+        font-weight: 400;
+        line-height: 1;
+        color: var(--accent);
+        margin-bottom: 28px;
+        font-variation-settings: "opsz" 36;
+      }
+      .feature h3 {
+        font-family: var(--font-display);
+        margin: 0 0 12px;
+        font-size: 22px;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        color: var(--ink);
+        font-variation-settings: "opsz" 28;
+      }
+      .feature p {
+        margin: 0;
+        font-size: 14.5px;
+        line-height: 1.65;
+        color: var(--ink-soft);
+        flex: 1;
+      }
+      .feature-arrow {
+        opacity: 0;
+        transform: translate(-4px, 4px);
+        transition: opacity 0.2s ease, transform 0.25s ease;
+        margin-top: 24px;
+        color: var(--accent);
+      }
+      .feature:hover .feature-arrow {
+        opacity: 1;
+        transform: translate(0, 0);
+      }
+      @media (max-width: 980px) {
+        .feature-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      @media (max-width: 640px) {
+        .feature-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* ───────── Install (integrated tabs) ───────── */
+      .install {
+        max-width: 820px;
+        margin: 0 auto;
+      }
+      .install-tabs {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 4px;
+        margin: 0 auto 28px;
+        width: fit-content;
+        border-radius: 999px;
+        background: rgba(24, 24, 28, 0.045);
+        border: 1px solid rgba(24, 24, 28, 0.04);
+      }
+      .install-tab {
+        appearance: none;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        padding: 7px 16px;
+        border-radius: 999px;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: -0.005em;
+        color: var(--ink-soft);
+        transition:
+          color 0.18s ease,
+          background 0.22s ease,
+          box-shadow 0.22s ease;
+      }
+      .install-tab:hover {
+        color: var(--ink);
+      }
+      .install-tab.is-active {
+        background: var(--paper);
+        color: var(--ink);
+        box-shadow:
+          0 1px 1px rgba(24, 24, 28, 0.04),
+          0 2px 8px -2px rgba(24, 24, 28, 0.08);
+      }
+      .install-tab-label {
+        display: inline-block;
+      }
+      .install-body {
+        background: var(--paper);
+        border: 1px solid var(--rule);
+        border-radius: 14px;
+        padding: 28px 30px 24px;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+      }
+      .install-panel {
+        display: none;
+        animation: install-fade 0.25s ease;
+      }
+      .install-panel.is-active {
+        display: block;
+      }
+      @keyframes install-fade {
+        from { opacity: 0; transform: translateY(2px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      .install-blurb {
+        margin: 0 0 18px;
+        font-size: 14px;
+        color: var(--ink-soft);
+        line-height: 1.55;
+      }
+      .install-code {
+        margin: 0;
+        padding: 20px 22px;
+        background: rgba(244, 240, 232, 0.55);
+        border: 1px solid var(--rule);
+        border-radius: 10px;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        line-height: 1.78;
+        color: var(--ink);
+        overflow-x: auto;
+        white-space: pre;
+      }
+      .install-code code {
+        font-family: inherit;
+        font-size: inherit;
+        color: inherit;
+        background: transparent;
+        padding: 0;
+      }
+      .install-foot {
+        margin: 16px 2px 0;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        font-size: 13.5px;
+        color: var(--ink-soft);
+      }
+      .install-foot-note {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--ink-faint);
+        letter-spacing: 0.01em;
+      }
+      .install-foot-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--ink);
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 13.5px;
+        border-bottom: 1px solid var(--rule-strong);
+        padding-bottom: 1px;
+        transition: border-color 0.15s ease, color 0.15s ease;
+      }
+      .install-foot-link:hover {
+        border-color: var(--ink);
+      }
+      .install-foot-link svg {
+        transition: transform 0.2s ease;
+      }
+      .install-foot-link:hover svg {
+        transform: translate(1px, -1px);
+      }
+      @media (max-width: 760px) {
+        .install-tab {
+          flex: 1;
+          min-width: 0;
+          padding: 9px 8px 11px;
+        }
+      }
+
+      /* ───────── Ecosystem ───────── */
+      .section-eco {
+        padding-top: 96px;
+        padding-bottom: 64px;
+      }
+      .section-eco .section-head {
+        margin-bottom: 48px;
+      }
+      .eco-list {
+        max-width: 820px;
+        margin: 0 auto;
+        border-top: 1px solid var(--rule);
+      }
+      .eco-row {
+        display: grid;
+        grid-template-columns: 180px 1fr auto;
+        align-items: center;
+        gap: 24px;
+        padding: 18px 8px;
+        border-bottom: 1px solid var(--rule);
+        text-decoration: none;
+        color: var(--ink);
+        transition: padding 0.2s ease, background 0.18s ease;
+      }
+      .eco-row:hover {
+        padding-left: 16px;
+        background: rgba(77, 143, 191, 0.025);
+      }
+      .eco-name {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 19px;
+        font-weight: 500;
+        letter-spacing: -0.014em;
+        color: var(--ink);
+        font-variation-settings: "opsz" 24;
+      }
+      .eco-desc {
+        font-size: 14px;
+        color: var(--ink-soft);
+        line-height: 1.5;
+      }
+      .eco-arrow {
+        color: var(--ink-faint);
+        transition: color 0.18s ease, transform 0.22s ease;
+        display: inline-flex;
+      }
+      .eco-row:hover .eco-arrow {
+        color: var(--accent);
+        transform: translate(2px, -2px);
+      }
+      @media (max-width: 720px) {
+        .eco-row {
+          grid-template-columns: 1fr auto;
+          gap: 6px 12px;
+          padding: 16px 8px;
+        }
+        .eco-desc {
+          grid-column: 1 / -1;
+        }
+      }
+
+      /* ───────── Interactive app mock ───────── */
+      .dt-app {
+        display: grid;
+        grid-template-columns: 56px 1fr;
+        background: var(--paper);
+        height: 560px;
+        max-height: 70vh;
+      }
+      .dt-rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 0;
+        border-right: 1px solid var(--rule);
+        background: rgba(244, 240, 232, 0.4);
+      }
+      .dt-rail-brand img {
+        width: 22px;
+        height: 22px;
+      }
+      .dt-rail-brand {
+        margin-bottom: 6px;
+        text-decoration: none;
+        display: inline-flex;
+      }
+      .dt-rail-btn {
+        appearance: none;
+        background: transparent;
+        border: 0;
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        color: var(--ink-soft);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.15s ease, color 0.15s ease;
+      }
+      .dt-rail-btn svg {
+        width: 16px;
+        height: 16px;
+      }
+      .dt-rail-btn:hover {
+        background: rgba(24, 24, 28, 0.06);
+        color: var(--ink);
+      }
+      .dt-rail-btn.is-active {
+        background: rgba(77, 143, 191, 0.14);
+        color: var(--accent);
+      }
+      .dt-rail-new {
+        border: 1px dashed var(--rule-strong);
+      }
+      .dt-rail-group {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-top: 6px;
+      }
+      .dt-rail-foot {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        align-items: center;
+      }
+      .dt-rail-avatar {
+        background: var(--ink);
+        color: var(--paper);
+        font-family: var(--font-display);
+        font-style: italic;
+        font-size: 13px;
+        font-weight: 500;
+      }
+      .dt-rail-avatar:hover {
+        background: #000;
+        color: var(--paper);
+      }
+      .dt-main {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .dt-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 22px;
+        border-bottom: 1px solid var(--rule);
+        gap: 16px;
+      }
+      .dt-thread-title {
+        font-size: 13.5px;
+        font-weight: 600;
+        color: var(--ink);
+      }
+      .dt-topbar-actions {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+      .dt-act {
+        appearance: none;
+        background: transparent;
+        border: 1px solid transparent;
+        color: var(--ink);
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 500;
+        padding: 6px 10px;
+        border-radius: 8px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease;
+      }
+      .dt-act:hover {
+        background: rgba(24, 24, 28, 0.05);
+        border-color: var(--rule);
+      }
+      .dt-act.is-muted {
+        color: var(--ink-faint);
+        cursor: not-allowed;
+      }
+      .dt-act.is-muted:hover {
+        background: transparent;
+        border-color: transparent;
+      }
+      .dt-act-glyph {
+        font-size: 12px;
+        opacity: 0.7;
+      }
+      .dt-canvas {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 32px 28px 28px;
+        gap: 28px;
+      }
+      .dt-greeting {
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .dt-greeting-mark {
+        width: 36px;
+        height: 36px;
+      }
+      .dt-greeting h3 {
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: clamp(28px, 3.6vw, 38px);
+        font-weight: 500;
+        letter-spacing: -0.022em;
+        color: var(--ink);
+        font-variation-settings: "opsz" 36;
+      }
+      .dt-composer {
+        width: 100%;
+        max-width: 620px;
+        background: var(--paper);
+        border: 1px solid var(--rule-strong);
+        border-radius: 14px;
+        padding: 14px 16px 10px;
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 8px 24px -16px rgba(24, 24, 28, 0.18);
+        transition: border-color 0.18s ease, box-shadow 0.18s ease;
+      }
+      .dt-composer:focus-within {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 4px var(--accent-soft);
+      }
+      .dt-composer-input {
+        width: 100%;
+        border: 0;
+        outline: 0;
+        resize: none;
+        background: transparent;
+        font-family: inherit;
+        font-size: 14.5px;
+        line-height: 1.5;
+        color: var(--ink);
+        padding: 4px 0 6px;
+      }
+      .dt-composer-input::placeholder {
+        color: var(--ink-faint);
+      }
+      .dt-composer-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 4px;
+      }
+      .dt-composer-spacer {
+        flex: 1;
+      }
+      .dt-pill {
+        appearance: none;
+        background: var(--paper);
+        border: 1px solid var(--rule);
+        border-radius: 999px;
+        height: 28px;
+        padding: 0 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--ink);
+        cursor: pointer;
+        transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+      }
+      .dt-pill svg {
+        width: 12px;
+        height: 12px;
+        color: var(--ink-soft);
+      }
+      .dt-pill:hover {
+        border-color: var(--rule-strong);
+      }
+      .dt-pill-caret {
+        opacity: 0.6;
+      }
+      .dt-pill-mode {
+        background: rgba(77, 143, 191, 0.08);
+        border-color: rgba(77, 143, 191, 0.28);
+        color: var(--accent);
+      }
+      .dt-pill-mode svg {
+        color: var(--accent);
+      }
+      .dt-pill-mode:hover {
+        background: rgba(77, 143, 191, 0.14);
+        transform: translateY(-1px);
+      }
+      .dt-pill-mode.is-pulsing {
+        animation: dt-pulse 0.45s ease;
+      }
+      @keyframes dt-pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.04); }
+        100% { transform: scale(1); }
+      }
+      .dt-model-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #d8a974, #c8865e);
+        box-shadow: 0 0 0 2px rgba(216, 169, 116, 0.18);
+      }
+      .dt-send {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 0;
+        background: rgba(216, 169, 116, 0.35);
+        color: var(--paper);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.18s ease, transform 0.15s ease;
+      }
+      .dt-send svg {
+        width: 13px;
+        height: 13px;
+      }
+      .dt-send:hover {
+        background: var(--accent);
+        transform: translateY(-1px);
+      }
+      .dt-send.is-active {
+        background: var(--ink);
+      }
+      .dt-mode-hint {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--ink-faint);
+        letter-spacing: 0.02em;
+        opacity: 0.7;
+      }
+      .dt-mode-hint strong {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      @media (max-width: 760px) {
+        .dt-app {
+          height: 520px;
+        }
+        .dt-topbar-actions .dt-act:nth-child(-n + 2) {
+          display: none;
+        }
+      }
+      @media (max-width: 560px) {
+        .dt-topbar-actions .dt-act span:not(.dt-act-glyph) {
+          display: none;
+        }
+        .dt-pill .dt-pill-label {
+          display: none;
+        }
+        .dt-pill {
+          padding: 0 8px;
+        }
+        .dt-pill-mode .dt-pill-label {
+          display: inline;
+        }
+      }
+
+      /* ───────── Dark theme polish ───────── */
+      [data-theme="dark"] .nav {
+        background: rgba(13, 13, 16, 0.78);
+      }
+      [data-theme="dark"] .showcase-chrome {
+        background: rgba(22, 22, 26, 0.7);
+      }
+      [data-theme="dark"] .hero-wordmark {
+        filter: invert(1) hue-rotate(180deg) brightness(1.12);
+      }
+      [data-theme="dark"] .showcase-frame {
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.04) inset,
+          0 40px 80px -44px rgba(0, 0, 0, 0.7);
+      }
+      [data-theme="dark"] .btn-primary:hover,
+      [data-theme="dark"] .dt-send.is-active:hover {
+        background: #f1ede4;
+        color: #0d0d10;
+      }
+      [data-theme="dark"] .feature:hover,
+      [data-theme="dark"] .eco-row:hover,
+      [data-theme="dark"] .dt-tool:hover {
+        background: rgba(123, 190, 234, 0.08);
+      }
+      [data-theme="dark"] .install-code {
+        background: rgba(22, 22, 26, 0.74);
+      }
+      [data-theme="dark"] .install-tabs {
+        background: rgba(241, 237, 228, 0.045);
+        border-color: rgba(241, 237, 228, 0.06);
+      }
+      [data-theme="dark"] .install-tab.is-active {
+        background: rgba(241, 237, 228, 0.1);
+        box-shadow:
+          0 1px 1px rgba(0, 0, 0, 0.2),
+          0 2px 8px -2px rgba(0, 0, 0, 0.3);
+      }
+      [data-theme="dark"] .dt-act,
+      [data-theme="dark"] .dt-composer,
+      [data-theme="dark"] .dt-pill {
+        border-color: var(--rule);
+      }
+
+      /* ───────── Footer ───────── */
+      .footer {
+        max-width: 1280px;
+        margin: 96px auto 0;
+        padding: 64px 32px 48px;
+      }
+      .footer-inner {
+        display: grid;
+        grid-template-columns: 260px 1fr;
+        gap: 48px;
+        margin-bottom: 64px;
+      }
+      .footer-brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
+        color: var(--ink);
+        align-self: start;
+      }
+      .footer-brand img {
+        width: 32px;
+        height: 32px;
+      }
+      .footer-brand span {
+        font-family: var(--font-display);
+        font-style: italic;
+        font-weight: 500;
+        font-size: 22px;
+      }
+      .footer-cols {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 40px;
+      }
+      .footer-col h4 {
+        margin: 0 0 16px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--ink-faint);
+      }
+      .footer-col a {
+        display: block;
+        margin-bottom: 10px;
+        text-decoration: none;
+        color: var(--ink-soft);
+        font-size: 14px;
+        transition: color 0.15s ease;
+      }
+      .footer-col a:hover {
+        color: var(--ink);
+      }
+      .footer-rule {
+        height: 1px;
+        background: var(--rule);
+        margin-bottom: 28px;
+      }
+
+      /* ───────── Footer credo — tagline + heartbeat, centered ───────── */
+      .footer-credo {
+        text-align: center;
+        margin: 0 0 32px;
+      }
+      .footer-tagline {
+        font-family: var(--font-display);
+        font-size: 22px;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        line-height: 1.25;
+        color: var(--ink);
+        margin: 0 0 14px;
+        font-variation-settings: "opsz" 32;
+      }
+      .footer-tagline em {
+        font-style: italic;
+        font-weight: 400;
+        color: var(--ink-soft);
+      }
+
+      /* ───────── Heartbeat (single editorial line, mono) ───────── */
+      .footer-pulse {
+        display: inline-flex;
+        align-items: center;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 7px;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        letter-spacing: 0.02em;
+        color: var(--ink-faint);
+        opacity: 1;
+        transition: opacity 0.35s ease;
+      }
+      .footer-pulse[data-hidden="true"] {
+        opacity: 0;
+        pointer-events: none;
+        position: absolute;
+      }
+      .footer-pulse-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+        animation: dtPulse 2.4s ease-in-out infinite;
+      }
+      @keyframes dtPulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50%      { opacity: 0.45; transform: scale(0.85); }
+      }
+      .footer-pulse .sep {
+        color: var(--ink-faint);
+        opacity: 0.5;
+      }
+      .footer-pulse .num {
+        color: var(--ink-soft);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .footer-pulse .num > [data-pulse] {
+        color: var(--ink);
+      }
+      .footer-pulse-tag {
+        color: var(--ink) !important;
+        font-weight: 600;
+        text-decoration: none !important;
+        border-bottom: 1px solid var(--rule);
+        padding-bottom: 1px;
+        transition: border-color 0.15s ease;
+      }
+      .footer-pulse-tag:hover {
+        border-color: var(--ink);
+      }
+
+      .footer-fine {
+        display: flex;
+        justify-content: space-between;
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        color: var(--ink-faint);
+        letter-spacing: 0.02em;
+      }
+      .footer-fine a {
+        color: var(--ink-soft);
+        text-decoration: none;
+      }
+      .footer-fine a:hover {
+        color: var(--ink);
+      }
+      @media (max-width: 720px) {
+        .footer-inner {
+          grid-template-columns: 1fr;
+          gap: 32px;
+        }
+        .footer-cols {
+          grid-template-columns: repeat(2, 1fr);
+          gap: 24px;
+        }
+        .footer-fine {
+          flex-direction: column;
+          gap: 8px;
+        }
+      }
+    </style>
+
+    <script>
+      // ───────── GitHub star count ─────────
+      (() => {
+        const targets = document.querySelectorAll<HTMLElement>("[data-gh-stars]");
+        if (!targets.length) return;
+        const cacheKey = "deeptutor-gh-stars";
+        const ttl = 60 * 60 * 1000; // 1h
+        const format = (n: number) =>
+          n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 1 : 2).replace(/\.?0+$/, "") + "k" : String(n);
+        const paint = (n: number) => {
+          const text = format(n);
+          targets.forEach((el) => (el.textContent = text));
+        };
+        try {
+          const raw = localStorage.getItem(cacheKey);
+          if (raw) {
+            const cached = JSON.parse(raw);
+            if (cached && typeof cached.n === "number" && Date.now() - cached.t < ttl) {
+              paint(cached.n);
+            }
+          }
+        } catch {}
+        fetch("https://api.github.com/repos/HKUDS/DeepTutor")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (!data || typeof data.stargazers_count !== "number") return;
+            paint(data.stargazers_count);
+            try {
+              localStorage.setItem(
+                cacheKey,
+                JSON.stringify({ n: data.stargazers_count, t: Date.now() }),
+              );
+            } catch {}
+          })
+          .catch(() => {});
+      })();
+
+      // ───────── Install tabs ─────────
+      const installRoot = document.getElementById("install");
+      if (installRoot) {
+        const tabs = installRoot.querySelectorAll<HTMLButtonElement>(".install-tab");
+        const panels = installRoot.querySelectorAll<HTMLElement>(".install-panel");
+        tabs.forEach((tab) => {
+          tab.addEventListener("click", () => {
+            const target = tab.dataset.target;
+            tabs.forEach((t) => {
+              const on = t === tab;
+              t.classList.toggle("is-active", on);
+              t.setAttribute("aria-selected", on ? "true" : "false");
+            });
+            panels.forEach((p) => {
+              p.classList.toggle("is-active", p.dataset.panel === target);
+            });
+          });
+        });
+      }
+
+      // ───────── Landing preferences ─────────
+      const themeKey = "starlight-theme";
+      const themeQuery = "(prefers-color-scheme: light)";
+      const readThemePreference = () => {
+        try {
+          const stored = localStorage.getItem(themeKey);
+          return stored === "light" || stored === "dark" ? stored : "auto";
+        } catch {
+          return "auto";
+        }
+      };
+      const resolvedTheme = (preference: string) => {
+        if (preference === "light" || preference === "dark") return preference;
+        return window.matchMedia(themeQuery).matches ? "light" : "dark";
+      };
+      const applyThemePreference = (preference: string) => {
+        document.documentElement.dataset.theme = resolvedTheme(preference);
+        document.querySelectorAll<HTMLSelectElement>("[data-theme-select]").forEach((select) => {
+          select.value = preference;
+        });
+      };
+      const persistThemePreference = (preference: string) => {
+        try {
+          if (preference === "light" || preference === "dark") {
+            localStorage.setItem(themeKey, preference);
+          } else {
+            localStorage.setItem(themeKey, "");
+          }
+        } catch {}
+      };
+
+      applyThemePreference(readThemePreference());
+
+      document.querySelectorAll<HTMLSelectElement>("[data-theme-select]").forEach((select) => {
+        select.addEventListener("change", () => {
+          persistThemePreference(select.value);
+          applyThemePreference(select.value);
+        });
+      });
+
+      window.matchMedia(themeQuery).addEventListener("change", () => {
+        if (readThemePreference() === "auto") applyThemePreference("auto");
+      });
+
+      document.querySelectorAll<HTMLSelectElement>("[data-locale-select]").forEach((select) => {
+        select.addEventListener("change", () => {
+          const nextPath = select.value;
+          if (nextPath && nextPath !== window.location.pathname) {
+            window.location.assign(`${nextPath}${window.location.search}${window.location.hash}`);
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

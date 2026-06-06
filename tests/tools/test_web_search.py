@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from deeptutor.services.search.types import Citation, SearchResult, WebSearchResponse
+from deeptutor.services.search import _assert_provider_supported
 from deeptutor.services.search.providers import (
     _DEPRECATED_UNSUPPORTED,
     get_provider,
-    list_providers,
     get_providers_info,
+    list_providers,
 )
-from deeptutor.services.search import _assert_provider_supported
-
+from deeptutor.services.search.types import Citation, SearchResult, WebSearchResponse
 
 # ---------------------------------------------------------------------------
 # Type dataclasses
@@ -127,6 +126,9 @@ class TestProviderRegistry:
 class TestAssertProviderSupported:
     def test_supported_provider_does_not_raise(self) -> None:
         _assert_provider_supported("duckduckgo")
+
+    def test_none_provider_does_not_raise(self) -> None:
+        _assert_provider_supported("none")
 
     def test_deprecated_provider_raises(self) -> None:
         with pytest.raises(ValueError, match="deprecated"):

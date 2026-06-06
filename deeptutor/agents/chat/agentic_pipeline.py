@@ -1,17 +1,64 @@
-"""Agentic chat pipeline with thinking, acting, observing, and responding."""
+"""Single-loop agentic chat pipeline.
+
+The chat capability runs as one iterative LLM loop. Each iteration is a
+single streaming LLM call followed by, depending on the model's first-line
+protocol label:
+
+* ``FINISH`` → the post-label text IS the final user-facing answer; loop exits.
+* ``TOOL``   → native tool_calls run in parallel; their results feed the next
+  iteration. Tools may pause (``ask_user``) or terminate the turn.
+* ``THINK``  → intermediate reasoning; loop continues so the next call can
+  build on it.
+* ``PAUSE``  → semantically a ``THINK`` whose prose is shown to the user.
+  Same loop behavior as ``THINK`` (intermediate, no tools, loop continues),
+  but the post-label text streams into the chat bubble like ``FINISH`` so
+  the user sees the reasoning when it's worth showing.
+
+This module is the *capability-specific* assembly layer. The generic engine
+lives in :mod:`deeptutor.core.agentic`: label parsing, single-call streaming,
+parallel tool dispatch, and the loop scheduler. Chat plugs in its own:
+
+* tool composition + per-turn KB / source / notebook enums,
+* system-prompt + message assembly (memory, skills, manifests, attachments),
+* server-side tool-kwarg augmentation,
+* context-window guard, force-finalize, answer-now fast path,
+* protocol-violation copy (YAML-loaded, language-aware).
+
+History compression (branch-safe) is handled upstream by
+``ContextBuilder.build`` so it does not appear here.
+"""
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import asdict, dataclass
-import json
 import logging
-import os
+import re
 from typing import Any
 
-import httpx
-from openai import AsyncAzureOpenAI, AsyncOpenAI
-
+from deeptutor.agents._shared.tool_composition import (
+    ToolMountFlags,
+    compose_enabled_tools,
+    default_optional_tools,
+    user_has_memory,
+    user_has_notebooks,
+)
+from deeptutor.capabilities._shared import emit_capability_result
+from deeptutor.core.agentic import (
+    LABEL_PROBE_MAX_CHARS,
+    LABEL_UNKNOWN,
+    DispatchOutcome,
+    LabeledStepResult,
+    LabelProtocol,
+    LLMClientConfig,
+    UsageTracker,
+    build_completion_kwargs,
+    build_openai_client,
+    can_use_native_tool_calling,
+    dispatch_tool_calls,
+    run_agentic_loop,
+    run_labeled_step,
+)
+from deeptutor.core.agentic.labels import find_inline_labels, strip_label_probe_prefix
+from deeptutor.core.agentic.tool_dispatch import MAX_PARALLEL_TOOL_CALLS
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.trace import (
@@ -21,41 +68,248 @@ from deeptutor.core.trace import (
     new_call_id,
 )
 from deeptutor.runtime.registry.tool_registry import get_tool_registry
+from deeptutor.services.config import get_chat_params, load_system_settings  # noqa: F401
 from deeptutor.services.llm import (
     clean_thinking_tags,
-    complete as llm_complete,
     get_llm_config,
-    get_token_limit_kwargs,
+    get_token_limit_kwargs,  # noqa: F401  (re-exported for tests)
+    has_thinking_tags,
     prepare_multimodal_messages,
-    stream as llm_stream,
-    supports_response_format,
-    supports_tools,
+    supports_tools,  # noqa: F401  (re-exported for tests)
 )
-from deeptutor.tools.builtin import BUILTIN_TOOL_NAMES
-from deeptutor.utils.json_parser import parse_json_response
+from deeptutor.services.llm import (
+    stream as llm_stream,
+)
+from deeptutor.services.llm.context_window import resolve_effective_context_window
+from deeptutor.services.prompt import get_prompt_manager
+from deeptutor.services.prompt.language import append_language_directive
+from deeptutor.services.provider_registry import find_by_name
 
 logger = logging.getLogger(__name__)
 
-CHAT_EXCLUDED_TOOLS = {"geogebra_analysis"}
-CHAT_OPTIONAL_TOOLS = [
-    name for name in BUILTIN_TOOL_NAMES if name not in CHAT_EXCLUDED_TOOLS
-]
-MAX_PARALLEL_TOOL_CALLS = 8
-MAX_TOOL_RESULT_CHARS = 4000
+
+# ---------------------------------------------------------------------------
+# Module-level configuration
+# ---------------------------------------------------------------------------
+
+CHAT_EXCLUDED_TOOLS: set[str] = set()
+# User-toggleable tools — the composer / settings UI surface. Computed once
+# at import time via the shared tool-composition policy so chat and quiz
+# pipelines can't disagree about which tools the user controls.
+CHAT_OPTIONAL_TOOLS = default_optional_tools(excluded=CHAT_EXCLUDED_TOOLS)
+
+# Tool-iteration ceiling: high enough for multi-step chat loops with
+# ask_user/tool repair, still bounded to prevent runaway loops. Overridable
+# via ``capabilities.chat.max_iterations``.
+DEFAULT_MAX_ITERATIONS = 20
+# When messages exceed this fraction of the model's effective context
+# window, the in-turn guard replaces the largest stale tool-result with a
+# snip marker. Keeps headroom for the next LLM call without aborting.
+CONTEXT_WINDOW_GUARD_RATIO = 0.9
+TOOL_RESULT_SNIP_MARKER = (
+    "[earlier tool result snipped to stay within context window — "
+    "call the same tool again if the content is still needed]"
+)
+FINALIZATION_REPAIR_ATTEMPTS = 3
+
+# Chat-only label strings (chat's protocol vocabulary). Kept as named
+# constants for legibility in the chat YAML/copy code that references them.
+LABEL_FINISH = "FINISH"
+LABEL_TOOL = "TOOL"
+LABEL_THINK = "THINK"
+# ``PAUSE`` is chat-specific: semantically it's ``THINK`` made visible —
+# same intermediate / no-tools / loop-continues behavior, but the
+# post-label text is streamed into the user-facing chat bubble (so it
+# lives in both ``intermediate`` AND ``final``). The LLM picks ``PAUSE``
+# over ``THINK`` only when the reasoning itself is worth showing to the
+# user.
+LABEL_PAUSE = "PAUSE"
+
+# Chat's label protocol, fed into the generic loop primitive.
+_CHAT_PROTOCOL = LabelProtocol(
+    allowed=(LABEL_FINISH, LABEL_TOOL, LABEL_THINK, LABEL_PAUSE),
+    terminal=frozenset({LABEL_FINISH}),
+    intermediate=frozenset({LABEL_THINK, LABEL_PAUSE}),
+    final=frozenset({LABEL_FINISH, LABEL_PAUSE}),
+    tool_label=LABEL_TOOL,
+)
 
 
-@dataclass
-class ToolTrace:
-    name: str
-    arguments: dict[str, Any]
-    result: str
-    success: bool
-    sources: list[dict[str, Any]]
-    metadata: dict[str, Any]
+# ---------------------------------------------------------------------------
+# Answer-now lenient label parsing
+# ---------------------------------------------------------------------------
+# The main loop owns the canonical protocol and now tolerates common wrapper
+# variants at the core parser level. Answer-now is still more permissive — it
+# is a terminal, tool-less fast-path, so the safest UI behavior is to strip
+# common spellings rather than render them as a literal label.
+
+_ANSWER_NOW_WRAPPED_LABEL_RE = re.compile(
+    r"^`+\s*(FINISH|TOOL|THINK|PAUSE)\s*`+(?P<after>.*)$",
+    re.DOTALL,
+)
+_ANSWER_NOW_UNTERMINATED_WRAPPED_LABEL_RE = re.compile(
+    r"^`+\s*(FINISH|TOOL|THINK|PAUSE)\s*$",
+    re.DOTALL,
+)
+_LABEL_SEPARATOR_CHARS = "\n\r \t:：-–—"
+_ANSWER_NOW_ALLOWED_LABELS: tuple[str, ...] = (
+    LABEL_FINISH,
+    LABEL_TOOL,
+    LABEL_THINK,
+    LABEL_PAUSE,
+)
+
+
+# Re-export for tests that still import this name. New code constructs the
+# canonical ``DispatchOutcome`` directly.
+_DispatchOutcome = DispatchOutcome
+
+
+def _could_be_wrapped_answer_now_label(stripped: str) -> bool:
+    """Whether a backtick-prefixed buffer may still become a label."""
+    probe = stripped.lstrip("`").lstrip()
+    if not probe:
+        return True
+    for label in _ANSWER_NOW_ALLOWED_LABELS:
+        if label.startswith(probe):
+            return True
+        if probe.startswith(label):
+            after = probe[len(label) :]
+            if not after.strip("` \t\r\n"):
+                return True
+    return False
+
+
+def _classify_answer_now_label(
+    buffer: str,
+    *,
+    final: bool = False,
+) -> tuple[str, str] | None:
+    """Lenient label stripper used by :meth:`AgenticChatPipeline._run_answer_now`.
+
+    Accepts the canonical double-backtick wrapping as well as common
+    looser variants (single-backtick wrappers, unwrapped labels followed
+    by a separator). Returns ``None`` when the buffer still looks like a
+    partial label match — caller keeps buffering.
+    """
+    from deeptutor.core.agentic.labels import classify_label
+
+    parsed = classify_label(buffer, allowed_labels=_ANSWER_NOW_ALLOWED_LABELS)
+    if parsed is not None:
+        return parsed
+
+    stripped = strip_label_probe_prefix(buffer)
+    wrapped = _ANSWER_NOW_WRAPPED_LABEL_RE.match(stripped)
+    if wrapped:
+        return wrapped.group(1), wrapped.group("after").lstrip(_LABEL_SEPARATOR_CHARS)
+    unterminated = _ANSWER_NOW_UNTERMINATED_WRAPPED_LABEL_RE.match(stripped)
+    if final and unterminated:
+        return unterminated.group(1), ""
+
+    for label in _ANSWER_NOW_ALLOWED_LABELS:
+        for prefix in (f"`{label}`", label):
+            if stripped.startswith(prefix):
+                after = stripped[len(prefix) :]
+                if after:
+                    if after[0] in _LABEL_SEPARATOR_CHARS:
+                        return label, after.lstrip(_LABEL_SEPARATOR_CHARS)
+                    continue
+                if final:
+                    return label, ""
+            if prefix.startswith(stripped):
+                return None
+    if stripped.startswith("`") and _could_be_wrapped_answer_now_label(stripped):
+        return None
+    return None
+
+
+def _normalise_user_reply(
+    raw: Any,
+) -> tuple[str, list[dict[str, str]] | None]:
+    """Normalise a waiter() reply into ``(text, answers)``.
+
+    Accepts either a plain string (legacy / direct injection in tests)
+    or a dict ``{"text": str, "answers": list | None}`` (runtime path
+    that supports the v2 multi-question schema).
+    """
+    if isinstance(raw, str):
+        return raw, None
+    if isinstance(raw, dict):
+        text = str(raw.get("text") or "")
+        answers_raw = raw.get("answers")
+        if isinstance(answers_raw, list) and answers_raw:
+            answers: list[dict[str, str]] = []
+            for entry in answers_raw:
+                if not isinstance(entry, dict):
+                    continue
+                qid = str(entry.get("questionId") or entry.get("id") or "").strip()
+                if not qid:
+                    continue
+                answers.append({"questionId": qid, "text": str(entry.get("text") or "")})
+            return text, answers or None
+        return text, None
+    return str(raw or ""), None
+
+
+def _format_user_reply_body(
+    text: str,
+    answers: list[dict[str, str]] | None,
+    ask_user_payload: dict[str, Any],
+) -> str:
+    """Render the ``User answered:`` body the model sees on resume.
+
+    Multi-question replies are rendered as one ``- <prompt>\n  → <answer>``
+    line per question so the model has the original question text in
+    context. Skipped or empty answers come through as ``(skipped)``.
+    """
+    if answers:
+        prompts_by_id: dict[str, str] = {}
+        for q in ask_user_payload.get("questions") or []:
+            if isinstance(q, dict):
+                qid = str(q.get("id") or "")
+                prompts_by_id[qid] = str(q.get("prompt") or qid)
+        lines = ["User answered:"]
+        for entry in answers:
+            qid = entry.get("questionId", "")
+            prompt = prompts_by_id.get(qid) or qid or "(question)"
+            value = (entry.get("text") or "").strip() or "(skipped)"
+            lines.append(f"- {prompt}\n  → {value}")
+        return "\n".join(lines)
+    flat = (text or "").strip() or "(empty reply)"
+    return f"User answered: {flat}"
+
+
+def _flatten_ask_user_summary(ask_user_payload: dict[str, Any]) -> str:
+    """One-line summary for fallback terminator emit when no waiter wired."""
+    questions = ask_user_payload.get("questions") or []
+    if isinstance(questions, list) and questions:
+        prompts = [str(q.get("prompt") or "") for q in questions if isinstance(q, dict)]
+        prompts = [p for p in prompts if p]
+        if prompts:
+            return " | ".join(prompts)
+    # Legacy single-question payload shape (pre-v2).
+    return str(ask_user_payload.get("question") or "")
+
+
+def _read_int(cfg: Any, *, key: str, default: int) -> int:
+    """Pull an integer from a nested YAML dict, falling back to ``default``."""
+    if isinstance(cfg, dict):
+        value = cfg.get(key, default)
+    else:
+        value = default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+# ---------------------------------------------------------------------------
+# Pipeline
+# ---------------------------------------------------------------------------
 
 
 class AgenticChatPipeline:
-    """Run chat as a 4-stage agentic pipeline."""
+    """Run chat as a single iterative LLM loop with native tool calling."""
 
     def __init__(self, language: str = "en") -> None:
         self.language = "zh" if language.lower().startswith("zh") else "en"
@@ -65,350 +319,708 @@ class AgenticChatPipeline:
         self.api_key = getattr(self.llm_config, "api_key", None)
         self.base_url = getattr(self.llm_config, "base_url", None)
         self.api_version = getattr(self.llm_config, "api_version", None)
+        self.extra_headers = getattr(self.llm_config, "extra_headers", None) or {}
+        self.reasoning_effort = getattr(self.llm_config, "reasoning_effort", None)
         self.registry = get_tool_registry()
-        self._usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0}
+        self._usage = UsageTracker(model=self.model)
 
-    def _accumulate_usage(self, response: Any) -> None:
-        usage = getattr(response, "usage", None)
-        if usage:
-            self._usage["prompt_tokens"] += getattr(usage, "prompt_tokens", 0) or 0
-            self._usage["completion_tokens"] += getattr(usage, "completion_tokens", 0) or 0
-            self._usage["total_tokens"] += getattr(usage, "total_tokens", 0) or 0
-            self._usage["calls"] += 1
+        try:
+            chat_cfg = get_chat_params()
+        except Exception as exc:
+            logger.warning("Failed to load chat params, using defaults: %s", exc)
+            chat_cfg = {}
+        try:
+            self._chat_temperature = float(chat_cfg.get("temperature", 0.2))
+        except (TypeError, ValueError):
+            self._chat_temperature = 0.2
+        # Token budgets for the two LLM call shapes used by this pipeline.
+        # ``responding`` caps each loop iteration; ``answer_now`` caps the
+        # single-shot fallback when the user clicks "Answer now" mid-stream.
+        self._responding_max_tokens = _read_int(
+            chat_cfg.get("responding"), key="max_tokens", default=8000
+        )
+        self._answer_now_max_tokens = _read_int(
+            chat_cfg.get("answer_now"), key="max_tokens", default=8000
+        )
+        self._max_iterations = _read_int(
+            chat_cfg, key="max_iterations", default=DEFAULT_MAX_ITERATIONS
+        )
 
-    def _get_cost_summary(self) -> dict[str, Any] | None:
-        if self._usage["calls"] == 0:
-            return None
-        return {
-            "total_cost_usd": 0,
-            "total_tokens": self._usage["total_tokens"],
-            "total_calls": self._usage["calls"],
-        }
+        try:
+            self._prompts: dict[str, Any] = (
+                get_prompt_manager().load_prompts(
+                    module_name="chat",
+                    agent_name="agentic_chat",
+                    language=self.language,
+                )
+                or {}
+            )
+        except Exception as exc:
+            logger.warning("Failed to load agentic_chat prompts: %s", exc)
+            self._prompts = {}
 
+        self._client_config = LLMClientConfig(
+            binding=self.binding,
+            model=self.model,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            api_version=self.api_version,
+            extra_headers=self.extra_headers or None,
+            reasoning_effort=self.reasoning_effort,
+        )
+
+    # ------------------------------------------------------------------
+    # Public entry point
+    # ------------------------------------------------------------------
     async def run(self, context: UnifiedContext, stream: StreamBus) -> None:
         answer_now_context = self._extract_answer_now_context(context)
         if answer_now_context is not None:
-            final_response, trace_meta = await self._stage_answer_now(
-                context=context,
-                answer_now_context=answer_now_context,
-                stream=stream,
-            )
-            result_payload: dict[str, Any] = {
-                "response": final_response,
-                "answer_now": True,
-                "source_trace": trace_meta.get("label", "Answer now"),
-            }
-            cs = self._get_cost_summary()
-            if cs:
-                result_payload["metadata"] = {"cost_summary": cs}
-            await stream.result(result_payload, source="chat")
+            await self._run_answer_now(context, answer_now_context, stream)
             return
 
-        enabled_tools = self._normalize_enabled_tools(context.enabled_tools)
-        thinking_text = await self._stage_thinking(context, enabled_tools, stream)
-        tool_traces = await self._stage_acting(
-            context=context,
-            enabled_tools=enabled_tools,
-            thinking_text=thinking_text,
-            stream=stream,
-        )
-        observation = await self._stage_observing(
-            context=context,
-            enabled_tools=enabled_tools,
-            thinking_text=thinking_text,
-            tool_traces=tool_traces,
-            stream=stream,
-        )
-        final_response, responding_trace = await self._stage_responding(
-            context=context,
-            enabled_tools=enabled_tools,
-            thinking_text=thinking_text,
-            observation=observation,
-            tool_traces=tool_traces,
-            stream=stream,
+        enabled_tools = self._compose_enabled_tools(context)
+        use_native_tools = bool(enabled_tools) and self._can_use_native_tool_calling()
+        _is_reasoner = has_thinking_tags(self.binding, self.model)
+        tool_schemas = (
+            self._build_llm_tool_schemas(enabled_tools, context) if use_native_tools else None
         )
 
-        all_sources: list[dict[str, Any]] = []
-        for trace in tool_traces:
-            all_sources.extend(trace.sources)
-        if all_sources:
-            await stream.sources(
-                all_sources,
+        system_prompt = self._build_system_prompt(enabled_tools, context)
+        if _is_reasoner and use_native_tools:
+            system_prompt = self._append_reasoner_protocol_note(system_prompt)
+        user_content = self._t(
+            "user_template",
+            default=context.user_message,
+            user_message=context.user_message,
+        )
+        messages = self._build_messages(
+            context=context,
+            system_prompt=system_prompt,
+            user_content=user_content,
+        )
+        messages = self._prepare_messages_with_attachments(messages, context)
+
+        # Build the per-turn OpenAI client via ``_build_openai_client`` so
+        # tests can monkey-patch that method post-instantiation to inject a
+        # scripted client.
+        client = self._build_openai_client()
+        host = _ChatLoopHost(
+            pipeline=self,
+            context=context,
+            stream=stream,
+            client=client,
+        )
+        # Outer ``stage("responding")`` only drives the frontend's
+        # ``currentStage`` indicator ("DeepTutor responding…"). It carries no
+        # call_id so it does NOT spawn its own sub-trace; each LLM iteration
+        # and each tool call below allocate their own call_id and surface as
+        # individual sub-traces in CallTracePanel.
+        completion_kwargs = self._completion_kwargs(max_tokens=self._responding_max_tokens)
+
+        # Reasoning models (e.g. Qwen3.6-Plus) need ``enable_thinking``
+        # explicitly set so the API correctly handles thinking + tool_calls.
+        # When the binding already has a ``thinking_style`` (e.g. dashscope),
+        # ``build_provider_extra_kwargs`` handles this. But when the model is
+        # accessed via a generic binding (e.g. custom / OpenAI-compatible)
+        # that lacks ``thinking_style``, we must inject it here.
+        if _is_reasoner and use_native_tools:
+            _spec = find_by_name(self.binding)
+            if not (_spec and _spec.thinking_style):
+                completion_kwargs.setdefault("extra_body", {})["enable_thinking"] = True
+
+        # When native tool calling is unavailable (no tool schemas), strip
+        # the TOOL label from the protocol so the loop does not expect
+        # ``tool_calls`` deltas and trigger ``tool_without_calls`` violations.
+        protocol = _CHAT_PROTOCOL
+        if not use_native_tools and protocol.tool_label is not None:
+            protocol = LabelProtocol(
+                allowed=tuple(l for l in protocol.allowed if l != LABEL_TOOL),
+                terminal=protocol.terminal,
+                intermediate=protocol.intermediate,
+                final=protocol.final,
+                tool_label=None,
+            )
+
+        async with stream.stage("responding", source="chat"):
+            outcome = await run_agentic_loop(
+                initial_messages=messages,
+                protocol=protocol,
+                client=client,
+                model=self.model,
+                completion_kwargs=completion_kwargs,
+                binding=self.binding,
+                tool_schemas=tool_schemas,
+                stream=stream,
                 source="chat",
                 stage="responding",
-                metadata=merge_trace_metadata(
-                    responding_trace,
-                    {"trace_kind": "sources"},
-                ),
+                max_iterations=max(1, self._max_iterations),
+                host=host,
+                usage=self._usage,
+                # Thinking traces are trace data, not loop-control actions.
+                # The formal content stream must still begin with FINISH /
+                # TOOL / THINK / PAUSE so protocol repair can catch missing
+                # labels instead of silently treating answers as THINK.
+                implicit_think_label=None,
+            )
+
+        if outcome.sources:
+            await stream.sources(
+                outcome.sources,
+                source="chat",
+                stage="responding",
+                metadata={"trace_kind": "sources"},
             )
 
         result_payload: dict[str, Any] = {
-            "response": final_response,
-            "observation": observation,
-            "tool_traces": [asdict(trace) for trace in tool_traces],
+            "response": outcome.final_text,
+            "iterations": outcome.iterations,
+            "completed": outcome.completed,
         }
-        cs = self._get_cost_summary()
-        if cs:
-            result_payload["metadata"] = {"cost_summary": cs}
-        await stream.result(result_payload, source="chat")
+        await emit_capability_result(stream, result_payload, source="chat", usage=self._usage)
 
-    async def _stage_thinking(
-        self,
-        context: UnifiedContext,
-        enabled_tools: list[str],
-        stream: StreamBus,
-    ) -> str:
-        trace_meta = build_trace_metadata(
-            call_id=new_call_id("chat-thinking"),
-            phase="thinking",
-            label=self._text(zh="Reasoning", en="Reasoning"),
+    # ------------------------------------------------------------------
+    # Iteration trace metadata
+    # ------------------------------------------------------------------
+    def _build_iteration_trace_metadata(
+        self, iteration: int
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Allocate trace metadata for one model iteration.
+
+        ``iter_meta`` scopes the reasoning sub-trace that THINK/TOOL/UNKNOWN
+        paths open; FINISH never opens it so the row stays empty in those
+        cases. ``final_meta`` is the per-iter id for body content events on
+        the FINISH path.
+        """
+        iter_call_id = new_call_id(f"chat-iter-{iteration}")
+        iter_meta = build_trace_metadata(
+            call_id=iter_call_id,
+            phase="responding",
+            label=self._t("labels.reasoning", default="Reasoning"),
             call_kind="llm_reasoning",
-            trace_id="chat-thinking",
+            trace_id=iter_call_id,
             trace_role="thought",
             trace_group="stage",
         )
-        async with stream.stage("thinking", source="chat", metadata=trace_meta):
-            await stream.progress(
-                trace_meta["label"],
-                source="chat",
-                stage="thinking",
-                metadata=merge_trace_metadata(
-                    trace_meta,
-                    {"trace_kind": "call_status", "call_state": "running"},
-                ),
-            )
-            messages = self._build_messages(
-                context=context,
-                system_prompt=self._thinking_system_prompt(enabled_tools, context),
-                user_content=context.user_message,
-            )
-            messages, images_stripped = self._prepare_messages_with_attachments(
-                messages,
-                context,
-            )
-            if images_stripped:
-                await stream.thinking(
-                    self._images_stripped_notice(),
-                    source="chat",
-                    stage="thinking",
-                    metadata=merge_trace_metadata(trace_meta, {"trace_kind": "llm_chunk"}),
-                )
-
-            chunks: list[str] = []
-            async for chunk in self._stream_messages(messages, max_tokens=1200):
-                if not chunk:
-                    continue
-                chunks.append(chunk)
-                await stream.thinking(
-                    chunk,
-                    source="chat",
-                    stage="thinking",
-                    metadata=merge_trace_metadata(trace_meta, {"trace_kind": "llm_chunk"}),
-                )
-            await stream.progress(
-                "",
-                source="chat",
-                stage="thinking",
-                metadata=merge_trace_metadata(
-                    trace_meta,
-                    {"trace_kind": "call_status", "call_state": "complete"},
-                ),
-            )
-            return clean_thinking_tags("".join(chunks), self.binding, self.model)
-
-    async def _stage_acting(
-        self,
-        context: UnifiedContext,
-        enabled_tools: list[str],
-        thinking_text: str,
-        stream: StreamBus,
-    ) -> list[ToolTrace]:
-        async with stream.stage("acting", source="chat"):
-            if not enabled_tools:
-                await stream.progress(
-                    self._text(
-                        zh="当前没有启用任何工具，本轮跳过工具调用。",
-                        en="No tools are enabled for this turn, so tool execution was skipped.",
-                    ),
-                    source="chat",
-                    stage="acting",
-                )
-                return []
-
-            if self._can_use_native_tool_calling():
-                return await self._run_native_tool_loop(
-                    context=context,
-                    enabled_tools=enabled_tools,
-                    thinking_text=thinking_text,
-                    stream=stream,
-                )
-
-            await stream.progress(
-                self._text(
-                    zh="当前模型不支持原生工具调用，已切换到 ReAct 文本编排。",
-                    en="The current model does not support native tool calling, so ReAct text orchestration is used.",
-                ),
-                source="chat",
-                stage="acting",
-            )
-            return await self._run_react_fallback(
-                context=context,
-                enabled_tools=enabled_tools,
-                thinking_text=thinking_text,
-                stream=stream,
-            )
-
-    async def _stage_observing(
-        self,
-        context: UnifiedContext,
-        enabled_tools: list[str],
-        thinking_text: str,
-        tool_traces: list[ToolTrace],
-        stream: StreamBus,
-    ) -> str:
-        trace_meta = build_trace_metadata(
-            call_id=new_call_id("chat-observing"),
-            phase="observing",
-            label=self._text(zh="Observation", en="Observation"),
-            call_kind="llm_observation",
-            trace_id="chat-observing",
-            trace_role="observe",
-            trace_group="stage",
-        )
-        async with stream.stage("observing", source="chat", metadata=trace_meta):
-            await stream.progress(
-                trace_meta["label"],
-                source="chat",
-                stage="observing",
-                metadata=merge_trace_metadata(
-                    trace_meta,
-                    {"trace_kind": "call_status", "call_state": "running"},
-                ),
-            )
-            observation_prompt = self._text(
-                zh=(
-                    "请整理本轮推理与工具执行得到的关键信息，输出给 tutor 自己看的观察总结。"
-                    "聚焦：已确认事实、仍不确定的点、最终回答应强调什么。不要直接写给学生。"
-                ),
-                en=(
-                    "Summarize what was learned from the reasoning and tool execution for the tutor's internal observation note. "
-                    "Focus on confirmed facts, remaining uncertainty, and what the final answer should emphasize. "
-                    "Do not address the student directly."
-                ),
-            )
-            messages = self._build_messages(
-                context=context,
-                system_prompt=self._observing_system_prompt(enabled_tools),
-                user_content=(
-                    f"{observation_prompt}\n\n"
-                    f"{self._labeled_block('Thinking', thinking_text)}\n\n"
-                    f"{self._labeled_block('Tool Trace', self._format_tool_traces(tool_traces))}"
-                ),
-            )
-
-            chunks: list[str] = []
-            async for chunk in self._stream_messages(messages, max_tokens=1200):
-                if not chunk:
-                    continue
-                chunks.append(chunk)
-                await stream.observation(
-                    chunk,
-                    source="chat",
-                    stage="observing",
-                    metadata=merge_trace_metadata(trace_meta, {"trace_kind": "observation"}),
-                )
-            await stream.progress(
-                "",
-                source="chat",
-                stage="observing",
-                metadata=merge_trace_metadata(
-                    trace_meta,
-                    {"trace_kind": "call_status", "call_state": "complete"},
-                ),
-            )
-            return clean_thinking_tags("".join(chunks), self.binding, self.model)
-
-    async def _stage_responding(
-        self,
-        context: UnifiedContext,
-        enabled_tools: list[str],
-        thinking_text: str,
-        observation: str,
-        tool_traces: list[ToolTrace],
-        stream: StreamBus,
-    ) -> tuple[str, dict[str, Any]]:
-        trace_meta = build_trace_metadata(
-            call_id=new_call_id("chat-responding"),
+        final_call_id = new_call_id("chat-final-response")
+        final_meta = build_trace_metadata(
+            call_id=final_call_id,
             phase="responding",
-            label=self._text(zh="Final response", en="Final response"),
+            label=self._t("labels.final_response", default="Final response"),
             call_kind="llm_final_response",
-            trace_id="chat-responding",
+            trace_id=final_call_id,
             trace_role="response",
             trace_group="stage",
         )
-        async with stream.stage("responding", source="chat", metadata=trace_meta):
-            await stream.progress(
-                trace_meta["label"],
+        return iter_meta, final_meta
+
+    # ------------------------------------------------------------------
+    # Protocol copy (delegated to YAML; loop host calls these)
+    # ------------------------------------------------------------------
+    def _protocol_retry_notice(self) -> str:
+        return self._t(
+            "notices.protocol_retry",
+            default="The model violated the action-label protocol; retrying this iteration.",
+        )
+
+    def _protocol_repair_message(self, violation: str) -> str:
+        if self.language == "zh":
+            reason = {
+                "missing_label": "你上一轮回复没有以必需的协议标签开头",
+                "multiple_labels": "你上一轮回复在同一次输出里出现了多个协议标签",
+                "tool_without_calls": "你上一轮选择了 ``TOOL``，但没有发起真实 tool_calls",
+                "think_with_tools": "你上一轮选择了 ``THINK``，但同时发起了工具调用",
+                "finish_with_tools": "你上一轮选择了 ``FINISH``，但同时发起了工具调用",
+                "pause_with_tools": "你上一轮选择了 ``PAUSE``，但同时发起了工具调用",
+            }.get(violation, "你上一轮回复不符合协议")
+            default = (
+                f"协议修正：{reason}，所以本轮还不能结束。下一次回复必须"
+                "只选择一个动作标签，并且只在第一行写一次：``FINISH``、"
+                "``TOOL``、``THINK`` 或 ``PAUSE``。标签正文里不要再出现"
+                "第二个协议标签。如果内容本来就是最终答案，用 ``FINISH``；"
+                "如果需要工具，用 ``TOOL`` 并在同一次回复里发起真实 "
+                "tool_calls；如果只是中间思考、用户不需要看到，用 ``THINK``"
+                " 且不要调用工具；如果这段思考让用户看到比藏着更有价值，"
+                "用 ``PAUSE``（等于可见的 ``THINK``）且不要调用工具。"
+            )
+        else:
+            reason = {
+                "missing_label": "your previous reply did not begin with a protocol label",
+                "multiple_labels": "your previous reply contained multiple protocol labels",
+                "tool_without_calls": "you chose ``TOOL`` but emitted no real tool_calls",
+                "think_with_tools": "you chose ``THINK`` while also emitting tool_calls",
+                "finish_with_tools": "you chose ``FINISH`` while also emitting tool_calls",
+                "pause_with_tools": "you chose ``PAUSE`` while also emitting tool_calls",
+            }.get(violation, "your previous reply violated the protocol")
+            default = (
+                f"Protocol correction: {reason}, so the turn is not complete. "
+                "Your next reply must choose exactly one action label, written "
+                "once on the first line only: ``FINISH``, ``TOOL``, ``THINK``, "
+                "or ``PAUSE``. Do not include a second protocol label anywhere "
+                "in the body. If the draft was the final answer, use "
+                "``FINISH``. If tools are needed, use ``TOOL`` and emit real "
+                "tool_calls in that same reply. If this is private intermediate "
+                "reasoning the user doesn't need to see, use ``THINK`` and "
+                "do not call tools. If your reasoning is worth showing to the "
+                "user, use ``PAUSE`` (same as ``THINK`` plus visibility) and "
+                "do not call tools."
+            )
+        return self._t(f"protocol.{violation}", default=default)
+
+    def _force_finish_message(self) -> str:
+        if self.language == "zh":
+            default = (
+                "迭代预算已用完。现在必须给出面向用户的最终答复：第一行必须是 "
+                "``FINISH``，不要再调用工具，也不要再用 ``THINK`` 或 ``PAUSE``。"
+                "如果信息仍不完整，请简短说明不确定性，但仍给出当前最有用的答案。"
+            )
+        else:
+            default = (
+                "The iteration budget is exhausted. You must now produce the "
+                "user-facing final answer: the first line must be ``FINISH``. "
+                "Do not call tools and do not use ``THINK`` or ``PAUSE``. If "
+                "information is still incomplete, state the uncertainty briefly "
+                "while giving the most useful answer possible."
+            )
+        return self._t("protocol.force_finish", default=default)
+
+    def _force_finish_repair_message(self, violation: str) -> str:
+        if self.language == "zh":
+            reason = "没有使用 ``FINISH``"
+            if violation == "multiple_labels":
+                reason = "在最终化回复里混用了多个标签"
+            elif violation == "tool_without_calls":
+                reason = "仍然选择了 ``TOOL``"
+            elif violation == "think_with_tools":
+                reason = "用 ``THINK`` 的同时调用了工具"
+            elif violation == "finish_with_tools":
+                reason = "用 ``FINISH`` 的同时调用了工具"
+            elif violation == "pause_with_tools":
+                reason = "用 ``PAUSE`` 的同时调用了工具"
+            default = (
+                f"最终化协议修正：上一轮{reason}。现在只能输出一个最终答案："
+                "第一行写 ``FINISH``，后面直接给用户答案。不要写 ``THINK``、"
+                "``PAUSE``，不要写 ``TOOL``，不要调用任何工具，也不要在正文里"
+                "再次出现协议标签。"
+            )
+        else:
+            reason = "did not use ``FINISH``"
+            if violation == "multiple_labels":
+                reason = "mixed multiple labels in the finalization reply"
+            elif violation == "tool_without_calls":
+                reason = "still chose ``TOOL``"
+            elif violation == "think_with_tools":
+                reason = "used ``THINK`` while calling tools"
+            elif violation == "finish_with_tools":
+                reason = "used ``FINISH`` while calling tools"
+            elif violation == "pause_with_tools":
+                reason = "used ``PAUSE`` while calling tools"
+            default = (
+                f"Finalization protocol correction: the previous reply {reason}. "
+                "Now output only a final answer: first line ``FINISH``, then the "
+                "user-facing answer. Do not write ``THINK``, ``PAUSE``, or "
+                "``TOOL``, do not call tools, and do not include another "
+                "protocol label in the body."
+            )
+        return self._t("protocol.force_finish_repair", default=default)
+
+    def _protocol_fallback_final_text(self) -> str:
+        if self.language == "zh":
+            default = (
+                "我已经达到本轮迭代上限，但模型没有按 ``FINISH`` 协议产出合格的"
+                "最终回答。请重试一次，或把问题范围收窄；我会从已有上下文继续。"
+            )
+        else:
+            default = (
+                "I reached the iteration limit, but the model did not produce "
+                "a valid ``FINISH`` response. Please retry or narrow the request; "
+                "I can continue from the existing context."
+            )
+        return self._t("protocol.fallback_final", default=default)
+
+    # ------------------------------------------------------------------
+    # Forced finalization (host hook for max-iter exhaustion)
+    # ------------------------------------------------------------------
+    async def _run_forced_finish(
+        self,
+        *,
+        client: Any,
+        messages: list[dict[str, Any]],
+        stream: StreamBus,
+        start_iteration: int,
+    ) -> tuple[str, bool, int]:
+        """Ask the model for one tool-less ``FINISH`` reply, retrying on
+        protocol violations. Returns ``(final_text, completed, calls)``."""
+        calls = 0
+        messages.append({"role": "user", "content": self._force_finish_message()})
+        await stream.progress(
+            self._t("notices.max_iterations_reached"),
+            source="chat",
+            stage="responding",
+            metadata={"trace_kind": "warning"},
+        )
+        for attempt in range(FINALIZATION_REPAIR_ATTEMPTS):
+            await self._guard_context_window(messages, stream)
+            iter_meta, final_meta = self._build_iteration_trace_metadata(start_iteration + attempt)
+            step = await run_labeled_step(
+                client=client,
+                model=self.model,
+                messages=messages,
+                completion_kwargs=self._completion_kwargs(max_tokens=self._responding_max_tokens),
+                tool_schemas=None,
+                allowed_labels=(LABEL_FINISH,),
+                final_labels=frozenset({LABEL_FINISH}),
+                tool_label=None,
+                stream=stream,
                 source="chat",
                 stage="responding",
-                metadata=merge_trace_metadata(
-                    trace_meta,
-                    {"trace_kind": "call_status", "call_state": "running"},
-                ),
+                iter_meta=iter_meta,
+                binding=self.binding,
+                usage=self._usage,
             )
-            user_prompt = self._text(
-                zh=(
-                    f"用户问题：\n{context.user_message}\n\n"
-                    f"{self._labeled_block('Observation', observation)}\n\n"
-                    f"{self._labeled_block('Tool Trace', self._format_tool_traces(tool_traces))}\n\n"
-                    "请基于以上内容，直接给出正式回答。不要暴露内部 pipeline、thinking、observing 等字样。"
-                ),
-                en=(
-                    f"User request:\n{context.user_message}\n\n"
-                    f"{self._labeled_block('Observation', observation)}\n\n"
-                    f"{self._labeled_block('Tool Trace', self._format_tool_traces(tool_traces))}\n\n"
-                    "Use this material to produce the final answer for the user. "
-                    "Do not mention the internal pipeline, thinking, or observing stages."
-                ),
-            )
-            messages = self._build_messages(
-                context=context,
-                system_prompt=self._responding_system_prompt(enabled_tools),
-                user_content=user_prompt,
-            )
+            calls += 1
 
-            chunks: list[str] = []
-            async for chunk in self._stream_messages(messages, max_tokens=1800):
-                if not chunk:
-                    continue
-                chunks.append(chunk)
-                await stream.content(
-                    chunk,
-                    source="chat",
-                    stage="responding",
-                    metadata=merge_trace_metadata(trace_meta, {"trace_kind": "llm_chunk"}),
-                )
+            violation = _classify_forced_finish_violation(step)
+            if step.label == LABEL_FINISH and not violation:
+                await self._emit_final_text(stream, step.text, final_meta)
+                return step.text, True, calls
+
+            final_violation = violation or "final_missing_finish"
             await stream.progress(
-                "",
+                self._t(
+                    "notices.final_protocol_failed",
+                    default=(
+                        "The model still did not produce a valid FINISH reply "
+                        "after the finalization prompt."
+                    ),
+                ),
                 source="chat",
                 stage="responding",
-                metadata=merge_trace_metadata(
-                    trace_meta,
-                    {"trace_kind": "call_status", "call_state": "complete"},
-                ),
+                metadata={
+                    "trace_kind": "warning",
+                    "protocol_violation": final_violation,
+                    "finalization_attempt": attempt + 1,
+                },
             )
-            return clean_thinking_tags("".join(chunks), self.binding, self.model), trace_meta
+            self._append_assistant_context(messages, step.text)
+            messages.append(
+                {
+                    "role": "user",
+                    "content": self._force_finish_repair_message(final_violation),
+                }
+            )
 
-    async def _stage_answer_now(
+        fallback = self._protocol_fallback_final_text()
+        await self._emit_protocol_fallback_final_response(stream, fallback)
+        return fallback, False, calls
+
+    @staticmethod
+    def _append_assistant_context(
+        messages: list[dict[str, Any]],
+        text: str,
+    ) -> None:
+        clipped = str(text or "").strip()
+        if not clipped:
+            return
+        if len(clipped) > 500:
+            clipped = clipped[:500].rstrip() + "\n...[truncated]"
+        messages.append({"role": "assistant", "content": clipped})
+
+    # ------------------------------------------------------------------
+    # Emit helpers (host hooks)
+    # ------------------------------------------------------------------
+    async def _emit_final_text(
+        self,
+        stream: StreamBus,
+        text: str,
+        final_meta: dict[str, Any],
+    ) -> None:
+        if not text:
+            return
+        await stream.content(
+            text,
+            source="chat",
+            stage="responding",
+            metadata=merge_trace_metadata(final_meta, {"trace_kind": "llm_output"}),
+        )
+
+    async def _emit_terminator_final_response(
+        self,
+        stream: StreamBus,
+        payload: dict[str, Any] | None,
+    ) -> None:
+        """Emit a ``content(call_kind=llm_final_response)`` event with the
+        terminating tool's content + its UI metadata.
+
+        Generic enough to support any future ``terminate_turn`` tool: the
+        tool's own ``ToolResult.metadata`` rides along on the
+        ``tool_metadata`` slot so the frontend can dispatch on it (e.g.
+        render option chips for ``ask_user`` via ``tool_metadata.ask_user``).
+        """
+        if not payload:
+            return
+        content = str(payload.get("content") or "").strip()
+        tool_metadata = payload.get("metadata") or {}
+        if not content:
+            return
+        final_call_id = new_call_id("chat-final-response")
+        final_meta = build_trace_metadata(
+            call_id=final_call_id,
+            phase="responding",
+            label=self._t("labels.final_response", default="Final response"),
+            call_kind="llm_final_response",
+            trace_id=final_call_id,
+            trace_role="response",
+            trace_group="stage",
+            terminator_tool=str(payload.get("tool_name") or ""),
+        )
+        merged_metadata: dict[str, Any] = {"trace_kind": "llm_output"}
+        if isinstance(tool_metadata, dict) and tool_metadata:
+            merged_metadata["tool_metadata"] = dict(tool_metadata)
+        await stream.content(
+            content,
+            source="chat",
+            stage="responding",
+            metadata=merge_trace_metadata(final_meta, merged_metadata),
+        )
+
+    async def _emit_protocol_fallback_final_response(
+        self,
+        stream: StreamBus,
+        content: str,
+    ) -> None:
+        final_meta = build_trace_metadata(
+            call_id=new_call_id("chat-final-response"),
+            phase="responding",
+            label=self._t("labels.final_response", default="Final response"),
+            call_kind="llm_final_response",
+            trace_id="chat-final-response",
+            trace_role="response",
+            trace_group="stage",
+            protocol_fallback=True,
+        )
+        await stream.content(
+            content,
+            source="chat",
+            stage="responding",
+            metadata=merge_trace_metadata(final_meta, {"trace_kind": "llm_output"}),
+        )
+
+    @staticmethod
+    def _assistant_message_with_tool_calls(
+        content: str,
+        tool_calls: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "role": "assistant",
+            "content": content or None,
+            "tool_calls": [
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": tc.get("arguments") or "{}",
+                    },
+                }
+                for tc in tool_calls
+            ],
+        }
+
+    # ------------------------------------------------------------------
+    # Tool dispatch (thin wrappers around the primitives — preserved for tests)
+    # ------------------------------------------------------------------
+    async def _execute_tool_call(
+        self,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        *,
+        stream: StreamBus | None = None,
+        retrieve_meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Run a single tool with chat-flavored retrieve-progress events.
+
+        Direct callers (notably test code) use this to drive one tool
+        without going through the parallel dispatcher.
+        """
+        from deeptutor.core.agentic import execute_tool_call
+
+        if stream is None:
+            # No stream means no retrieve trace either; fall through with a
+            # dummy bus so the primitive's stream calls become no-ops.
+            stream = StreamBus()
+        return await execute_tool_call(
+            registry=self.registry,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            stream=stream,
+            source="chat",
+            stage="acting",
+            retrieve_meta=retrieve_meta,
+            empty_tool_result_message=self._t("notices.empty_tool_result"),
+            start_retrieval_message=self._t(
+                "notices.start_retrieval", default="Starting retrieval"
+            ),
+            retrieve_label=self._t("labels.retrieve", default="Retrieve"),
+            unknown_error_message_factory=lambda tn: self._t(
+                "notices.tool_unknown_error",
+                tool=tn,
+                default=f"An unknown error occurred while executing {tn}.",
+            ),
+        )
+
+    async def _dispatch_tool_calls(
+        self,
+        *,
+        tool_calls: list[dict[str, Any]],
+        context: UnifiedContext,
+        stream: StreamBus,
+        iteration_index: int,
+    ) -> DispatchOutcome:
+        """Dispatch this iteration's tool calls under chat-specific labels,
+        kwarg-augmenter, and retrieve-trace metadata."""
+        too_many = None
+        if len(tool_calls) > MAX_PARALLEL_TOOL_CALLS:
+            too_many = self._t(
+                "notices.too_many_tool_calls",
+                requested=len(tool_calls),
+                limit=MAX_PARALLEL_TOOL_CALLS,
+            )
+        return await dispatch_tool_calls(
+            tool_calls=tool_calls,
+            context=context,
+            stream=stream,
+            source="chat",
+            stage="acting",
+            iteration_index=iteration_index,
+            registry=self.registry,
+            kwarg_augmenter=self._augment_tool_kwargs,
+            retrieve_meta_factory=lambda meta, tn, ta: self._retrieve_trace_metadata(
+                meta, context=context, tool_name=tn, tool_args=ta
+            ),
+            tool_call_label=self._t("labels.tool_call", default="Tool call"),
+            retrieve_label=self._t("labels.retrieve", default="Retrieve"),
+            empty_tool_result_message=self._t("notices.empty_tool_result"),
+            start_retrieval_message=self._t(
+                "notices.start_retrieval", default="Starting retrieval"
+            ),
+            too_many_tool_calls_message=too_many,
+            unknown_error_message_factory=lambda tn: self._t(
+                "notices.tool_unknown_error",
+                tool=tn,
+                default=f"An unknown error occurred while executing {tn}.",
+            ),
+            trace_id_prefix="chat-iter",
+        )
+
+    # ------------------------------------------------------------------
+    # ``ask_user`` pause / resume
+    # ------------------------------------------------------------------
+    async def _await_user_reply_and_resolve(
+        self,
+        *,
+        context: UnifiedContext,
+        stream: StreamBus,
+        dispatch: DispatchOutcome,
+    ) -> bool:
+        """Pause the loop on an ``ask_user`` call and wait for the reply.
+
+        Returns ``True`` once the user's reply has been substituted into the
+        matching ``role=tool`` message and the loop can resume. Returns
+        ``False`` if the runtime did not wire a reply queue (in which case
+        the pipeline falls back to emitting a terminator final-response,
+        mirroring the legacy behaviour so direct unit tests of the pipeline
+        still work).
+
+        ``asyncio.CancelledError`` propagates up from ``waiter()`` when the
+        runtime cancels the turn task — caught by the runtime's own
+        cancellation handler which emits the right ERROR + DONE events. We
+        intentionally do NOT catch it here.
+        """
+        ask_user = (dispatch.pause_payload or {}).get("ask_user") or {}
+        waiter = context.metadata.get("wait_for_user_reply")
+        if not callable(waiter):
+            logger.warning(
+                "ask_user paused the loop but no wait_for_user_reply "
+                "callable is wired on the context; emitting terminator."
+            )
+            await self._emit_terminator_final_response(
+                stream,
+                {
+                    "tool_name": (dispatch.pause_payload or {}).get("tool_name", "ask_user"),
+                    "content": _flatten_ask_user_summary(ask_user),
+                    "metadata": {"ask_user": ask_user},
+                },
+            )
+            return False
+
+        raw_reply = await waiter()
+        if raw_reply is None:
+            return False
+
+        # Normalise: callers may pass either a plain string (older tests
+        # / direct injections) or a structured dict (runtime / v2 path).
+        reply_text, answers = _normalise_user_reply(raw_reply)
+        body_text = _format_user_reply_body(reply_text, answers, ask_user)
+
+        # Mutate the paused tool's matching ``role=tool`` message in place.
+        # ``dispatch.tool_messages`` shares object identity with entries we
+        # already extended onto ``messages``, so this change is visible to
+        # the next LLM call without re-walking the list.
+        #
+        # The body is deliberately directive: a bare "User answered: X" was
+        # being misread by some models as the end of the turn. Spelling out
+        # "you must continue / do not stop after a one-liner ack" at the
+        # exact point in the conversation where the model is deciding what
+        # to do next keeps the loop alive across ask_user.
+        resumption_directive = (
+            f"{body_text}\n\n"
+            "[ask_user resolved. The turn is NOT over. Use these answers "
+            "to address the user's ORIGINAL request — call more tools "
+            "if you need them, then close with a substantive ``FINISH`` "
+            "reply. A short acknowledgment of the answer is NOT an "
+            "acceptable final response.]"
+        )
+        for tm in dispatch.tool_messages:
+            if tm.get("tool_call_id") == dispatch.pause_tool_call_id:
+                tm["content"] = resumption_directive
+                break
+
+        progress_meta: dict[str, Any] = {
+            "trace_kind": "user_reply",
+            "ask_user_resolved": True,
+            "ask_user_tool_call_id": dispatch.pause_tool_call_id,
+            "reply_preview": (reply_text or "")[:200],
+        }
+        if answers:
+            progress_meta["answers"] = list(answers)
+        await stream.progress(
+            "",
+            source="chat",
+            stage="responding",
+            metadata=progress_meta,
+        )
+        return True
+
+    # ------------------------------------------------------------------
+    # Answer-now: cancel mid-stream and produce a final answer from what's
+    # already been generated. Single LLM call, tools disabled, partial draft
+    # injected as a fake assistant message so the model continues naturally.
+    # ------------------------------------------------------------------
+    async def _run_answer_now(
         self,
         context: UnifiedContext,
         answer_now_context: dict[str, Any],
         stream: StreamBus,
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> None:
+        partial_response = str(answer_now_context.get("partial_response") or "").strip()
+        original_user_message = str(
+            answer_now_context.get("original_user_message") or context.user_message
+        ).strip()
+
         trace_meta = build_trace_metadata(
             call_id=new_call_id("chat-answer-now"),
             phase="responding",
-            label="Answer now",
+            label=self._t("labels.answer_now", default="Answer now"),
             call_kind="llm_final_response",
             trace_id="chat-answer-now",
             trace_role="response",
@@ -420,443 +1032,271 @@ class AgenticChatPipeline:
                 source="chat",
                 stage="responding",
                 metadata=merge_trace_metadata(
-                    trace_meta,
-                    {"trace_kind": "call_status", "call_state": "running"},
+                    trace_meta, {"trace_kind": "call_status", "call_state": "running"}
                 ),
             )
 
-            original_user_message = str(
-                answer_now_context.get("original_user_message") or context.user_message
-            ).strip()
-            partial_response = str(answer_now_context.get("partial_response") or "").strip()
-            trace_summary = self._format_answer_now_events(answer_now_context.get("events"))
-            user_prompt = self._text(
-                zh=(
-                    f"用户原始问题：\n{original_user_message}\n\n"
-                    f"{self._labeled_block('Current Draft', partial_response)}\n\n"
-                    f"{self._labeled_block('Execution Trace', trace_summary)}\n\n"
-                    "请基于当前已经完成的内容，立刻直接生成给用户的最终答复。"
-                    "不要继续规划或调用工具，不要提到内部阶段。"
-                    "如果信息仍有缺口，请诚实说明不确定之处，但仍尽可能先给出当前最有用的回答。"
-                ),
-                en=(
-                    f"Original user request:\n{original_user_message}\n\n"
-                    f"{self._labeled_block('Current Draft', partial_response)}\n\n"
-                    f"{self._labeled_block('Execution Trace', trace_summary)}\n\n"
-                    "Using only the material already gathered so far, produce the final user-facing answer now. "
-                    "Do not continue planning or call tools, and do not mention internal stages. "
-                    "If something is still uncertain, be explicit about the uncertainty while still giving the most useful answer you can."
-                ),
-            )
+            system_prompt = self._build_system_prompt(enabled_tools=[], context=context)
             messages = self._build_messages(
                 context=context,
-                system_prompt=self._responding_system_prompt([]),
-                user_content=user_prompt,
+                system_prompt=system_prompt,
+                user_content=original_user_message,
+            )
+            messages = self._prepare_messages_with_attachments(messages, context)
+            if partial_response:
+                messages.append({"role": "assistant", "content": partial_response})
+            messages.append(
+                {"role": "user", "content": self._t("answer_now.user", default="Finalize now.")}
             )
 
             chunks: list[str] = []
-            async for chunk in self._stream_messages(messages, max_tokens=1800):
-                if not chunk:
-                    continue
-                chunks.append(chunk)
+            label_buf = ""
+            label_resolved = False
+
+            async def _emit_answer_chunk(text: str) -> None:
+                if not text:
+                    return
+                chunks.append(text)
                 await stream.content(
-                    chunk,
+                    text,
                     source="chat",
                     stage="responding",
                     metadata=merge_trace_metadata(trace_meta, {"trace_kind": "llm_chunk"}),
                 )
+
+            async for chunk in self._stream_messages(
+                messages, max_tokens=self._answer_now_max_tokens
+            ):
+                if not chunk:
+                    continue
+                if not label_resolved:
+                    label_buf += chunk
+                    parsed = _classify_answer_now_label(label_buf)
+                    if parsed is not None:
+                        # Answer-now reuses the normal chat system prompt, so
+                        # many models correctly start with ``FINISH``. Strip
+                        # that protocol label before it reaches the UI.
+                        _label, after_label = parsed
+                        label_resolved = True
+                        label_buf = ""
+                        await _emit_answer_chunk(after_label)
+                    elif len(label_buf) > LABEL_PROBE_MAX_CHARS:
+                        label_resolved = True
+                        buffered = label_buf
+                        label_buf = ""
+                        await _emit_answer_chunk(buffered)
+                    continue
+                await _emit_answer_chunk(chunk)
+            if not label_resolved and label_buf:
+                parsed = _classify_answer_now_label(label_buf, final=True)
+                if parsed is not None:
+                    _label, after_label = parsed
+                    await _emit_answer_chunk(after_label)
+                else:
+                    await _emit_answer_chunk(label_buf)
             await stream.progress(
                 "",
                 source="chat",
                 stage="responding",
                 metadata=merge_trace_metadata(
-                    trace_meta,
-                    {"trace_kind": "call_status", "call_state": "complete"},
+                    trace_meta, {"trace_kind": "call_status", "call_state": "complete"}
                 ),
             )
-            return clean_thinking_tags("".join(chunks), self.binding, self.model), trace_meta
+            final_text = clean_thinking_tags("".join(chunks), self.binding, self.model)
 
-    async def _run_native_tool_loop(
+        result_payload: dict[str, Any] = {
+            "response": final_text,
+            "answer_now": True,
+            "source_trace": trace_meta.get("label", "Answer now"),
+        }
+        await emit_capability_result(stream, result_payload, source="chat", usage=self._usage)
+
+    # ------------------------------------------------------------------
+    # Per-iteration marker (tells the model where it is in the budget)
+    # ------------------------------------------------------------------
+    def _append_iteration_marker(
         self,
-        context: UnifiedContext,
-        enabled_tools: list[str],
-        thinking_text: str,
-        stream: StreamBus,
-    ) -> list[ToolTrace]:
-        tool_schemas = self.registry.build_openai_schemas(enabled_tools)
-        messages = self._build_messages(
-            context=context,
-            system_prompt=self._acting_system_prompt(enabled_tools, context),
-            user_content=self._acting_user_prompt(context, thinking_text),
-        )
-        tool_traces: list[ToolTrace] = []
-        client = self._build_openai_client()
-        trace_meta = build_trace_metadata(
-            call_id=new_call_id("chat-acting"),
-            phase="acting",
-            label=self._text(zh="Tool call", en="Tool call"),
-            call_kind="tool_planning",
-            trace_id="chat-acting",
-            trace_role="tool",
-            trace_group="tool_call",
-        )
-        await stream.progress(
-            trace_meta["label"],
-            source="chat",
-            stage="acting",
-            metadata=merge_trace_metadata(
-                trace_meta,
-                {"trace_kind": "call_status", "call_state": "running"},
+        *,
+        messages: list[dict[str, Any]],
+        iteration: int,
+        max_iterations: int,
+    ) -> None:
+        """Append a ``role=user`` system-style note announcing the current
+        iteration so the LLM can pace itself.
+
+        Copy is YAML-driven (``iteration_marker``). Iteration is 0-indexed
+        internally; the marker shows ``current = iteration + 1`` to match
+        human counting. Markers from earlier iterations are kept in the
+        history so the model can also see how it has been spending its
+        budget across the turn.
+        """
+        current = iteration + 1
+        marker = self._t(
+            "iteration_marker",
+            default=(
+                f"[System note] You are at iteration {current}/{max_iterations} "
+                "of this turn. Once the maximum is reached, the next reply is "
+                "forced to be ``FINISH``."
             ),
+            current=current,
+            max=max_iterations,
         )
-        response = await client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            tools=tool_schemas,
-            tool_choice="auto",
-            **self._completion_kwargs(max_tokens=1500),
-        )
-        self._accumulate_usage(response)
-        if not response.choices:
-            return tool_traces
+        marker = (marker or "").strip()
+        if not marker:
+            return
+        messages.append({"role": "user", "content": marker})
 
-        choice = response.choices[0]
-        message = choice.message
-        assistant_content = self._message_text(message.content)
-        raw_tool_calls = list(message.tool_calls or [])
-
-        if assistant_content:
-            await stream.thinking(
-                assistant_content,
-                source="chat",
-                stage="acting",
-                metadata=merge_trace_metadata(trace_meta, {"trace_kind": "llm_output"}),
-            )
-
-        if not raw_tool_calls:
-            await stream.progress(
-                self._text(
-                    zh="本轮不需要调用工具。",
-                    en="No tool call was needed for this turn.",
-                ),
-                source="chat",
-                stage="acting",
-                metadata=merge_trace_metadata(trace_meta, {"trace_kind": "progress"}),
-            )
-            await stream.progress(
-                "",
-                source="chat",
-                stage="acting",
-                metadata=merge_trace_metadata(
-                    trace_meta,
-                    {"trace_kind": "call_status", "call_state": "complete"},
-                ),
-            )
-            return tool_traces
-
-        pending_calls: list[tuple[str, str, dict[str, Any]]] = []
-        if len(raw_tool_calls) > MAX_PARALLEL_TOOL_CALLS:
-            await stream.progress(
-                self._text(
-                    zh=f"模型请求了 {len(raw_tool_calls)} 个工具，本轮最多并行执行 {MAX_PARALLEL_TOOL_CALLS} 个，已截断。",
-                    en=(
-                        f"The model requested {len(raw_tool_calls)} tools. "
-                        f"At most {MAX_PARALLEL_TOOL_CALLS} can run in parallel in one turn, so the list was truncated."
-                    ),
-                ),
-                source="chat",
-                stage="acting",
-                metadata=merge_trace_metadata(trace_meta, {"trace_kind": "progress"}),
-            )
-        for tool_call in raw_tool_calls[:MAX_PARALLEL_TOOL_CALLS]:
-            tool_name = tool_call.function.name
-            tool_args = parse_json_response(
-                tool_call.function.arguments or "{}",
-                logger_instance=logger,
-                fallback={},
-            )
-            if not isinstance(tool_args, dict):
-                tool_args = {}
-            tool_args = self._augment_tool_kwargs(tool_name, tool_args, context, thinking_text)
-            pending_calls.append((tool_call.id, tool_name, tool_args))
-
-        for tool_index, (tool_call_id, tool_name, tool_args) in enumerate(pending_calls):
-            await stream.tool_call(
-                tool_name=tool_name,
-                args=tool_args,
-                source="chat",
-                stage="acting",
-                metadata=self._tool_trace_metadata(
-                    trace_meta,
-                    context=context,
-                    tool_call_id=tool_call_id,
-                    tool_name=tool_name,
-                    tool_index=tool_index,
-                ),
-            )
-
-        tool_results = await asyncio.gather(
-            *[
-                self._execute_tool_call(
-                    tool_name,
-                    tool_args,
-                    stream=stream,
-                    retrieve_meta=self._retrieve_trace_metadata(
-                        trace_meta,
-                        context=context,
-                        tool_call_id=tool_call_id,
-                        tool_name=tool_name,
-                        tool_index=tool_index,
-                        tool_args=tool_args,
-                    ),
-                )
-                for tool_index, (tool_call_id, tool_name, tool_args) in enumerate(pending_calls)
-            ]
-        )
-
-        for tool_index, ((tool_call_id, tool_name, tool_args), tool_result) in enumerate(
-            zip(pending_calls, tool_results, strict=False)
-        ):
-            result_text = tool_result["result_text"]
-            success = bool(tool_result["success"])
-            sources = tool_result["sources"]
-            metadata = tool_result["metadata"]
-            await stream.tool_result(
-                tool_name=tool_name,
-                result=result_text,
-                source="chat",
-                stage="acting",
-                metadata=self._tool_trace_metadata(
-                    trace_meta,
-                    context=context,
-                    tool_call_id=tool_call_id,
-                    tool_name=tool_name,
-                    tool_index=tool_index,
-                    trace_kind="tool_result",
-                ),
-            )
-
-            tool_traces.append(
-                ToolTrace(
-                    name=tool_name,
-                    arguments=tool_args,
-                    result=result_text,
-                    success=success,
-                    sources=sources,
-                    metadata=metadata,
-                )
-            )
-
-        await stream.progress(
-            "",
-            source="chat",
-            stage="acting",
-            metadata=merge_trace_metadata(
-                trace_meta,
-                {"trace_kind": "call_status", "call_state": "complete"},
-            ),
-        )
-
-        return tool_traces
-
-    async def _run_react_fallback(
+    # ------------------------------------------------------------------
+    # In-turn context-window guard
+    # ------------------------------------------------------------------
+    async def _guard_context_window(
         self,
-        context: UnifiedContext,
-        enabled_tools: list[str],
-        thinking_text: str,
+        messages: list[dict[str, Any]],
         stream: StreamBus,
-    ) -> list[ToolTrace]:
-        tool_traces: list[ToolTrace] = []
-        tool_table = self.registry.build_prompt_text(
-            enabled_tools,
-            format="table",
-            language=self.language,
-            control_actions=[
-                {
-                    "name": "done",
-                    "when_to_use": self._text(
-                        zh="当已有信息足够，且不需要继续调用工具时使用。",
-                        en="Use when the available information is sufficient and no more tools are needed.",
-                    ),
-                    "input_format": self._text(
-                        zh="空字符串。",
-                        en="Empty string.",
-                    ),
-                }
-            ],
-        )
-
-        trace_meta = build_trace_metadata(
-            call_id=new_call_id("chat-react"),
-            phase="acting",
-            label=self._text(zh="Tool call", en="Tool call"),
-            call_kind="tool_planning",
-            trace_id="chat-react",
-            trace_role="tool",
-            trace_group="tool_call",
-        )
-        await stream.progress(
-            trace_meta["label"],
-            source="chat",
-            stage="acting",
-            metadata=merge_trace_metadata(
-                trace_meta,
-                {"trace_kind": "call_status", "call_state": "running"},
-            ),
-        )
-        _fb_prompt = self._acting_user_prompt(context, thinking_text)
-        _fb_system = self._react_fallback_system_prompt(tool_table)
-        _chunks: list[str] = []
-        async for _c in llm_stream(
-            prompt=_fb_prompt,
-            system_prompt=_fb_system,
-            model=self.model,
-            api_key=self.api_key,
-            base_url=self.base_url,
-            api_version=self.api_version,
-            binding=self.binding,
-            response_format={"type": "json_object"}
-            if supports_response_format(self.binding, self.model)
-            else None,
-            **self._completion_kwargs(max_tokens=800),
-        ):
-            _chunks.append(_c)
-        response = "".join(_chunks)
-        _fb_in = int((len(_fb_prompt) + len(_fb_system)) / 3.5)
-        _fb_out = int(len(response) / 3.5)
-        self._usage["prompt_tokens"] += _fb_in
-        self._usage["completion_tokens"] += _fb_out
-        self._usage["total_tokens"] += _fb_in + _fb_out
-        self._usage["calls"] += 1
-
-        payload = parse_json_response(response, logger_instance=logger, fallback={})
-        if not isinstance(payload, dict):
-            payload = {}
-
-        action = str(payload.get("action") or "done").strip()
-        action_input = payload.get("action_input") or {}
-        if not isinstance(action_input, dict):
-            action_input = {}
-
-        if action == "done":
-            if response:
-                await stream.thinking(
-                    response,
-                    source="chat",
-                    stage="acting",
-                    metadata=merge_trace_metadata(trace_meta, {"trace_kind": "llm_output"}),
-                )
-            await stream.progress(
-                self._text(
-                    zh="本轮不需要调用工具。",
-                    en="No tool call was needed for this turn.",
-                ),
-                source="chat",
-                stage="acting",
-                metadata=merge_trace_metadata(trace_meta, {"trace_kind": "progress"}),
-            )
-            await stream.progress(
-                "",
-                source="chat",
-                stage="acting",
-                metadata=merge_trace_metadata(
-                    trace_meta,
-                    {"trace_kind": "call_status", "call_state": "complete"},
-                ),
-            )
-            return tool_traces
-
-        tool_args = self._augment_tool_kwargs(action, action_input, context, thinking_text)
-        if response:
-            await stream.thinking(
-                response,
-                source="chat",
-                stage="acting",
-                metadata=merge_trace_metadata(trace_meta, {"trace_kind": "llm_output"}),
-            )
-        await stream.tool_call(
-            tool_name=action,
-            args=tool_args,
-            source="chat",
-            stage="acting",
-            metadata=merge_trace_metadata(
-                trace_meta,
-                {"trace_kind": "tool_call", "trace_role": "tool", "tool_name": action},
-            ),
-        )
-
+    ) -> None:
+        """Replace oldest tool-result contents with a snip marker until the
+        total token count fits under ``CONTEXT_WINDOW_GUARD_RATIO`` of the
+        model's effective window. Never touches the system message or the
+        original user message — only ``role == 'tool'`` payloads. Cross-turn
+        history compression is handled separately by ``ContextBuilder``.
+        """
         try:
-            result = await self._execute_tool_call(
-                action,
-                tool_args,
-                stream=stream,
-                retrieve_meta=self._retrieve_trace_metadata(
-                    trace_meta,
-                    context=context,
-                    tool_call_id="chat-react-tool",
-                    tool_name=action,
-                    tool_index=0,
-                    tool_args=tool_args,
-                ),
+            window = resolve_effective_context_window(
+                context_window=getattr(self.llm_config, "context_window", None),
+                model=str(self.model or ""),
+                max_tokens=getattr(self.llm_config, "max_tokens", None),
             )
-            result_text = result["result_text"]
-            success = result["success"]
-            sources = result["sources"]
-            metadata = result["metadata"]
         except Exception:
-            logger.error("Fallback tool %s failed", action, exc_info=True)
-            result_text = self._text(
-                zh=f"执行工具 {action} 时发生未知错误。",
-                en=f"An unknown error occurred while executing {action}.",
+            return
+        if not window or window <= 0:
+            return
+        budget = int(window * CONTEXT_WINDOW_GUARD_RATIO)
+        if self._estimate_messages_tokens(messages) <= budget:
+            return
+        snipped = False
+        for msg in messages:
+            if msg.get("role") != "tool":
+                continue
+            current_content = msg.get("content")
+            if current_content == TOOL_RESULT_SNIP_MARKER:
+                continue
+            msg["content"] = TOOL_RESULT_SNIP_MARKER
+            snipped = True
+            if self._estimate_messages_tokens(messages) <= budget:
+                break
+        if snipped:
+            await stream.progress(
+                self._t("notices.context_window_guard"),
+                source="chat",
+                stage="responding",
+                metadata={"trace_kind": "warning"},
             )
-            success = False
-            sources = []
-            metadata = {"error": result_text}
 
-        await stream.tool_result(
-            tool_name=action,
-            result=result_text,
-            source="chat",
-            stage="acting",
-            metadata=merge_trace_metadata(
-                trace_meta,
-                {"trace_kind": "tool_result", "trace_role": "tool", "tool_name": action},
-            ),
+    @staticmethod
+    def _estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
+        # Local import to break the agents.chat ↔ services.session import
+        # cycle (context_builder pulls in agents.base_agent which re-enters
+        # this module during package init).
+        from deeptutor.services.session.context_builder import count_tokens
+
+        total = 0
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, str):
+                total += count_tokens(content)
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        total += count_tokens(str(part.get("text") or ""))
+        return total
+
+    # ------------------------------------------------------------------
+    # System prompt + message construction
+    # ------------------------------------------------------------------
+    def _build_system_prompt(
+        self,
+        enabled_tools: list[str],
+        context: UnifiedContext,
+    ) -> str:
+        # ``list_with_usage`` renders one bullet per tool including the
+        # tool's ``when_to_use`` and ``input_format`` — pulled from per-tool
+        # YAML under ``deeptutor/tools/prompting/hints/{lang}/{tool}.yaml``.
+        # This is the only place per-tool guidance enters the chat persona
+        # prompt: disabled tools contribute nothing, so the model never sees
+        # instructions for tools it cannot call.
+        tool_list = self.registry.build_prompt_text(
+            enabled_tools,
+            format="list_with_usage",
+            language=self.language,
         )
-        tool_traces.append(
-            ToolTrace(
-                name=action,
-                arguments=tool_args,
-                result=result_text,
-                success=success,
-                sources=sources,
-                metadata=metadata,
+        system = self._t(
+            "system",
+            tool_list=tool_list or self._fallback_empty_tool_list(),
+            kb_note=self._kb_system_note(context),
+        )
+        return append_language_directive(system, self.language)
+
+    def _append_reasoner_protocol_note(self, system_prompt: str) -> str:
+        """Append a note for reasoning models that support native tool calling.
+
+        Reasoning models (e.g. Qwen3.6-Plus) emit reasoning via
+        ``reasoning_content`` and tool calls via native ``tool_calls``
+        deltas. The reasoning stream is displayed separately, but the
+        formal ``content`` stream still controls the agent loop through the
+        standard first-line label.
+        """
+        if self.language == "zh":
+            note = (
+                "\n\n# 推理模型特别说明\n"
+                "你是一个原生支持推理和工具调用的模型。"
+                "你的推理过程会自动在独立的思考轨迹区域显示；"
+                "但正式回复正文仍然必须遵守上面的「输出协议」，第一行写且只写一个标签："
+                "``FINISH``、``TOOL``、``THINK`` 或 ``PAUSE``。"
+                "需要调用工具时，正式正文第一行写 ``TOOL``，并在同一次回复里通过原生 tool_calls 发起调用；"
+                "不要把工具调用写成 JSON 文本。"
+                "准备给最终答案时，正式正文第一行写 ``FINISH``。"
             )
-        )
-        await stream.progress(
-            "",
-            source="chat",
-            stage="acting",
-            metadata=merge_trace_metadata(
-                trace_meta,
-                {"trace_kind": "call_status", "call_state": "complete"},
-            ),
-        )
-
-        return tool_traces
+        else:
+            note = (
+                "\n\n# Reasoning Model Special Instructions\n"
+                "You are a model with native reasoning and tool-calling support. "
+                "Your reasoning is automatically displayed in a separate trace, "
+                "but your formal content stream must still follow the Output "
+                "Protocol above: the first line must be exactly one label, "
+                "``FINISH``, ``TOOL``, ``THINK``, or ``PAUSE``. "
+                "When you need a tool, put ``TOOL`` on the first line and emit "
+                "real native tool_calls in the same reply; do NOT write tool-call "
+                "JSON as text. When you are ready to answer, put ``FINISH`` on "
+                "the first line."
+            )
+        return system_prompt + note
 
     def _build_messages(
         self,
+        *,
         context: UnifiedContext,
         system_prompt: str,
         user_content: str,
     ) -> list[dict[str, Any]]:
+        """Assemble ``[system] + history + user``.
+
+        ``memory_context``, ``skills_context``, ``source_manifest``, and
+        the notebook manifest are appended as separate ``---``-delimited
+        sections after the main system prompt so prompt caching stays
+        effective when only the manifest tail changes between turns.
+        """
         system_parts = [system_prompt]
         if context.memory_context:
             system_parts.append(context.memory_context)
-
+        if context.skills_context:
+            system_parts.append(context.skills_context)
+        if context.source_manifest:
+            system_parts.append(context.source_manifest)
+        notebook_manifest = self._build_notebook_manifest()
+        if notebook_manifest:
+            system_parts.append(notebook_manifest)
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": "\n\n".join(system_parts)}
+            {"role": "system", "content": "\n\n---\n\n".join(system_parts)}
         ]
         for item in context.conversation_history:
             role = item.get("role")
@@ -870,232 +1310,201 @@ class AgenticChatPipeline:
         self,
         messages: list[dict[str, Any]],
         context: UnifiedContext,
-    ) -> tuple[list[dict[str, Any]], bool]:
+    ) -> list[dict[str, Any]]:
+        # Stage-1: images are injected for every model. A model that cannot
+        # actually handle them degrades to text-only via the Stage-2 fallback
+        # in ``labeled_step`` (it strips images and retries) rather than here.
         mm_result = prepare_multimodal_messages(
             messages,
             context.attachments,
             binding=self.binding,
             model=self.model,
         )
-        return mm_result.messages, mm_result.images_stripped
+        return mm_result.messages
 
-    async def _stream_messages(
-        self,
-        messages: list[dict[str, Any]],
-        max_tokens: int,
-    ):
-        output_chars = 0
-        async for chunk in llm_stream(
-            prompt="",
-            system_prompt="You are a helpful AI assistant.",
-            model=self.model,
-            api_key=self.api_key,
-            base_url=self.base_url,
-            api_version=self.api_version,
-            binding=self.binding,
-            messages=messages,
-            **self._completion_kwargs(max_tokens=max_tokens),
-        ):
-            output_chars += len(chunk)
-            yield chunk
-        input_chars = sum(len(str(m.get("content", ""))) for m in messages)
-        est_input = int(input_chars / 3.5)
-        est_output = int(output_chars / 3.5)
-        self._usage["prompt_tokens"] += est_input
-        self._usage["completion_tokens"] += est_output
-        self._usage["total_tokens"] += est_input + est_output
-        self._usage["calls"] += 1
+    # ------------------------------------------------------------------
+    # Tool selection + scheme construction
+    # ------------------------------------------------------------------
+    def _compose_enabled_tools(self, context: UnifiedContext) -> list[str]:
+        """Resolve the tool set for this turn via the shared composition policy.
 
-    def _build_openai_client(self):
-        http_client = None
-        if os.getenv("DISABLE_SSL_VERIFY", "").lower() in ("true", "1", "yes"):
-            http_client = httpx.AsyncClient(verify=False)  # nosec B501
+        Auto-mount flags are resolved against chat's own context:
 
-        if self.binding == "azure_openai" or (self.binding == "openai" and self.api_version):
-            return AsyncAzureOpenAI(
-                api_key=self.api_key or "sk-no-key-required",
-                azure_endpoint=self.base_url,
-                api_version=self.api_version,
-                http_client=http_client,
-            )
-        return AsyncOpenAI(
-            api_key=self.api_key or "sk-no-key-required",
-            base_url=self.base_url or None,
-            http_client=http_client,
+        - ``has_kb`` — iff the user attached any KB.
+        - ``has_sources`` — iff the turn has a non-empty source index
+          (notebook / book / history / question / attachment).
+        - ``has_memory`` — iff the active user has memory content.
+        - ``has_notebooks`` — iff the active user has at least one notebook.
+        """
+        return compose_enabled_tools(
+            registry=self.registry,
+            requested_tools=context.enabled_tools,
+            optional_whitelist=CHAT_OPTIONAL_TOOLS,
+            mount_flags=ToolMountFlags(
+                has_kb=bool(self._selected_kbs(context)),
+                has_sources=bool(self._source_index(context)),
+                has_memory=user_has_memory(),
+                has_notebooks=user_has_notebooks(),
+            ),
         )
 
-    def _completion_kwargs(self, max_tokens: int) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {"temperature": 0.2}
-        if self.model:
-            kwargs.update(get_token_limit_kwargs(self.model, max_tokens))
-        return kwargs
+    def _build_llm_tool_schemas(
+        self,
+        enabled_tools: list[str],
+        context: UnifiedContext,
+    ) -> list[dict[str, Any]]:
+        """Return per-turn OpenAI tool schemas, with per-tool constraints.
 
-    def _can_use_native_tool_calling(self) -> bool:
-        if not supports_tools(self.binding, self.model):
-            return False
-        return self.binding not in {"anthropic", "claude", "ollama", "lm_studio", "vllm", "llama_cpp"}
+        - ``rag.kb_name`` is restricted to the attached KBs as an enum.
+        - ``read_source.source_id`` is restricted to the attached source
+          ids as an enum (this makes the LLM less likely to hallucinate
+          ids and lets the OpenAI SDK validate the call client-side).
+        - ``save_to_notebook.notebook_id`` is restricted to the active
+          user's actual notebook ids — mirrors the dropdown a human sees
+          in the Save-to-Notebook dialog so the model literally cannot
+          save into a notebook the user doesn't have.
+        """
+        schemas = self.registry.build_openai_schemas(enabled_tools)
+        kb_choices = self._selected_kbs(context)
+        source_ids = sorted((self._source_index(context) or {}).keys())
+        notebook_choices = self._notebook_choices()
+        for schema in schemas:
+            function = schema.get("function") if isinstance(schema, dict) else None
+            if not isinstance(function, dict):
+                continue
+            parameters = function.get("parameters")
+            if not isinstance(parameters, dict):
+                continue
+            properties = parameters.get("properties") or {}
+            if function.get("name") == "rag" and isinstance(properties, dict):
+                query_schema = properties.get("query")
+                if isinstance(query_schema, dict):
+                    query_schema.setdefault("minLength", 1)
+                kb_schema = properties.get("kb_name")
+                if isinstance(kb_schema, dict):
+                    kb_schema["enum"] = kb_choices
+            if function.get("name") == "read_source" and isinstance(properties, dict):
+                sid_schema = properties.get("source_id")
+                if isinstance(sid_schema, dict) and source_ids:
+                    sid_schema["enum"] = source_ids
+            if function.get("name") == "geogebra_analysis" and isinstance(properties, dict):
+                # ``image_base64`` is server-side injected from the turn's
+                # image attachment; hide it from the LLM-visible schema so
+                # the model doesn't try to fabricate a value.
+                properties.pop("image_base64", None)
+                required = parameters.get("required")
+                if isinstance(required, list):
+                    parameters["required"] = [name for name in required if name != "image_base64"]
+            if (
+                function.get("name") in {"list_notebook", "write_note"}
+                and isinstance(properties, dict)
+                and notebook_choices
+            ):
+                nb_schema = properties.get("notebook_id")
+                if isinstance(nb_schema, dict):
+                    nb_schema["enum"] = [choice["id"] for choice in notebook_choices]
+                    nb_choices_render = "; ".join(
+                        f"{c['id']} = {c['name']}" for c in notebook_choices
+                    )
+                    nb_schema["description"] = (
+                        f"{nb_schema.get('description', '').rstrip(' .')}. "
+                        f"Available: {nb_choices_render}."
+                    )
+            parameters["additionalProperties"] = False
+        return schemas
 
-    def _normalize_enabled_tools(self, enabled_tools: list[str] | None) -> list[str]:
-        selected = enabled_tools or []
-        return [
-            tool.name
-            for tool in self.registry.get_enabled(selected)
-            if tool.name not in CHAT_EXCLUDED_TOOLS
-        ]
+    def _build_notebook_manifest(self) -> str:
+        """Render the user's notebooks as a system-prompt index block.
+
+        Always-on (when the user has notebooks): keeps the LLM grounded in
+        the real notebook names + ids + record counts so it never invents
+        notebook names when asking the user where to save. The block is
+        tiny (one line per notebook), capped at ~30 entries to protect the
+        context window. Heavy listing belongs to the ``list_notebook`` tool
+        — this is the "always visible at a glance" affordance only.
+        """
+        choices = self._notebook_choices_full()
+        if not choices:
+            return ""
+        capped = choices[:30]
+        if self.language == "zh":
+            lines = ["[用户的笔记本列表]"]
+        else:
+            lines = ["[User's notebooks]"]
+        for entry in capped:
+            nid = entry.get("id", "")
+            name = entry.get("name", nid)
+            count = entry.get("record_count", 0)
+            lines.append(f"- `{nid}` — {name} ({count} records)")
+        if len(choices) > len(capped):
+            lines.append(
+                f"… (+{len(choices) - len(capped)} more — call `list_notebook` to see the rest)"
+            )
+        if self.language == "zh":
+            lines.append(
+                "（要列出某笔记本里的具体记录，用 `list_notebook(notebook_id=...)`；要新增或编辑记录，用 `write_note`。）"
+            )
+        else:
+            lines.append(
+                "(Use `list_notebook(notebook_id=...)` to drill into one; use `write_note` to append / edit records.)"
+            )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _notebook_choices_full() -> list[dict[str, Any]]:
+        try:
+            from deeptutor.services.notebook import get_notebook_manager
+
+            notebooks = get_notebook_manager().list_notebooks() or []
+        except Exception:
+            return []
+        rows: list[dict[str, Any]] = []
+        for nb in notebooks:
+            nid = str(nb.get("id") or "").strip()
+            if not nid:
+                continue
+            name = str(nb.get("name") or nb.get("title") or nid).strip() or nid
+            count = nb.get("record_count")
+            if not isinstance(count, int):
+                try:
+                    count = int(count or 0)
+                except (TypeError, ValueError):
+                    count = 0
+            rows.append({"id": nid, "name": name, "record_count": count})
+        return rows
+
+    @staticmethod
+    def _notebook_choices() -> list[dict[str, str]]:
+        """List the active user's notebooks as ``[{id, name}]`` rows."""
+        try:
+            from deeptutor.services.notebook import get_notebook_manager
+
+            notebooks = get_notebook_manager().list_notebooks() or []
+        except Exception:
+            return []
+        choices: list[dict[str, str]] = []
+        for nb in notebooks:
+            nid = str(nb.get("id") or "").strip()
+            if not nid:
+                continue
+            name = str(nb.get("name") or nb.get("title") or nid).strip() or nid
+            choices.append({"id": nid, "name": name})
+        return choices
 
     @staticmethod
     def _extract_answer_now_context(context: UnifiedContext) -> dict[str, Any] | None:
-        raw = context.config_overrides.get("answer_now_context")
-        if not isinstance(raw, dict):
-            return None
-        original_user_message = str(raw.get("original_user_message") or "").strip()
-        if not original_user_message:
-            return None
-        return raw
+        from deeptutor.capabilities._answer_now import extract_answer_now_context
 
-    async def _execute_tool_call(
-        self,
-        tool_name: str,
-        tool_args: dict[str, Any],
-        *,
-        stream: StreamBus | None = None,
-        retrieve_meta: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        async def _event_sink(
-            event_type: str,
-            message: str = "",
-            metadata: dict[str, Any] | None = None,
-        ) -> None:
-            if stream is None or retrieve_meta is None or not message:
-                return
-            await stream.progress(
-                message,
-                source="chat",
-                stage="acting",
-                metadata=derive_trace_metadata(
-                    retrieve_meta,
-                    trace_kind=str(event_type or "tool_log"),
-                    **(metadata or {}),
-                ),
-            )
+        return extract_answer_now_context(context)
 
-        if stream is not None and retrieve_meta is not None:
-            query = str(retrieve_meta.get("query") or tool_args.get("query") or "").strip()
-            await stream.progress(
-                f"Query: {query}" if query else self._text(zh="开始检索", en="Starting retrieval"),
-                source="chat",
-                stage="acting",
-                metadata=derive_trace_metadata(
-                    retrieve_meta,
-                    trace_kind="call_status",
-                    call_state="running",
-                ),
-            )
-        try:
-            result = await self.registry.execute(
-                tool_name,
-                event_sink=_event_sink if retrieve_meta is not None else None,
-                **tool_args,
-            )
-            if stream is not None and retrieve_meta is not None:
-                await stream.progress(
-                    f"Retrieve complete ({len(result.content)} chars)",
-                    source="chat",
-                    stage="acting",
-                    metadata=derive_trace_metadata(
-                        retrieve_meta,
-                        trace_kind="call_status",
-                        call_state="complete",
-                    ),
-                )
-            return {
-                "result_text": result.content
-                or self._text(
-                    zh="工具执行完成，但没有返回文本内容。",
-                    en="The tool completed without returning text output.",
-                ),
-                "success": result.success,
-                "sources": result.sources,
-                "metadata": result.metadata,
-            }
-        except Exception as exc:
-            logger.error("Tool %s failed", tool_name, exc_info=True)
-            if stream is not None and retrieve_meta is not None:
-                await stream.error(
-                    f"Retrieve failed: {exc}",
-                    source="chat",
-                    stage="acting",
-                    metadata=derive_trace_metadata(
-                        retrieve_meta,
-                        trace_kind="call_status",
-                        call_state="error",
-                        error=str(exc),
-                    ),
-                )
-            return {
-                "result_text": f"Error executing {tool_name}: {exc}",
-                "success": False,
-                "sources": [],
-                "metadata": {"error": str(exc)},
-            }
-
-    def _tool_trace_metadata(
-        self,
-        trace_meta: dict[str, Any],
-        *,
-        context: UnifiedContext,
-        tool_call_id: str,
-        tool_name: str,
-        tool_index: int,
-        trace_kind: str = "tool_call",
-    ) -> dict[str, Any]:
-        return merge_trace_metadata(
-            trace_meta,
-            {
-                "trace_kind": trace_kind,
-                "trace_role": "tool",
-                "tool_call_id": tool_call_id,
-                "tool_name": tool_name,
-                "tool_index": tool_index,
-                "session_id": context.session_id,
-                "turn_id": str(context.metadata.get("turn_id", "")),
-            },
-        )
-
-    def _retrieve_trace_metadata(
-        self,
-        trace_meta: dict[str, Any],
-        *,
-        context: UnifiedContext,
-        tool_call_id: str,
-        tool_name: str,
-        tool_index: int,
-        tool_args: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        if tool_name != "rag":
-            return None
-        return derive_trace_metadata(
-            trace_meta,
-            call_id=new_call_id(f"chat-retrieve-{tool_index + 1}"),
-            label=self._text(zh="Retrieve", en="Retrieve"),
-            call_kind="rag_retrieval",
-            trace_role="retrieve",
-            trace_group="retrieve",
-            trace_id=f"{trace_meta.get('trace_id', 'chat')}-retrieve-{tool_index + 1}",
-            tool_call_id=tool_call_id,
-            tool_name=tool_name,
-            tool_index=tool_index,
-            session_id=context.session_id,
-            turn_id=str(context.metadata.get("turn_id", "")),
-            query=str(tool_args.get("query", "") or ""),
-        )
-
+    # ------------------------------------------------------------------
+    # Tool kwarg augmentation
+    # ------------------------------------------------------------------
     def _augment_tool_kwargs(
         self,
         tool_name: str,
         args: dict[str, Any],
         context: UnifiedContext,
-        thinking_text: str,
     ) -> dict[str, Any]:
         from deeptutor.services.path_service import get_path_service
 
@@ -1104,8 +1513,7 @@ class AgenticChatPipeline:
         task_dir = None
         if turn_id:
             task_dir = get_path_service().get_task_workspace("chat", turn_id)
-        if tool_name == "rag" and context.knowledge_bases:
-            kwargs.setdefault("kb_name", context.knowledge_bases[0])
+        if tool_name == "rag":
             kwargs.setdefault("mode", "hybrid")
         elif tool_name == "code_execution":
             kwargs.setdefault("intent", context.user_message)
@@ -1116,7 +1524,7 @@ class AgenticChatPipeline:
             if task_dir is not None:
                 kwargs.setdefault("workspace_dir", str(task_dir / "code_runs"))
         elif tool_name in {"reason", "brainstorm"}:
-            kwargs.setdefault("context", thinking_text)
+            kwargs.setdefault("context", context.user_message)
         elif tool_name == "paper_search":
             kwargs.setdefault("max_results", 3)
             kwargs.setdefault("years_limit", 3)
@@ -1125,262 +1533,301 @@ class AgenticChatPipeline:
             kwargs.setdefault("query", context.user_message)
             if task_dir is not None:
                 kwargs.setdefault("output_dir", str(task_dir / "web_search"))
+        elif tool_name == "read_source":
+            # ReadSourceTool reads from this per-turn map rather than from
+            # any shared state, so each turn's sources stay isolated.
+            kwargs["source_index"] = self._source_index(context)
+        elif tool_name == "write_note":
+            # The tool assembles the transcript body itself from the
+            # conversation history (so the saved record is real Q&A, not
+            # an LLM-authored summary). Inject the history snapshot +
+            # current user message; the LLM never sees these as arguments
+            # — they're stripped from the JSON schema and populated
+            # server-side.
+            kwargs["conversation_history"] = list(context.conversation_history or [])
+            kwargs["current_user_message"] = context.user_message or ""
+        elif tool_name == "geogebra_analysis":
+            # The LLM never has access to the raw image bytes — we
+            # unconditionally inject the first image attachment's base64
+            # here (overwriting any value the LLM may have hallucinated
+            # into the kwarg). Without this, the underlying
+            # VisionSolverAgent would fail fast with "No image provided."
+            first_image = next(
+                (
+                    att
+                    for att in (context.attachments or [])
+                    if getattr(att, "type", "") == "image" and getattr(att, "base64", "")
+                ),
+                None,
+            )
+            if first_image is not None:
+                # Attachment.base64 is the raw base64 payload (no data-URI
+                # prefix), but VisionSolverAgent feeds the value straight into
+                # an OpenAI ``image_url.url`` field which requires the data
+                # URI form. Wrap it here so the vision LLM accepts the image
+                # instead of silently failing all four pipeline stages.
+                raw_b64 = first_image.base64
+                if raw_b64.startswith("data:"):
+                    kwargs["image_base64"] = raw_b64
+                else:
+                    mime = getattr(first_image, "mime_type", "") or "image/png"
+                    kwargs["image_base64"] = f"data:{mime};base64,{raw_b64}"
+            # Force the session language; this tool does not expose ``language``
+            # as an LLM-visible parameter, so an override here would only come
+            # from a hallucinated kwarg.
+            kwargs["language"] = context.language or "zh"
         return kwargs
 
-    def _acting_system_prompt(self, enabled_tools: list[str], context: UnifiedContext) -> str:
-        kb_name = context.knowledge_bases[0] if context.knowledge_bases else ""
-        tool_list = self.registry.build_prompt_text(
-            enabled_tools,
-            format="list",
-            language=self.language,
-            kb_name=kb_name,
-        )
-        tool_aliases = self.registry.build_prompt_text(
-            enabled_tools,
-            format="aliases",
-            language=self.language,
-        )
-        return self._text(
-            zh=(
-                "你是 DeepTutor 的工具调用代理。你的任务是根据用户问题和前序 thinking，"
-                "从当前已启用的工具中自主选择必要工具并调用。"
-                "\n\n规则：\n"
-                "1. 先完整审视所有已启用工具，再决定最有帮助的工具组合；不要只盯住单个工具。\n"
-                "2. 对于需要定义、事实核验、外部资料、论文、计算、推理等不同信息面的复杂问题，优先并行调用多个互补工具来覆盖这些信息面。\n"
-                "3. 只调用真正有帮助的工具，但只要工具能显著提升答案质量，就应充分调用。\n"
-                "4. 参数要具体、可执行，优先使用用户原问题中的关键信息，必要时针对不同工具改写成最适合它的查询。\n"
-                "5. 如果信息已经足够，可以不调用工具。\n"
-                "6. 不要输出最终回答给学生；这里只负责工具选择与调用。\n"
-                f"7. 单轮最多并行调用 {MAX_PARALLEL_TOOL_CALLS} 个工具；如果有多个互补工具都相关，优先在同一轮一起调用。\n\n"
-                f"当前可用工具：\n{tool_list or '- 无'}\n\n"
-                f"工具使用提示：\n{tool_aliases or '- 无'}"
-            ),
-            en=(
-                "You are DeepTutor's tool-using agent. Based on the user request and prior thinking, "
-                "autonomously choose and call only the enabled tools that are truly helpful."
-                "\n\nRules:\n"
-                "1. Review the full enabled tool list before deciding; do not fixate on a single tool too early.\n"
-                "2. For complex questions that need definitions, grounding, outside evidence, papers, calculation, or deeper reasoning, prefer calling multiple complementary tools in parallel so each one covers a distinct information need.\n"
-                "3. Call tools only when they add value, but when they materially improve answer quality you should use them fully.\n"
-                "4. Use concrete, executable arguments grounded in the user's request, and adapt the wording when different tools need different query styles.\n"
-                "5. If enough evidence already exists, you may skip tool use.\n"
-                "6. Do not produce the final student-facing answer here; this stage is only for tool use.\n"
-                f"7. At most {MAX_PARALLEL_TOOL_CALLS} tools may run in parallel in one turn; if several complementary tools are relevant, prefer issuing them together in the same turn.\n\n"
-                f"Enabled tools:\n{tool_list or '- none'}\n\n"
-                f"Tool usage notes:\n{tool_aliases or '- none'}"
-            ),
-        )
+    # ------------------------------------------------------------------
+    # Tool / KB metadata helpers
+    # ------------------------------------------------------------------
+    def _retrieve_trace_metadata(
+        self,
+        tool_meta: dict[str, Any],
+        *,
+        context: UnifiedContext,
+        tool_name: str,
+        tool_args: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Retrieve-flavoured metadata for ``rag`` progress events.
 
-    def _react_fallback_system_prompt(self, tool_table: str) -> str:
-        return self._text(
-            zh=(
-                "你是 DeepTutor 的 ReAct 工具代理。你必须只输出一个 JSON 对象，不要输出其他文本。\n\n"
-                "JSON 格式：\n"
-                '{\n  "action": "<tool_name_or_done>",\n  "action_input": { ... }\n}\n\n'
-                "可选动作如下：\n"
-                f"{tool_table}\n\n"
-                "先基于用户问题和可用工具列表判断是否真的需要工具；若需要，请选择最能补足关键信息缺口的那个工具。"
-                "如果不需要工具，请输出 action=done。"
-            ),
-            en=(
-                "You are DeepTutor's ReAct tool agent. Output exactly one JSON object and nothing else.\n\n"
-                "JSON format:\n"
-                '{\n  "action": "<tool_name_or_done>",\n  "action_input": { ... }\n}\n\n'
-                "Available actions:\n"
-                f"{tool_table}\n\n"
-                "Decide from the user request and the full enabled tool list whether tool use is truly needed; if it is, choose the single tool that best closes the most important information gap. "
-                "If no tool is needed, set action=done."
-            ),
-        )
-
-    def _thinking_system_prompt(self, enabled_tools: list[str], context: UnifiedContext) -> str:
-        kb_name = context.knowledge_bases[0] if context.knowledge_bases else ""
-        tool_list = self.registry.build_prompt_text(
-            enabled_tools,
-            format="list",
-            language=self.language,
-            kb_name=kb_name,
-        )
-        return self._text(
-            zh=(
-                "你是 DeepTutor 的 thinking 阶段。请先分析用户问题，判断目标、已知条件、缺失信息，"
-                "并思考是否需要后续工具调用。这里输出的是 tutor 的内部思路，不是最终回复。"
-                "\n\n要求：\n"
-                "1. 流式、简洁、自然地输出思考过程。\n"
-                "2. 可以明确指出你预计会使用哪些工具，但此阶段不要真正调用工具。\n"
-                "3. 如果用户开启了工具，请结合可用工具来规划。\n\n"
-                f"当前启用工具：\n{tool_list or '- 无'}"
-            ),
-            en=(
-                "You are DeepTutor's thinking stage. Analyze the user's request, identify goals, constraints, "
-                "missing information, and whether later tool use is needed. This is the tutor's internal reasoning, "
-                "not the final answer.\n\n"
-                "Requirements:\n"
-                "1. Stream concise, natural reasoning.\n"
-                "2. You may mention which tools seem useful, but do not call tools in this stage.\n"
-                "3. If tools are enabled, factor them into your plan.\n\n"
-                f"Enabled tools:\n{tool_list or '- none'}"
-            ),
-        )
-
-    def _observing_system_prompt(self, enabled_tools: list[str]) -> str:
-        tool_list = self.registry.build_prompt_text(
-            enabled_tools,
-            format="list",
-            language=self.language,
-        )
-        return self._text(
-            zh=(
-                "你是 DeepTutor 的 observing 阶段。请基于 thinking 和 acting 阶段的输出，"
-                "整理一份内部观察总结，供最终回答阶段使用。不要直接回答学生。"
-                "\n\n优先总结：\n"
-                "1. 已确认的事实与结论\n"
-                "2. 工具结果带来的关键证据\n"
-                "3. 仍需在最终回答中解释清楚的点\n\n"
-                f"本轮可用工具背景：\n{tool_list or '- 无'}"
-            ),
-            en=(
-                "You are DeepTutor's observing stage. Based on the outputs from the thinking and acting stages, "
-                "prepare an internal synthesis for the final answer stage. Do not answer the student directly.\n\n"
-                "Prioritize:\n"
-                "1. confirmed facts and conclusions\n"
-                "2. key evidence from tool outputs\n"
-                "3. what the final answer must explain clearly\n\n"
-                f"Tool context for this turn:\n{tool_list or '- none'}"
-            ),
-        )
-
-    def _responding_system_prompt(self, enabled_tools: list[str]) -> str:
-        tool_list = self.registry.build_prompt_text(
-            enabled_tools,
-            format="list",
-            language=self.language,
-        )
-        return self._text(
-            zh=(
-                "你是 DeepTutor 的最终回答阶段。请根据 observation 和工具结果，"
-                "给用户一个清晰、直接、结构良好的正式答复。"
-                "\n\n要求：\n"
-                "1. 只输出面向用户的正式回答。\n"
-                "2. 不要暴露内部链路、思考过程或工具编排。\n"
-                "3. 若工具结果提供了证据或限制，请自然融入答案。\n\n"
-                f"本轮工具背景：\n{tool_list or '- 无'}"
-            ),
-            en=(
-                "You are DeepTutor's final response stage. Use the observation and tool evidence to provide a clear, "
-                "direct, well-structured answer to the user.\n\n"
-                "Requirements:\n"
-                "1. Output only the final user-facing answer.\n"
-                "2. Do not reveal the internal chain, reasoning, or tool orchestration.\n"
-                "3. Naturally integrate evidence or limits surfaced by the tools.\n\n"
-                f"Tool context for this turn:\n{tool_list or '- none'}"
-            ),
-        )
-
-    def _acting_user_prompt(self, context: UnifiedContext, thinking_text: str) -> str:
-        return self._text(
-            zh=(
-                f"用户问题：\n{context.user_message}\n\n"
-                f"{self._labeled_block('Thinking', thinking_text)}\n\n"
-                "请先基于问题与全部可用工具，判断有哪些信息缺口需要工具补足。"
-                f"如果需要，请尽量在同一轮并行调用多个互补工具，但总数不要超过 {MAX_PARALLEL_TOOL_CALLS} 个。"
-            ),
-            en=(
-                f"User request:\n{context.user_message}\n\n"
-                f"{self._labeled_block('Thinking', thinking_text)}\n\n"
-                "First reason about which information gaps require tools, using the full enabled tool list. "
-                f"If tool use is needed, prefer calling multiple complementary tools in the same turn, up to {MAX_PARALLEL_TOOL_CALLS} total."
-            ),
-        )
-
-    def _format_tool_traces(self, tool_traces: list[ToolTrace]) -> str:
-        if not tool_traces:
-            return self._text(
-                zh="本轮没有实际工具调用。",
-                en="No tools were actually called in this turn.",
-            )
-
-        blocks: list[str] = []
-        for idx, trace in enumerate(tool_traces, start=1):
-            blocks.append(
-                "\n".join(
-                    [
-                        f"{idx}. {trace.name}",
-                        f"arguments: {json.dumps(trace.arguments, ensure_ascii=False)}",
-                        f"success: {trace.success}",
-                        f"result: {self._truncate_tool_result(trace.result)}",
-                    ]
-                )
-            )
-        return "\n\n".join(blocks)
-
-    def _format_answer_now_events(self, events: Any) -> str:
-        if not isinstance(events, list) or not events:
-            return self._text(
-                zh="没有可用的中间执行记录。",
-                en="No intermediate execution trace was provided.",
-            )
-
-        lines: list[str] = []
-        for index, event in enumerate(events, start=1):
-            if not isinstance(event, dict):
-                continue
-            event_type = str(event.get("type") or "event").strip()
-            stage = str(event.get("stage") or "").strip()
-            content = str(event.get("content") or "").strip()
-            metadata = event.get("metadata")
-            label_parts = [event_type]
-            if stage:
-                label_parts.append(stage)
-            line = f"{index}. {' / '.join(label_parts)}"
-            if content:
-                line += f": {self._truncate_tool_result(content, limit=1200)}"
-            if isinstance(metadata, dict):
-                tool_name = str(metadata.get("tool_name") or metadata.get("tool") or "").strip()
-                if tool_name:
-                    line += f" [tool={tool_name}]"
-            lines.append(line)
-
-        if not lines:
-            return self._text(
-                zh="没有可用的中间执行记录。",
-                en="No intermediate execution trace was provided.",
-            )
-        return "\n".join(lines)
-
-    @staticmethod
-    def _message_text(content: Any) -> str:
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            texts = [
-                str(part.get("text", ""))
-                for part in content
-                if isinstance(part, dict) and part.get("type") == "text"
-            ]
-            return "\n".join(texts).strip()
-        return str(content or "")
-
-    @staticmethod
-    def _truncate_tool_result(content: str, limit: int = MAX_TOOL_RESULT_CHARS) -> str:
-        cleaned = content.strip()
-        if len(cleaned) <= limit:
-            return cleaned
-        return cleaned[: limit - 3].rstrip() + "..."
-
-    def _images_stripped_notice(self) -> str:
-        return self._text(
-            zh=(
-                f"当前模型 `{self.model}` 不支持图像输入，thinking 阶段已忽略本轮图片附件。"
-            ),
-            en=(
-                f"The current model `{self.model}` does not support image input, so image attachments were ignored in the thinking stage."
-            ),
+        Each rag call already has its own ``tool_meta`` (with its own
+        ``call_id``); we derive a "retrieve" variant of it so the in-tool
+        progress events (provider selection, chunk retrieval, etc.) stay
+        attached to the same sub-trace but show as
+        ``trace_role=retrieve`` for the chevron icon. For non-rag tools
+        we return ``None`` so the executor skips the retrieve-progress
+        surface.
+        """
+        if tool_name != "rag":
+            return None
+        _ = context  # context unused for now; kept for parity with solve's variant
+        return derive_trace_metadata(
+            tool_meta,
+            label=self._t("labels.retrieve", default="Retrieve"),
+            call_kind="rag_retrieval",
+            trace_role="retrieve",
+            trace_group="retrieve",
+            query=str(tool_args.get("query", "") or ""),
         )
 
     @staticmethod
-    def _labeled_block(label: str, content: str) -> str:
-        return f"[{label}]\n{content.strip() if content.strip() else '(empty)'}"
+    def _selected_kbs(context: UnifiedContext) -> list[str]:
+        return [str(kb).strip() for kb in context.knowledge_bases if str(kb).strip()]
 
-    def _text(self, *, zh: str, en: str) -> str:
-        return zh if self.language == "zh" else en
+    @staticmethod
+    def _source_index(context: UnifiedContext) -> dict[str, str]:
+        idx = context.metadata.get("source_index")
+        if isinstance(idx, dict) and idx:
+            return idx
+        return {}
+
+    def _kb_system_note(self, context: UnifiedContext) -> str:
+        kbs = self._selected_kbs(context)
+        if not kbs:
+            return ""
+        joined = ", ".join(kbs)
+        if self.language == "zh":
+            return f"用户已挂载知识库：{joined}。调用 rag 时，kb_name 必须从其中选一个。"
+        return (
+            f"Attached knowledge bases: {joined}. When calling rag, kb_name must "
+            "be one of these names."
+        )
+
+    def _fallback_empty_tool_list(self) -> str:
+        return "- 无" if self.language == "zh" else "- none"
+
+    # ------------------------------------------------------------------
+    # LLM call helpers
+    # ------------------------------------------------------------------
+    async def _stream_messages(
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+    ):
+        """Stream a single tool-less LLM call. Used by answer-now."""
+        output_chars = 0
+        async for chunk in llm_stream(
+            prompt="",
+            system_prompt="",
+            model=self.model,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            api_version=self.api_version,
+            binding=self.binding,
+            messages=messages,
+            extra_headers=self.extra_headers or None,
+            **self._completion_kwargs(max_tokens=max_tokens),
+        ):
+            output_chars += len(chunk)
+            yield chunk
+        input_chars = sum(len(str(m.get("content", ""))) for m in messages)
+        self._usage.add_estimated(input_chars=input_chars, output_chars=output_chars)
+
+    def _build_openai_client(self):
+        """Build an OpenAI/Azure async client from the pipeline's LLM config.
+
+        Kept as a method (rather than always reusing ``self._client``) so any
+        downstream test or future caller that wants a fresh client per call
+        can still get one without poking at module-level state.
+        """
+        return build_openai_client(self._client_config)
+
+    def _completion_kwargs(self, max_tokens: int) -> dict[str, Any]:
+        return build_completion_kwargs(
+            temperature=self._chat_temperature,
+            model=self.model,
+            max_tokens=max_tokens,
+            binding=self.binding,
+            reasoning_effort=self.reasoning_effort,
+        )
+
+    def _can_use_native_tool_calling(self) -> bool:
+        return can_use_native_tool_calling(binding=self.binding, model=self.model)
+
+    # ------------------------------------------------------------------
+    # YAML prompt lookup
+    # ------------------------------------------------------------------
+    def _t(self, key: str, default: str = "", **kwargs: Any) -> str:
+        """Look up a YAML-loaded prompt by dotted key.
+
+        Returns ``default`` when missing. Renders via ``str.format`` when
+        ``kwargs`` are provided; missing placeholders leave the template
+        unrendered instead of crashing the pipeline.
+        """
+        value: Any = self._prompts
+        for part in key.split("."):
+            if not isinstance(value, dict) or part not in value:
+                return default
+            value = value[part]
+        if not isinstance(value, str):
+            return default
+        if kwargs:
+            try:
+                return value.format(**kwargs)
+            except (KeyError, IndexError, ValueError):
+                return value
+        return value
+
+
+# ---------------------------------------------------------------------------
+# Loop host adapter
+# ---------------------------------------------------------------------------
+
+
+class _ChatLoopHost:
+    """Bind the chat pipeline + current turn's context/stream into a single
+    object the generic loop primitive can call back into.
+
+    All chat-specific behavior — trace metadata, tool dispatch, pause/terminate,
+    final emission, force-finalize — lives as methods on
+    :class:`AgenticChatPipeline`; this adapter just routes the
+    :class:`~deeptutor.core.agentic.LoopHost` protocol calls to them.
+    """
+
+    def __init__(
+        self,
+        *,
+        pipeline: AgenticChatPipeline,
+        context: UnifiedContext,
+        stream: StreamBus,
+        client: Any,
+    ) -> None:
+        self._pipeline = pipeline
+        self._context = context
+        self._stream = stream
+        self._client = client
+
+    async def guard_context_window(self, messages: list[dict[str, Any]]) -> None:
+        await self._pipeline._guard_context_window(messages, self._stream)
+
+    async def before_iteration(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        iteration: int,
+        max_iterations: int,
+    ) -> None:
+        """Inject the per-iteration counter so the model can pace itself."""
+        self._pipeline._append_iteration_marker(
+            messages=messages,
+            iteration=iteration,
+            max_iterations=max_iterations,
+        )
+
+    def build_iteration_trace_meta(self, iteration: int) -> tuple[dict[str, Any], dict[str, Any]]:
+        return self._pipeline._build_iteration_trace_metadata(iteration)
+
+    async def dispatch_tools(
+        self,
+        *,
+        iteration: int,
+        tool_calls: list[dict[str, Any]],
+    ) -> DispatchOutcome:
+        return await self._pipeline._dispatch_tool_calls(
+            tool_calls=tool_calls,
+            context=self._context,
+            stream=self._stream,
+            iteration_index=iteration,
+        )
+
+    async def resolve_pause(self, dispatch: DispatchOutcome) -> bool:
+        return await self._pipeline._await_user_reply_and_resolve(
+            context=self._context,
+            stream=self._stream,
+            dispatch=dispatch,
+        )
+
+    async def emit_terminator(self, payload: dict[str, Any] | None) -> None:
+        await self._pipeline._emit_terminator_final_response(self._stream, payload)
+
+    async def emit_final(self, text: str, final_meta: dict[str, Any]) -> None:
+        await self._pipeline._emit_final_text(self._stream, text, final_meta)
+
+    def assistant_message_with_tool_calls(
+        self,
+        *,
+        content: str,
+        tool_calls: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return self._pipeline._assistant_message_with_tool_calls(content, tool_calls)
+
+    def protocol_retry_notice(self) -> str:
+        return self._pipeline._protocol_retry_notice()
+
+    def protocol_repair_message(self, violation: str) -> str:
+        return self._pipeline._protocol_repair_message(violation)
+
+    async def force_finalize(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        start_iteration: int,
+    ) -> tuple[str, bool, int]:
+        return await self._pipeline._run_forced_finish(
+            client=self._client,
+            messages=messages,
+            stream=self._stream,
+            start_iteration=start_iteration,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Forced-finish protocol validation (chat-local because the violation key
+# vocabulary mirrors chat's repair-copy keys).
+# ---------------------------------------------------------------------------
+
+
+def _classify_forced_finish_violation(step: LabeledStepResult) -> str | None:
+    """Lightweight violation classifier for the FINISH-only finalization
+    loop. With ``allowed_labels=(FINISH,)`` and ``tool_schemas=None``, the
+    only possible violations are missing label / inline duplicate label.
+    """
+    if step.label == LABEL_UNKNOWN:
+        return "missing_label"
+    if find_inline_labels(
+        step.text,
+        allowed_labels=(LABEL_FINISH, LABEL_TOOL, LABEL_THINK, LABEL_PAUSE),
+    ):
+        return "multiple_labels"
+    return None

@@ -8,9 +8,9 @@ and plugins to communicate progress and results to consumers (CLI, WebSocket, SD
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from enum import Enum
+import time
 from typing import Any
 
 
@@ -29,6 +29,7 @@ class StreamEventType(str, Enum):
     RESULT = "result"
     ERROR = "error"
     SESSION = "session"
+    SESSION_META = "session_meta"
     DONE = "done"
 
 

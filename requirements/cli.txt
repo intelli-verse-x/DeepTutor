@@ -1,11 +1,14 @@
 # ============================================
 # DeepTutor CLI — Full Dependencies
 # ============================================
-# Install: pip install -r requirements/cli.txt && pip install -e .
-# Everything needed to run the CLI with all tools (RAG, code execution, etc.)
+# Mirrors pyproject.toml `[project.optional-dependencies].cli` plus core deps.
+# Keep in sync with pyproject.toml when adding/updating dependencies.
+#
+# Public install: pip install deeptutor-cli
+# Source compatibility: pip install -e ".[cli]"
+# Use this file for Docker/CI when pyproject.toml/source code aren't yet available.
 
 # --- Config & templating ---
-python-dotenv>=1.0.0
 PyYAML>=6.0
 jinja2>=3.1.0
 
@@ -40,9 +43,17 @@ pgvector>=0.3.0
 
 # --- RAG (LlamaIndex) ---
 llama-index>=0.14.12
+llama-index-retrievers-bm25>=0.7.1,<0.8.0
 PyMuPDF>=1.26.0
-numpy>=1.24.0,<2.0.0
+numpy>=1.24.0,<3.0.0
 arxiv>=2.0.0
+
+# --- Document text extraction (chat attachments) ---
+python-docx>=1.1.0
+openpyxl>=3.1.0
+python-pptx>=1.0.0
+pypdf>=4.0.0
+defusedxml>=0.7.1
 
 # --- Web search ---
 ddgs>=9.9.1

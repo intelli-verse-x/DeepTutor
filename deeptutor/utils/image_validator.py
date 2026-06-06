@@ -12,9 +12,9 @@ from typing import Literal
 
 from PIL import Image
 
-from deeptutor.logging import get_logger
+import logging
 
-logger = get_logger("ImageValidator")
+logger = logging.getLogger("ImageValidator")
 
 
 class ImageValidationError(Exception):

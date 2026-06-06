@@ -9,9 +9,9 @@ import asyncio
 import logging
 from typing import Any, Callable, TypeVar
 
-from deeptutor.logging import get_logger
+# NOTE: deeptutor.logging has no get_logger in v1.4.2 — use stdlib logging.
 
-logger = get_logger("LLMRetry")
+logger = logging.getLogger("LLMRetry")
 
 T = TypeVar('T')
 

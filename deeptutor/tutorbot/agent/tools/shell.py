@@ -2,8 +2,8 @@
 
 import asyncio
 import os
-import re
 from pathlib import Path
+import re
 from typing import Any
 
 from loguru import logger
@@ -20,7 +20,7 @@ class ExecTool(Tool):
         working_dir: str | None = None,
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
-        restrict_to_workspace: bool = False,
+        restrict_to_workspace: bool = True,
         path_append: str = "",
         forward_logs: bool = True,
     ):
@@ -28,15 +28,28 @@ class ExecTool(Tool):
         self.working_dir = working_dir
         self.forward_logs = forward_logs
         self.deny_patterns = deny_patterns or [
-            r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
-            r"\bdel\s+/[fq]\b",              # del /f, del /q
-            r"\brmdir\s+/s\b",               # rmdir /s
-            r"(?:^|[;&|]\s*)format\b",       # format (as standalone command only)
-            r"\b(mkfs|diskpart)\b",          # disk operations
-            r"\bdd\s+if=",                   # dd
-            r">\s*/dev/sd",                  # write to disk
+            r"\brm\s+-[rf]{1,2}\b",  # rm -r, rm -rf, rm -fr
+            r"\bdel\s+/[fq]\b",  # del /f, del /q
+            r"\brmdir\s+/s\b",  # rmdir /s
+            r"(?:^|[;&|]\s*)format\b",  # format (as standalone command only)
+            r"\b(mkfs|diskpart)\b",  # disk operations
+            r"\bdd\s+if=",  # dd
+            r">\s*/dev/sd",  # write to disk
             r"\b(shutdown|reboot|poweroff)\b",  # system power
-            r":\(\)\s*\{.*\};\s*:",          # fork bomb
+            r":\(\)\s*\{.*\};\s*:",  # fork bomb
+            # Network exfiltration / remote transfer. Anchored to command
+            # start or a shell separator to avoid false positives on safe
+            # uses (e.g. ``echo "curl ..."`` or a filename containing these).
+            r"(?:^|[;&|]\s*)(curl|wget|nc|ncat|netcat|socat)\b",
+            r"(?:^|[;&|]\s*)(ssh|scp|sftp|rsync|ftp)\b",
+            # Inline interpreters used for reverse shells / exfiltration.
+            r"(?:^|[;&|]\s*)(python|python3|perl|ruby|node|php)\s+-[ce]\b",
+            # Sensitive file access.
+            r"\bcat\s+/(etc/(passwd|shadow|sudoers)|proc/self/environ)\b",
+            # User / privilege management.
+            r"(?:^|[;&|]\s*)(useradd|usermod|passwd|chpasswd|crontab)\b",
+            # World-writable / additive-write permission changes.
+            r"\bchmod\s+(?:[0-7]*[2367](?:\s|$)|(?:a|o|\+)\+?w|[ugo]*[ao]\+w)\b",
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
@@ -79,9 +92,12 @@ class ExecTool(Tool):
             "required": ["command"],
         }
 
-    async def execute(
-        self, command: str, working_dir: str | None = None,
-        timeout: int | None = None, **kwargs: Any,
+    async def execute(  # type: ignore[override]
+        self,
+        command: str,
+        working_dir: str | None = None,
+        timeout: int | None = None,
+        **kwargs: Any,
     ) -> str:
         cwd = working_dir or self.working_dir or os.getcwd()
         guard_error = self._guard_command(command, cwd)
@@ -184,7 +200,11 @@ class ExecTool(Tool):
 
     @staticmethod
     def _extract_absolute_paths(command: str) -> list[str]:
-        win_paths = re.findall(r"[A-Za-z]:\\[^\s\"'|><;]+", command)   # Windows: C:\...
-        posix_paths = re.findall(r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command) # POSIX: /absolute only
-        home_paths = re.findall(r"(?:^|[\s|>'\"])(~[^\s\"'>;|<]*)", command) # POSIX/Windows home shortcut: ~
+        win_paths = re.findall(r"[A-Za-z]:\\[^\s\"'|><;]+", command)  # Windows: C:\...
+        posix_paths = re.findall(
+            r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command
+        )  # POSIX: /absolute only
+        home_paths = re.findall(
+            r"(?:^|[\s|>'\"])(~[^\s\"'>;|<]*)", command
+        )  # POSIX/Windows home shortcut: ~
         return win_paths + posix_paths + home_paths

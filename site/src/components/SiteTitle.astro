@@ -1,0 +1,47 @@
+---
+import { logos } from "virtual:starlight/user-images";
+import config from "virtual:starlight/user-config";
+
+const { siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<a href={siteTitleHref} class="site-title sl-flex" aria-label="DeepTutor">
+  {
+    config.logo && logos.dark && (
+      <img
+        class="site-title-mark"
+        alt=""
+        aria-hidden="true"
+        src={logos.dark.src}
+        width={logos.dark.width}
+        height={logos.dark.height}
+      />
+    )
+  }
+  <img class="site-title-wordmark" src="/banner.png" alt="DeepTutor" />
+</a>
+
+<style>
+  .site-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    min-width: 0;
+  }
+  .site-title-mark {
+    height: 22px;
+    width: auto;
+    flex-shrink: 0;
+    object-fit: contain;
+  }
+  .site-title-wordmark {
+    height: 20px;
+    width: auto;
+    user-select: none;
+    object-fit: contain;
+  }
+  [data-theme="dark"] .site-title-wordmark {
+    filter: invert(1) hue-rotate(180deg) brightness(1.12);
+  }
+</style>
