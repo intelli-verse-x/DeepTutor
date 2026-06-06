@@ -6,20 +6,47 @@ Manages multiple knowledge bases and provides utilities for accessing them.
 """
 
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
+import stat
 import sys
+from typing import Any
 
-from deeptutor.logging import get_logger
-from deeptutor.services.rag.components.routing import FileTypeRouter
+from deeptutor.services.rag.factory import DEFAULT_PROVIDER, normalize_provider_name
+from deeptutor.services.rag.file_routing import FileTypeRouter
 
-from deeptutor.services.rag.factory import DEFAULT_PROVIDER, LEGACY_PROVIDER_ALIASES, normalize_provider_name
+logger = logging.getLogger(__name__)
 
-logger = get_logger("KnowledgeBaseManager")
+
+# How long an entry can be missing its KB directory before ``list_knowledge_bases``
+# treats it as a stale orphan. The KB create flow writes the "initializing"
+# config entry before the on-disk folder is created, so a too-short grace would
+# let a list-call mid-creation racy-delete the entry. 60s is comfortably longer
+# than the create handshake while still keeping multi-day zombies out.
+_ORPHAN_PRUNE_GRACE_SECONDS = 60
+
+
+def _entry_updated_after(kb_entry: dict | None, cutoff: datetime) -> bool:
+    """Return True when the entry's ``updated_at`` is strictly after ``cutoff``.
+
+    Entries without a parseable timestamp are treated as old (return False) —
+    a long-stuck orphan that crashed before recording a timestamp should still
+    get pruned.
+    """
+    if not isinstance(kb_entry, dict):
+        return False
+    raw = kb_entry.get("updated_at")
+    if not isinstance(raw, str):
+        return False
+    try:
+        return datetime.fromisoformat(raw) > cutoff
+    except ValueError:
+        return False
 
 
 # Cross-platform file locking
@@ -78,30 +105,81 @@ def _get_embedding_fingerprint() -> tuple[str, int] | None:
         return None
 
 
-def _reconcile_embedding_flags(knowledge_bases: dict) -> bool:
-    """Flag KBs whose stored embedding fingerprint differs from the active config.
+def _reconcile_embedding_flags(knowledge_bases: dict, base_dir: Path | None = None) -> bool:
+    """Reconcile per-KB embedding flags against the on-disk index versions.
 
-    Compares both model name and dimension.  Auto-clears the flag when the
-    user reverts to the original model.  Returns *True* when any entry changed.
+    For each KB we check the flat ``version-N`` directories (plus legacy
+    layouts) for a version matching the active embedding signature:
+
+    * Match found → clear ``needs_reindex`` and ``embedding_mismatch`` (the
+      user has switched back to a previously-indexed configuration).
+    * No match, but the KB has a stored ``embedding_model`` that differs
+      from the active fingerprint → set both flags so the UI surfaces a
+      "Re-index" CTA.
+
+    Returns ``True`` when any entry changed.
     """
-    fp = _get_embedding_fingerprint()
-    if not fp:
-        return False
+    from deeptutor.services.rag.embedding_signature import signature_from_embedding_config
+    from deeptutor.services.rag.index_versioning import (
+        find_matching_version,
+        list_kb_versions,
+    )
 
-    current_model, current_dim = fp
+    fp = _get_embedding_fingerprint()
+    signature = signature_from_embedding_config()
     changed = False
 
-    for kb_entry in knowledge_bases.values():
+    if signature is None and not fp:
+        return False
+
+    for kb_name, kb_entry in knowledge_bases.items():
         if not isinstance(kb_entry, dict):
             continue
-        stored_model = kb_entry.get("embedding_model")
-        if not stored_model:
+
+        kb_dir = (base_dir / kb_name) if base_dir is not None else None
+        matched = False
+        if kb_dir is not None and signature is not None:
+            matched = find_matching_version(kb_dir, signature) is not None
+
+        if matched:
+            mutated_local = False
+            if kb_entry.get("needs_reindex"):
+                kb_entry["needs_reindex"] = False
+                mutated_local = True
+            if kb_entry.get("embedding_mismatch"):
+                kb_entry.pop("embedding_mismatch", None)
+                mutated_local = True
+            if mutated_local:
+                changed = True
+            # Refresh the surfaced version list either way so the UI sees
+            # accurate state.
+            if kb_dir is not None:
+                kb_entry["index_versions"] = list_kb_versions(kb_dir)
             continue
 
+        # No matching ready index version on disk.
+        stored_model = kb_entry.get("embedding_model")
+        # Empty/in-progress version dirs are created before indexing finishes.
+        # They should not mark a brand-new KB as needing re-index.
+        versions: list[dict] = []
+        has_ready_version = False
+        if kb_dir is not None:
+            versions = list_kb_versions(kb_dir)
+            has_ready_version = any(bool(version.get("ready")) for version in versions)
+            kb_entry["index_versions"] = versions
+
+        if not has_ready_version and not stored_model:
+            continue
+
+        current_model = fp[0] if fp else ""
+        current_dim = fp[1] if fp else 0
         stored_dim = kb_entry.get("embedding_dim")
-        mismatch = stored_model != current_model or (
-            stored_dim is not None and stored_dim != current_dim
+        mismatch = (stored_model and stored_model != current_model) or (
+            stored_dim is not None and current_dim and stored_dim != current_dim
         )
+        # If ready versions exist but none match active signature, that's also a mismatch.
+        if has_ready_version:
+            mismatch = True
 
         if mismatch and not kb_entry.get("embedding_mismatch"):
             kb_entry["embedding_mismatch"] = True
@@ -109,7 +187,7 @@ def _reconcile_embedding_flags(knowledge_bases: dict) -> bool:
                 kb_entry["needs_reindex"] = True
             changed = True
         elif not mismatch and kb_entry.get("embedding_mismatch"):
-            del kb_entry["embedding_mismatch"]
+            kb_entry.pop("embedding_mismatch", None)
             changed = True
 
     return changed
@@ -125,6 +203,13 @@ class KnowledgeBaseManager:
         # Config file to track knowledge bases
         self.config_file = self.base_dir / "kb_config.json"
         self.config = self._load_config()
+
+        # PocketBase sync — enabled when integrations.pocketbase_url is set.
+        # The local JSON file stays the source of truth; PocketBase gets a
+        # mirrored copy for admin-panel visibility and future multi-user access.
+        from deeptutor.services.pocketbase_client import is_pocketbase_enabled
+
+        self._pb_enabled = is_pocketbase_enabled()
 
     def _load_config(self) -> dict:
         """Load knowledge base configuration from the canonical kb_config.json file."""
@@ -150,6 +235,8 @@ class KnowledgeBaseManager:
 
                 # Migration: normalize legacy providers to llamaindex and
                 # mark legacy index-only KBs as needs_reindex.
+                from deeptutor.services.rag.index_versioning import list_kb_versions
+
                 knowledge_bases = config.get("knowledge_bases", {})
                 config_changed = False
                 for kb_name, kb_entry in knowledge_bases.items():
@@ -157,30 +244,33 @@ class KnowledgeBaseManager:
                         continue
 
                     raw_provider = kb_entry.get("rag_provider")
-                    normalized_provider = normalize_provider_name(raw_provider or DEFAULT_PROVIDER)
-                    if kb_entry.get("rag_provider") != normalized_provider:
-                        kb_entry["rag_provider"] = normalized_provider
+                    if kb_entry.get("rag_provider") != DEFAULT_PROVIDER:
+                        kb_entry["rag_provider"] = DEFAULT_PROVIDER
                         config_changed = True
 
-                    if (
-                        isinstance(raw_provider, str)
-                        and raw_provider.strip().lower() in LEGACY_PROVIDER_ALIASES
-                    ):
+                    if isinstance(raw_provider, str) and raw_provider.strip().lower() not in {
+                        "",
+                        DEFAULT_PROVIDER,
+                    }:
                         if not kb_entry.get("needs_reindex", False):
                             kb_entry["needs_reindex"] = True
                             config_changed = True
 
                     kb_dir = self.base_dir / kb_name
                     legacy_storage = kb_dir / "rag_storage"
-                    llamaindex_storage = kb_dir / "llamaindex_storage"
-                    if legacy_storage.exists() and legacy_storage.is_dir() and not (
-                        llamaindex_storage.exists() and llamaindex_storage.is_dir()
+                    has_llamaindex_index = any(
+                        bool(version.get("ready")) for version in list_kb_versions(kb_dir)
+                    )
+                    if (
+                        legacy_storage.exists()
+                        and legacy_storage.is_dir()
+                        and not has_llamaindex_index
                     ):
                         if not kb_entry.get("needs_reindex", False):
                             kb_entry["needs_reindex"] = True
                             config_changed = True
 
-                if _reconcile_embedding_flags(knowledge_bases):
+                if _reconcile_embedding_flags(knowledge_bases, self.base_dir):
                     config_changed = True
 
                 if config_changed:
@@ -208,6 +298,35 @@ class KnowledgeBaseManager:
                 f.flush()
                 os.fsync(f.fileno())  # Ensure data is written to disk
 
+    def _sync_kb_to_pb(self, name: str, kb_entry: dict) -> None:
+        """
+        Mirror a KB metadata entry to PocketBase (best-effort, non-blocking).
+        Called after every local config save when PocketBase is enabled.
+        """
+        if not self._pb_enabled:
+            return
+        try:
+            from deeptutor.services.pocketbase_client import get_pb_client
+
+            pb = get_pb_client()
+            records = pb.collection("knowledge_bases").get_full_list(
+                query_params={"filter": f'kb_name="{name}"'}
+            )
+            payload = {
+                "kb_name": name,
+                "description": kb_entry.get("description", f"Knowledge base: {name}"),
+                "rag_provider": kb_entry.get("rag_provider", "llamaindex"),
+                "needs_reindex": bool(kb_entry.get("needs_reindex", False)),
+                "status": kb_entry.get("status", "unknown"),
+                "kb_created_at": kb_entry.get("created_at", ""),
+            }
+            if records:
+                pb.collection("knowledge_bases").update(records[0].id, payload)
+            else:
+                pb.collection("knowledge_bases").create(payload)
+        except Exception as exc:
+            logger.debug(f"PocketBase KB sync failed for '{name}': {exc}")
+
     def update_kb_status(
         self,
         name: str,
@@ -216,6 +335,9 @@ class KnowledgeBaseManager:
     ):
         """
         Update knowledge base status and progress in kb_config.json.
+
+        When PocketBase is enabled, the updated entry is also mirrored to the
+        PocketBase knowledge_bases collection (best-effort).
 
         Args:
             name: Knowledge base name
@@ -245,23 +367,70 @@ class KnowledgeBaseManager:
         kb_config = self.config["knowledge_bases"][name]
         kb_config["status"] = status
         kb_config["updated_at"] = datetime.now().isoformat()
+        index_changed = False
+        indexed_count: int | None = None
+        index_action: str | None = None
+        if isinstance(progress, dict):
+            raw_indexed_count = progress.get("indexed_count")
+            if isinstance(raw_indexed_count, bool):
+                indexed_count = int(raw_indexed_count)
+            elif isinstance(raw_indexed_count, (int, float)):
+                indexed_count = int(raw_indexed_count)
+            elif isinstance(raw_indexed_count, str):
+                try:
+                    indexed_count = int(raw_indexed_count)
+                except ValueError:
+                    indexed_count = None
 
-        if progress is not None:
+            index_changed = bool(progress.get("index_changed")) or (
+                indexed_count is not None and indexed_count > 0
+            )
+            raw_index_action = progress.get("index_action")
+            if isinstance(raw_index_action, str) and raw_index_action.strip():
+                index_action = raw_index_action.strip()
+
+        if status == "ready":
+            # Ready KBs should look like stable resources in the UI instead of
+            # permanently carrying a "completed" progress banner.
+            kb_config.pop("progress", None)
+            if progress is not None:
+                kb_config["last_completed_at"] = (
+                    progress.get("timestamp") or datetime.now().isoformat()
+                )
+                if index_changed:
+                    kb_config["last_indexed_at"] = kb_config["last_completed_at"]
+                    if indexed_count is not None:
+                        kb_config["last_indexed_count"] = max(indexed_count, 0)
+                    if index_action:
+                        kb_config["last_indexed_action"] = index_action
+        elif progress is not None:
             kb_config["progress"] = progress
-        elif status == "ready":
-            # Clear progress when ready
-            kb_config["progress"] = {
-                "stage": "completed",
-                "message": "Ready",
-                "percent": 100,
-            }
 
         if status == "ready":
             fp = _get_embedding_fingerprint()
             if fp:
                 kb_config["embedding_model"], kb_config["embedding_dim"] = fp
+            # Record the active signature + the on-disk version registry so
+            # the UI can render version chips without recomputing.
+            try:
+                from deeptutor.services.rag.embedding_signature import (
+                    signature_from_embedding_config,
+                )
+                from deeptutor.services.rag.index_versioning import (
+                    list_kb_versions,
+                )
+
+                sig = signature_from_embedding_config()
+                if sig is not None:
+                    kb_config["embedding_signature"] = sig.hash()
+                kb_dir = self.base_dir / name
+                if kb_dir.is_dir():
+                    kb_config["index_versions"] = list_kb_versions(kb_dir)
+            except Exception:  # pragma: no cover - best-effort metadata
+                pass
 
         self._save_config()
+        self._sync_kb_to_pb(name, kb_config)
 
     def get_kb_status(self, name: str) -> dict | None:
         """Get status and progress for a knowledge base."""
@@ -277,66 +446,97 @@ class KnowledgeBaseManager:
 
     def list_knowledge_bases(self) -> list[str]:
         """List all available knowledge bases.
-        
+
         This method:
         1. Loads registered KBs from kb_config.json
-        2. Scans the directory for existing KBs not yet registered
-        3. Auto-registers any discovered KBs with valid structure (rag_storage or llamaindex_storage)
+        2. Drops registered entries whose on-disk directory no longer exists
+           (orphans from failed inits or manual ``rm -rf`` of a KB folder).
+        3. Scans the directory for existing KBs not yet registered
+        4. Auto-registers discovered KBs with valid raw/index structure
         """
         # Always reload config from file to ensure we have the latest data
         self.config = self._load_config()
 
-        # Read knowledge base list from config file
         config_kbs = self.config.get("knowledge_bases", {})
-        kb_list = set(config_kbs.keys())
+        kb_list: set[str] = set()
+        config_changed = False
+
+        # Filter out orphan entries whose KB directory is gone. The on-disk
+        # folder is the source of truth for existence — without it the KB
+        # has no documents, no index, and surfacing it in the UI just shows
+        # zombies that the user can't act on.
+        #
+        # Grace period: a freshly-created KB writes its config entry before
+        # ``create_directory_structure`` mkdir-s the folder (so the UI can
+        # render the "initializing" row immediately). If ``list`` races into
+        # that window we'd prune a perfectly healthy in-flight KB. Skip the
+        # prune when ``updated_at`` is recent enough that an init could still
+        # be wiring things up.
+        base_exists = self.base_dir.exists()
+        grace_cutoff = datetime.now() - timedelta(seconds=_ORPHAN_PRUNE_GRACE_SECONDS)
+        for kb_name, kb_entry in list(config_kbs.items()):
+            rel_path = (kb_entry or {}).get("path", kb_name)
+            kb_dir = self.base_dir / rel_path
+            if base_exists and not kb_dir.exists():
+                if _entry_updated_after(kb_entry, grace_cutoff):
+                    kb_list.add(kb_name)
+                    continue
+                logger.warning(
+                    "Pruning orphaned KB entry '%s': directory %s no longer exists.",
+                    kb_name,
+                    kb_dir,
+                )
+                del config_kbs[kb_name]
+                config_changed = True
+                continue
+            kb_list.add(kb_name)
 
         # Also scan directory for KBs that may not be registered yet
         # This ensures backward compatibility and auto-discovery
-        if self.base_dir.exists():
-            config_changed = False
+        if base_exists:
             for item in self.base_dir.iterdir():
                 if not item.is_dir() or item.name.startswith(("__", ".")):
                     continue
-                    
+
                 # Skip if already in config
                 if item.name in kb_list:
                     continue
-                    
-                # Check if this is a valid KB directory (legacy rag_storage or llamaindex_storage)
+
+                # Check if this is a valid KB directory (flat versions or legacy stores)
+                from deeptutor.services.rag.index_versioning import list_kb_versions
+
                 rag_storage = item / "rag_storage"
-                llamaindex_storage = item / "llamaindex_storage"
-                is_valid_kb = (
-                    (rag_storage.exists() and rag_storage.is_dir()) or
-                    (llamaindex_storage.exists() and llamaindex_storage.is_dir())
-                )
-                
+                is_valid_kb = any(
+                    bool(version.get("ready")) for version in list_kb_versions(item)
+                ) or (rag_storage.exists() and rag_storage.is_dir())
+
                 if is_valid_kb:
                     # Auto-register this KB to kb_config.json
                     kb_list.add(item.name)
                     self._auto_register_kb(item.name)
                     config_changed = True
-            
-            # Save config if we registered new KBs
-            if config_changed:
-                self._save_config()
+
+        # Save config if we pruned orphans or registered new KBs
+        if config_changed:
+            self._save_config()
 
         return sorted(kb_list)
-    
+
     def _auto_register_kb(self, name: str):
         """Auto-register an existing KB to kb_config.json.
-        
+
         Reads info from metadata.json (if exists) for backward compatibility.
         """
         kb_dir = self.base_dir / name
-        
+
         # Default values
-        kb_entry = {
+        kb_entry: dict[str, Any] = {
             "path": name,
             "description": f"Knowledge base: {name}",
             "status": "ready",  # Existing KB with storage is considered ready
             "updated_at": datetime.now().isoformat(),
         }
-        
+
         # Try to read metadata.json for existing info (backward compatibility)
         metadata_file = kb_dir / "metadata.json"
         if metadata_file.exists():
@@ -349,30 +549,39 @@ class KnowledgeBaseManager:
                 if metadata.get("rag_provider"):
                     raw_provider = str(metadata["rag_provider"]).strip().lower()
                     kb_entry["rag_provider"] = normalize_provider_name(raw_provider)
-                    if str(raw_provider).strip().lower() in LEGACY_PROVIDER_ALIASES:
+                    if raw_provider not in {"", DEFAULT_PROVIDER}:
                         kb_entry["needs_reindex"] = True
                 if metadata.get("created_at"):
                     kb_entry["created_at"] = metadata["created_at"]
                 if metadata.get("last_updated"):
                     kb_entry["updated_at"] = metadata["last_updated"]
+                if metadata.get("last_indexed_at"):
+                    kb_entry["last_indexed_at"] = metadata["last_indexed_at"]
+                elif metadata.get("last_updated"):
+                    kb_entry["last_indexed_at"] = metadata["last_updated"]
+                if metadata.get("last_indexed_count") is not None:
+                    kb_entry["last_indexed_count"] = metadata["last_indexed_count"]
+                if metadata.get("last_indexed_action"):
+                    kb_entry["last_indexed_action"] = metadata["last_indexed_action"]
             except Exception as e:
                 logger.warning(f"Failed to read metadata.json for '{name}': {e}")
-        
+
         # Detect rag_provider from storage type if not set
         if "rag_provider" not in kb_entry:
+            from deeptutor.services.rag.index_versioning import list_kb_versions
+
             rag_storage = kb_dir / "rag_storage"
-            llamaindex_storage = kb_dir / "llamaindex_storage"
-            if llamaindex_storage.exists():
+            if any(bool(version.get("ready")) for version in list_kb_versions(kb_dir)):
                 kb_entry["rag_provider"] = DEFAULT_PROVIDER
             elif rag_storage.exists():
                 kb_entry["rag_provider"] = DEFAULT_PROVIDER
                 kb_entry["needs_reindex"] = True
-        
+
         # Add to config
         if "knowledge_bases" not in self.config:
             self.config["knowledge_bases"] = {}
         self.config["knowledge_bases"][name] = kb_entry
-        
+
         logger.info(f"Auto-registered KB '{name}' to kb_config.json")
 
     def register_knowledge_base(self, name: str, description: str = "", set_default: bool = False):
@@ -408,10 +617,15 @@ class KnowledgeBaseManager:
     def get_rag_storage_path(self, name: str | None = None) -> Path:
         """Get active index storage path for a knowledge base."""
         kb_dir = self.get_knowledge_base_path(name)
-        llamaindex_storage = kb_dir / "llamaindex_storage"
+        from deeptutor.services.rag.embedding_signature import signature_from_embedding_config
+        from deeptutor.services.rag.index_versioning import (
+            resolve_storage_dir_for_read,
+        )
+
+        active_storage = resolve_storage_dir_for_read(kb_dir, signature_from_embedding_config())
         legacy_storage = kb_dir / "rag_storage"
-        if llamaindex_storage.exists():
-            return llamaindex_storage
+        if active_storage is not None:
+            return active_storage
         if legacy_storage.exists():
             return legacy_storage
         raise ValueError(f"Index storage not found for knowledge base: {name or 'default'}")
@@ -485,7 +699,7 @@ class KnowledgeBaseManager:
 
     def get_metadata(self, name: str | None = None) -> dict:
         """Get knowledge base metadata.
-        
+
         Source:
         1. kb_config.json (authoritative source)
         """
@@ -494,26 +708,29 @@ class KnowledgeBaseManager:
             kb_name = self.get_default()
             if kb_name is None:
                 return {}
-        
+
         # First, try kb_config.json (authoritative source)
         self.config = self._load_config()
         kb_config = self.config.get("knowledge_bases", {}).get(kb_name, {})
-        
+
         if kb_config:
             # Build metadata from config
             metadata = {
                 "name": kb_name,
                 "description": kb_config.get("description", f"Knowledge base: {kb_name}"),
-                "rag_provider": normalize_provider_name(kb_config.get("rag_provider")),
+                "rag_provider": DEFAULT_PROVIDER,
                 "needs_reindex": bool(kb_config.get("needs_reindex", False)),
                 "created_at": kb_config.get("created_at"),
                 "last_updated": kb_config.get("updated_at"),
+                "last_indexed_at": kb_config.get("last_indexed_at"),
+                "last_indexed_count": kb_config.get("last_indexed_count"),
+                "last_indexed_action": kb_config.get("last_indexed_action"),
             }
             metadata.update(self._embedding_fields(kb_config))
             # Remove None values
             metadata = {k: v for k, v in metadata.items() if v is not None}
             return metadata
-        
+
         return {}
 
     def get_info(self, name: str | None = None) -> dict:
@@ -540,25 +757,52 @@ class KnowledgeBaseManager:
         status = kb_config.get("status")
         progress = kb_config.get("progress")
         description = kb_config.get("description", f"Knowledge base: {kb_name}")
-        rag_provider = normalize_provider_name(kb_config.get("rag_provider"))
+        rag_provider = DEFAULT_PROVIDER
         needs_reindex = bool(kb_config.get("needs_reindex", False))
         created_at = kb_config.get("created_at")
         updated_at = kb_config.get("updated_at")
 
+        live_status = status in {"initializing", "processing"}
+        if live_status and isinstance(progress, dict):
+            live_status = progress.get("stage") not in {"completed", "error"}
+        effective_needs_reindex = needs_reindex and not live_status
+
         # KB might not have a directory yet if still initializing
         dir_exists = kb_dir.exists()
+        index_versions: list[dict[str, Any]] = []
+        has_ready_llamaindex = False
+        if dir_exists:
+            from deeptutor.services.rag.index_versioning import list_kb_versions
+
+            index_versions = list_kb_versions(kb_dir)
+            has_ready_llamaindex = any(bool(version.get("ready")) for version in index_versions)
 
         # For old KBs without status field, determine status from rag_storage
-        if needs_reindex:
+        if effective_needs_reindex:
             status = "needs_reindex"
+        elif (
+            status in {"processing", "initializing"}
+            and has_ready_llamaindex
+            and not (isinstance(progress, dict) and progress.get("stage") == "error")
+        ):
+            # A ready index version exists on disk but the persisted status is
+            # still a "live" sentinel — typically because the progress writer
+            # crashed (or the process was killed) after the index was finalised
+            # but before status was promoted to "ready". Recover the actual
+            # state on read so the UI does not show a perpetual processing
+            # banner. The persistent kb_config.json is left untouched; the
+            # next legitimate update_kb_status() call will clean it up.
+            # See issue #418.
+            status = "ready"
+            progress = None
         elif not status and dir_exists:
             rag_storage_dir = kb_dir / "rag_storage"
-            llamaindex_storage_dir = kb_dir / "llamaindex_storage"
-            if llamaindex_storage_dir.exists() and any(llamaindex_storage_dir.iterdir()):
+            if has_ready_llamaindex:
                 status = "ready"
             elif rag_storage_dir.exists() and any(rag_storage_dir.iterdir()):
                 status = "needs_reindex"
                 needs_reindex = True
+                effective_needs_reindex = True
             else:
                 status = "unknown"
         elif not status:
@@ -569,12 +813,18 @@ class KnowledgeBaseManager:
             "name": kb_name,
             "description": description,
             "rag_provider": rag_provider,
-            "needs_reindex": needs_reindex,
+            "needs_reindex": effective_needs_reindex,
         }
         if created_at:
             metadata["created_at"] = created_at
         if updated_at:
             metadata["last_updated"] = updated_at
+        if kb_config.get("last_indexed_at"):
+            metadata["last_indexed_at"] = kb_config.get("last_indexed_at")
+        if kb_config.get("last_indexed_count") is not None:
+            metadata["last_indexed_count"] = kb_config.get("last_indexed_count")
+        if kb_config.get("last_indexed_action"):
+            metadata["last_indexed_action"] = kb_config.get("last_indexed_action")
 
         metadata.update(self._embedding_fields(kb_config))
 
@@ -594,8 +844,6 @@ class KnowledgeBaseManager:
         raw_dir = kb_dir / "raw" if dir_exists else None
         images_dir = kb_dir / "images" if dir_exists else None
         content_list_dir = kb_dir / "content_list" if dir_exists else None
-        rag_storage_dir = kb_dir / "rag_storage" if dir_exists else None
-        llamaindex_storage_dir = kb_dir / "llamaindex_storage" if dir_exists else None
 
         raw_count = 0
         images_count = 0
@@ -603,31 +851,38 @@ class KnowledgeBaseManager:
 
         if dir_exists:
             try:
-                raw_count = (
-                    len([f for f in raw_dir.iterdir() if f.is_file()]) if raw_dir.exists() else 0
-                )
+                raw_count = len([f for f in raw_dir.iterdir() if f.is_file()]) if raw_dir else 0
             except Exception:
                 pass
 
             try:
                 images_count = (
-                    len([f for f in images_dir.iterdir() if f.is_file()])
-                    if images_dir.exists()
-                    else 0
+                    len([f for f in images_dir.iterdir() if f.is_file()]) if images_dir else 0
                 )
             except Exception:
                 pass
 
             try:
                 content_lists_count = (
-                    len(list(content_list_dir.glob("*.json"))) if content_list_dir.exists() else 0
+                    len(list(content_list_dir.glob("*.json"))) if content_list_dir else 0
                 )
             except Exception:
                 pass
 
-        # Check rag_initialized (llamaindex storage only)
-        rag_initialized = (
-            (dir_exists and llamaindex_storage_dir and llamaindex_storage_dir.exists() and llamaindex_storage_dir.is_dir())
+        # Check rag_initialized: flat versions OR legacy single-store/nested stores.
+        from deeptutor.services.rag.embedding_signature import signature_from_embedding_config
+        from deeptutor.services.rag.index_versioning import (
+            find_matching_version,
+        )
+
+        kb_dir = self.base_dir / kb_name if dir_exists else None
+        rag_initialized = has_ready_llamaindex
+
+        active_signature = signature_from_embedding_config()
+        active_match = (
+            find_matching_version(kb_dir, active_signature) is not None
+            if (kb_dir and active_signature)
+            else False
         )
 
         info["statistics"] = {
@@ -636,7 +891,10 @@ class KnowledgeBaseManager:
             "content_lists": content_lists_count,
             "rag_initialized": rag_initialized,
             "rag_provider": rag_provider,
-            "needs_reindex": needs_reindex,
+            "needs_reindex": effective_needs_reindex,
+            "index_versions": index_versions,
+            "active_signature": active_signature.hash() if active_signature else None,
+            "active_match": active_match,
             # Include status and progress in statistics for backward compatibility
             "status": status,
             "progress": progress,
@@ -655,10 +913,20 @@ class KnowledgeBaseManager:
         Returns:
             True if deleted successfully
         """
-        if name not in self.list_knowledge_bases():
+        # Look up against the raw config rather than ``list_knowledge_bases``:
+        # the latter prunes orphan entries (dir missing) as a side effect, so
+        # calling it here would race-delete the entry we are about to clean up
+        # and then raise "not found" on the now-empty config.
+        self.config = self._load_config()
+        config_kbs = self.config.get("knowledge_bases", {})
+        if name not in config_kbs and not (self.base_dir / name).exists():
             raise ValueError(f"Knowledge base not found: {name}")
 
-        kb_dir = self.get_knowledge_base_path(name)
+        # Resolve the directory directly to stay idempotent: if the on-disk
+        # folder was already removed (e.g. manually rm-rf'd) we still want to
+        # purge the orphaned entry from kb_config.json instead of failing.
+        kb_dir = self.base_dir / name
+        dir_exists = kb_dir.exists()
 
         if not confirm:
             # Ask for confirmation in CLI
@@ -669,8 +937,33 @@ class KnowledgeBaseManager:
                 print("Deletion cancelled.")
                 return False
 
-        # Delete the directory
-        shutil.rmtree(kb_dir)
+        if dir_exists:
+
+            def _on_rmtree_error(func, path, exc_info):
+                exc = exc_info[1]
+                if isinstance(exc, FileNotFoundError):
+                    # Race: something else removed the entry between walk and unlink.
+                    return
+                # On Windows (and some bind-mounted filesystems) a read-only bit
+                # or a stale handle from a failed RAG init can block removal.
+                # Clear the read-only bit and retry once; if it still fails, log
+                # and continue so the config entry gets cleaned up regardless —
+                # leaving the KB stuck in the list is worse than orphan files on
+                # disk (issue #370).
+                try:
+                    os.chmod(path, stat.S_IWRITE)
+                    func(path)
+                except Exception as retry_exc:
+                    logger.warning(
+                        f"Could not remove '{path}' while deleting KB '{name}': "
+                        f"{retry_exc}. Continuing; orphan files may remain on disk."
+                    )
+
+            shutil.rmtree(kb_dir, onerror=_on_rmtree_error)
+        else:
+            logger.warning(
+                f"KB directory '{kb_dir}' missing on disk; cleaning up orphaned config entry."
+            )
 
         # Remove from config
         if name in self.config.get("knowledge_bases", {}):
@@ -678,8 +971,8 @@ class KnowledgeBaseManager:
 
         # Update default if this was the default
         if self.config.get("default") == name:
-            remaining = self.list_knowledge_bases()
-            self.config["default"] = remaining[0] if remaining else None
+            remaining = [n for n in self.config.get("knowledge_bases", {}).keys() if n != name]
+            self.config["default"] = sorted(remaining)[0] if remaining else None
 
         self._save_config()
         return True
@@ -697,16 +990,37 @@ class KnowledgeBaseManager:
         """
         kb_name = name or self.get_default()
         kb_dir = self.get_knowledge_base_path(kb_name)
-        llamaindex_storage_dir = kb_dir / "llamaindex_storage"
+        from deeptutor.services.rag.index_versioning import (
+            LEGACY_VERSION_DIRNAME,
+            VERSION_PREFIX,
+        )
+
+        legacy_llamaindex_storage_dir = kb_dir / "llamaindex_storage"
+        legacy_versions_dir = kb_dir / LEGACY_VERSION_DIRNAME
         legacy_storage_dir = kb_dir / "rag_storage"
 
-        if not llamaindex_storage_dir.exists() and not legacy_storage_dir.exists():
+        flat_version_dirs = [
+            path
+            for path in kb_dir.iterdir()
+            if path.is_dir() and path.name.startswith(VERSION_PREFIX)
+        ]
+
+        if (
+            not flat_version_dirs
+            and not legacy_versions_dir.exists()
+            and not legacy_llamaindex_storage_dir.exists()
+            and not legacy_storage_dir.exists()
+        ):
             logger.info(f"Index storage does not exist for '{kb_name}'")
             return False
 
         targets = []
-        if llamaindex_storage_dir.exists():
-            targets.append(("llamaindex_storage", llamaindex_storage_dir))
+        for version_dir in flat_version_dirs:
+            targets.append((version_dir.name, version_dir))
+        if legacy_versions_dir.exists():
+            targets.append((LEGACY_VERSION_DIRNAME, legacy_versions_dir))
+        if legacy_llamaindex_storage_dir.exists():
+            targets.append(("llamaindex_storage", legacy_llamaindex_storage_dir))
         if legacy_storage_dir.exists():
             targets.append(("rag_storage", legacy_storage_dir))
 
@@ -718,7 +1032,6 @@ class KnowledgeBaseManager:
                 logger.info(f"Backed up {label} to: {backup_dir}")
 
             shutil.rmtree(target)
-            target.mkdir(parents=True, exist_ok=True)
             logger.info(f"Cleaned {label} for '{kb_name}'")
 
         return True
@@ -748,16 +1061,7 @@ class KnowledgeBaseManager:
         if not folder.is_dir():
             raise ValueError(f"Path is not a directory: {folder}")
 
-        # Get RAG provider from kb_config.json to determine supported extensions
-        self.config = self._load_config()
-        kb_config = self.config.get("knowledge_bases", {}).get(kb_name, {})
-        provider = normalize_provider_name(kb_config.get("rag_provider") or DEFAULT_PROVIDER)
-
-        # Get supported files in folder based on provider
-        supported_extensions = FileTypeRouter.get_extensions_for_provider(provider)
-        files: list[Path] = []
-        for ext in supported_extensions:
-            files.extend(folder.glob(f"**/*{ext}"))
+        files = FileTypeRouter.collect_supported_files(folder, recursive=True)
 
         # Generate folder ID
 
@@ -885,12 +1189,10 @@ class KnowledgeBaseManager:
         if not folder.exists() or not folder.is_dir():
             return []
 
-        supported_extensions = FileTypeRouter.get_extensions_for_provider(provider)
-        files = []
-
-        for ext in supported_extensions:
-            for file_path in folder.glob(f"**/*{ext}"):
-                files.append(str(file_path))
+        files = [
+            str(file_path)
+            for file_path in FileTypeRouter.collect_supported_files(folder, recursive=True)
+        ]
 
         return sorted(files)
 
@@ -930,33 +1232,25 @@ class KnowledgeBaseManager:
             except Exception:
                 pass
 
-        # Get RAG provider from kb_config.json to determine supported extensions
-        self.config = self._load_config()
-        kb_config = self.config.get("knowledge_bases", {}).get(kb_name, {})
-        provider = normalize_provider_name(kb_config.get("rag_provider") or DEFAULT_PROVIDER)
-
-        # Scan current files based on provider's supported extensions
-        supported_extensions = FileTypeRouter.get_extensions_for_provider(provider)
         new_files = []
         modified_files = []
 
-        for ext in supported_extensions:
-            for file_path in folder_path.glob(f"**/*{ext}"):
-                file_str = str(file_path)
-                file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
+        for file_path in FileTypeRouter.collect_supported_files(folder_path, recursive=True):
+            file_str = str(file_path)
+            file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
 
-                if file_str in synced_files:
-                    # Check if modified since last sync
-                    prev_mtime_str = synced_files[file_str]
-                    try:
-                        prev_mtime = datetime.fromisoformat(prev_mtime_str)
-                        if file_mtime > prev_mtime:
-                            modified_files.append(file_str)
-                    except Exception:
+            if file_str in synced_files:
+                # Check if modified since last sync
+                prev_mtime_str = synced_files[file_str]
+                try:
+                    prev_mtime = datetime.fromisoformat(prev_mtime_str)
+                    if file_mtime > prev_mtime:
                         modified_files.append(file_str)
-                else:
-                    # New file (not in synced files)
-                    new_files.append(file_str)
+                except Exception:
+                    modified_files.append(file_str)
+            else:
+                # New file (not in synced files)
+                new_files.append(file_str)
 
         return {
             "new_files": sorted(new_files),

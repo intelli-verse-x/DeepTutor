@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
-from deeptutor.logging import get_logger
 from deeptutor.services.config import (
     DEPRECATED_SEARCH_PROVIDERS,
     PROJECT_ROOT,
     SUPPORTED_SEARCH_PROVIDERS,
-    get_env_store,
     load_config_with_main,
     resolve_search_runtime_config,
 )
@@ -29,14 +28,7 @@ from .providers import (
 )
 from .types import Citation, SearchResult, WebSearchResponse
 
-_logger = get_logger("Search", level="INFO")
-
-_PROVIDER_KEY_ENV = {
-    "brave": "BRAVE_API_KEY",
-    "tavily": "TAVILY_API_KEY",
-    "jina": "JINA_API_KEY",
-    "perplexity": "PERPLEXITY_API_KEY",
-}
+_logger = logging.getLogger(__name__)
 
 
 def _get_web_search_config() -> dict[str, Any]:
@@ -60,15 +52,12 @@ def _save_results(result: dict[str, Any], output_dir: str, provider: str) -> str
 
 
 def _resolve_provider_key(provider_name: str, default_api_key: str) -> str:
-    if default_api_key:
-        return default_api_key
-    env_key = _PROVIDER_KEY_ENV.get(provider_name)
-    if not env_key:
-        return ""
-    return get_env_store().get(env_key, "").strip()
+    return default_api_key
 
 
 def _assert_provider_supported(provider_name: str) -> None:
+    if provider_name == "none":
+        return
     if provider_name in _DEPRECATED_UNSUPPORTED:
         raise ValueError(
             f"Search provider `{provider_name}` is deprecated/unsupported. "
@@ -76,7 +65,9 @@ def _assert_provider_supported(provider_name: str) -> None:
         )
     if provider_name not in SUPPORTED_SEARCH_PROVIDERS:
         allowed = ", ".join(sorted(SUPPORTED_SEARCH_PROVIDERS))
-        raise ValueError(f"Unknown search provider `{provider_name}`. Supported providers: {allowed}")
+        raise ValueError(
+            f"Unknown search provider `{provider_name}`. Supported providers: {allowed}"
+        )
 
 
 def web_search(
@@ -109,6 +100,15 @@ def web_search(
     resolved = resolve_search_runtime_config()
     provider_name = (provider or resolved.provider).strip().lower()
     _assert_provider_supported(provider_name)
+    if provider_name == "none":
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "query": query,
+            "answer": "Web search is disabled.",
+            "citations": [],
+            "search_results": [],
+            "provider": "none",
+        }
 
     if provider_name in {"brave", "tavily", "jina"}:
         api_key = _resolve_provider_key(provider_name, resolved.api_key)
@@ -120,8 +120,7 @@ def web_search(
     elif provider_name in {"perplexity", "serper"}:
         api_key = _resolve_provider_key(provider_name, resolved.api_key)
         if not api_key:
-            env_hint = "PERPLEXITY_API_KEY" if provider_name == "perplexity" else "SERPER_API_KEY"
-            raise ValueError(f"{provider_name} requires api_key (profile.api_key or {env_hint}).")
+            raise ValueError(f"{provider_name} requires profile.api_key in Settings > Catalog.")
         provider_kwargs.setdefault("api_key", api_key)
     elif provider_name == "searxng":
         base_url = provider_kwargs.get("base_url") or resolved.base_url
@@ -136,7 +135,7 @@ def web_search(
         provider_kwargs["proxy"] = resolved.proxy
 
     search_provider = get_provider(provider_name, **provider_kwargs)
-    _logger.progress(f"[{search_provider.name}] Searching: {query[:50]}...")
+    _logger.info(f"[{search_provider.name}] Searching: {query[:50]}...")
     try:
         response = search_provider.search(query, **provider_kwargs)
     except Exception as exc:

@@ -5,12 +5,11 @@ Combines user directory initialization and port configuration management.
 """
 
 import json
+import logging
 from pathlib import Path
 
 import yaml
 
-from deeptutor.logging import get_logger
-from deeptutor.services.config import get_env_store
 from deeptutor.services.path_service import get_path_service
 
 # Initialize logger for setup operations
@@ -22,7 +21,7 @@ DEFAULT_INTERFACE_SETTINGS = {
     "sidebar_description": "✨ Data Intelligence Lab @ HKU",
     "sidebar_nav_order": {
         "start": ["/", "/history", "/knowledge", "/notebook"],
-        "learnResearch": ["/question", "/solver", "/guide", "/research", "/co_writer"],
+        "learnResearch": ["/question", "/solver", "/research", "/co_writer"],
     },
 }
 
@@ -35,15 +34,6 @@ DEFAULT_MAIN_SETTINGS = {
         "save_to_file": True,
         "console_output": True,
     },
-    "personalization": {
-        "auto_update": True,
-        "max_react_rounds": 6,
-        "agents": {
-            "reflection": True,
-            "summary": True,
-            "weakness": True,
-        },
-    },
     "tools": {
         "run_code": {
             "allowed_roots": ["./data/user"],
@@ -53,20 +43,9 @@ DEFAULT_MAIN_SETTINGS = {
         },
     },
     "capabilities": {
-        "question": {
-            "rag_query_count": 3,
-            "max_parallel_questions": 1,
-            "idea_loop": {"max_rounds": 3, "ideas_per_round": 5},
-            "generation": {"max_retries": 2},
-        },
         "solve": {
-            "max_react_iterations": 10,
-            "max_plan_steps": 10,
+            "max_iterations_per_step": 7,
             "max_replans": 2,
-            "observation_max_tokens": 2000,
-            "enable_citations": True,
-            "save_intermediate_results": True,
-            "detailed_answer": True,
         },
         "research": {
             "researching": {
@@ -75,7 +54,15 @@ DEFAULT_MAIN_SETTINGS = {
                 "tool_max_retries": 2,
                 "paper_search_years_limit": 3,
             },
-            "rag": {},
+        },
+        "question": {
+            "exploring": {
+                "max_iterations": 8,
+                "tool_summarizer": {
+                    "enabled": True,
+                    "max_tokens": 800,
+                },
+            },
         },
     },
 }
@@ -85,8 +72,13 @@ DEFAULT_AGENTS_SETTINGS = {
         "solve": {"temperature": 0.3, "max_tokens": 8192},
         "research": {"temperature": 0.5, "max_tokens": 12000},
         "question": {"temperature": 0.7, "max_tokens": 4096},
-        "guide": {"temperature": 0.5, "max_tokens": 16192},
         "co_writer": {"temperature": 0.7, "max_tokens": 4096},
+        "visualize": {"temperature": 0.4, "max_tokens": 16384},
+        "chat": {
+            "temperature": 0.2,
+            "responding": {"max_tokens": 8000},
+            "answer_now": {"max_tokens": 8000},
+        },
     },
     "tools": {
         "brainstorm": {"temperature": 0.8, "max_tokens": 2048},
@@ -105,7 +97,7 @@ def _get_setup_logger():
     """Get logger for setup operations"""
     global _setup_logger
     if _setup_logger is None:
-        _setup_logger = get_logger("Setup")
+        _setup_logger = logging.getLogger(__name__)
     return _setup_logger
 
 
@@ -120,7 +112,7 @@ def init_user_directories(project_root: Path | None = None) -> None:
 
     This function uses lazy initialization - directories are created on-demand
     when files are saved, rather than pre-creating all directories at startup.
-    
+
     Only essential configuration files (like settings/interface.json) are
     created at startup if they don't exist.
 
@@ -136,7 +128,7 @@ def init_user_directories(project_root: Path | None = None) -> None:
         ├── notebook/
         ├── memory/
         ├── co-writer/
-        ├── guide/
+        ├── book/
         └── chat/
             ├── chat/
             ├── deep_solve/
@@ -160,7 +152,7 @@ def init_user_directories(project_root: Path | None = None) -> None:
 def _ensure_essential_settings(path_service) -> None:
     """
     Ensure essential settings files exist.
-    
+
     This is the minimal initialization needed at startup.
     All other directories are created on-demand when files are saved.
     """
@@ -172,6 +164,13 @@ def _ensure_essential_settings(path_service) -> None:
 
     agents_file = path_service.get_runtime_config_file("agents")
     _write_yaml_if_missing(agents_file, DEFAULT_AGENTS_SETTINGS)
+
+    try:
+        from deeptutor.services.config import ensure_runtime_settings_files
+
+        ensure_runtime_settings_files()
+    except Exception as e:
+        _get_setup_logger().warning(f"Failed to initialise runtime JSON settings: {e}")
 
 
 def _write_json_if_missing(file_path: Path, payload: dict) -> None:
@@ -203,45 +202,41 @@ def _write_yaml_if_missing(file_path: Path, payload: dict) -> None:
 # ============================================================================
 # Port Configuration Management
 # ============================================================================
-# Ports are configured via environment variables in .env file:
-#   BACKEND_PORT=8001   (default: 8001)
-#   FRONTEND_PORT=3782  (default: 3782)
+# Ports are configured via data/user/settings/system.json.
 # ============================================================================
 
 
 def get_backend_port(project_root: Path | None = None) -> int:
     """
-    Get backend port from environment variable.
-
-    Configure in .env file: BACKEND_PORT=8001
+    Get backend port from runtime settings.
 
     Returns:
         Backend port number (default: 8001)
     """
-    env_port = get_env_store().get("BACKEND_PORT", "8001")
     try:
-        return int(env_port)
-    except ValueError:
+        from deeptutor.services.config.launch_settings import load_launch_settings
+
+        return load_launch_settings(project_root).backend_port
+    except Exception as exc:
         logger = _get_setup_logger()
-        logger.warning(f"Invalid BACKEND_PORT: {env_port}, using default 8001")
+        logger.warning(f"Failed to load backend port from runtime settings: {exc}")
         return 8001
 
 
 def get_frontend_port(project_root: Path | None = None) -> int:
     """
-    Get frontend port from environment variable.
-
-    Configure in .env file: FRONTEND_PORT=3782
+    Get frontend port from runtime settings.
 
     Returns:
         Frontend port number (default: 3782)
     """
-    env_port = get_env_store().get("FRONTEND_PORT", "3782")
     try:
-        return int(env_port)
-    except ValueError:
+        from deeptutor.services.config.launch_settings import load_launch_settings
+
+        return load_launch_settings(project_root).frontend_port
+    except Exception as exc:
         logger = _get_setup_logger()
-        logger.warning(f"Invalid FRONTEND_PORT: {env_port}, using default 3782")
+        logger.warning(f"Failed to load frontend port from runtime settings: {exc}")
         return 3782
 
 
@@ -266,7 +261,7 @@ def get_ports(project_root: Path | None = None) -> tuple[int, int]:
 __all__ = [
     # User directory initialization
     "init_user_directories",
-    # Port configuration (from .env)
+    # Port configuration
     "get_backend_port",
     "get_frontend_port",
     "get_ports",

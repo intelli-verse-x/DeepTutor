@@ -3,18 +3,20 @@ LLM Configuration
 =================
 
 Configuration management for LLM services.
-Simplified version - loads from unified config service or falls back to .env.
+Loads from data/user/settings/model_catalog.json.
 """
 
 from __future__ import annotations
 
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, replace
 import logging
 import os
+from pathlib import Path
 import re
 from typing import TYPE_CHECKING, TypedDict
 
-from deeptutor.services.config import get_env_store, resolve_llm_runtime_config
+from deeptutor.services.config import resolve_llm_runtime_config
 from deeptutor.services.provider_registry import canonical_provider_name, find_by_name
 
 from .exceptions import LLMConfigError
@@ -36,31 +38,33 @@ class LLMConfigUpdate(TypedDict, total=False):
     api_version: str | None
     extra_headers: dict[str, str]
     reasoning_effort: str | None
+    context_window: int | None
     max_tokens: int
     temperature: float
     max_concurrency: int
     requests_per_minute: int
     traffic_controller: "TrafficController" | None
 
+
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = get_env_store().path.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _is_openai_compatible_binding(binding: str | None) -> bool:
     canonical = canonical_provider_name(binding) or (binding or "").strip().lower()
-    if canonical in {"custom", "azure_openai"}:
-        return True
     spec = find_by_name(canonical)
-    return bool(spec and not spec.is_oauth)
+    if not spec or spec.is_oauth:
+        return False
+    return spec.backend in {"openai_compat", "azure_openai"}
 
 
 def _set_openai_env_vars(api_key: str | None, base_url: str | None, *, source: str) -> None:
-    if api_key and not os.getenv("OPENAI_API_KEY"):
+    if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
         logger.debug("Set OPENAI_API_KEY env var (%s)", source)
 
-    if base_url and not os.getenv("OPENAI_BASE_URL"):
+    if base_url:
         from .utils import sanitize_url
 
         clean_url = sanitize_url(base_url)
@@ -76,13 +80,12 @@ def _setup_openai_env_vars_early() -> None:
     This is called at module import time so downstream calls have consistent
     environment regardless of entrypoint.
     """
-    env_store = get_env_store()
-    binding = env_store.get("LLM_BINDING", "openai")
-    api_key = env_store.get("LLM_API_KEY", "")
-    base_url = env_store.get("LLM_HOST", "")
-
-    if _is_openai_compatible_binding(binding):
-        _set_openai_env_vars(api_key, base_url, source="early init")
+    try:
+        resolved = resolve_llm_runtime_config()
+    except Exception:
+        return
+    if _is_openai_compatible_binding(resolved.binding):
+        _set_openai_env_vars(resolved.api_key, resolved.effective_url, source="early init")
 
 
 # Execute early setup at module import time
@@ -103,6 +106,7 @@ class LLMConfig:
     api_version: str | None = None
     extra_headers: dict[str, str] | None = None
     reasoning_effort: str | None = None
+    context_window: int | None = None
     max_tokens: int = 4096
     temperature: float = 0.7
     max_concurrency: int = 20
@@ -123,6 +127,20 @@ class LLMConfig:
 
 
 _LLM_CONFIG_CACHE: LLMConfig | None = None
+_SCOPED_LLM_CONFIG: ContextVar[LLMConfig | None] = ContextVar(
+    "deeptutor_scoped_llm_config",
+    default=None,
+)
+
+
+def set_scoped_llm_config(config: LLMConfig | None) -> Token[LLMConfig | None]:
+    """Set the LLM config for the current async context."""
+    return _SCOPED_LLM_CONFIG.set(config)
+
+
+def reset_scoped_llm_config(token: Token[LLMConfig | None]) -> None:
+    """Reset a scoped LLM config token returned by ``set_scoped_llm_config``."""
+    _SCOPED_LLM_CONFIG.reset(token)
 
 
 def initialize_environment() -> None:
@@ -132,54 +150,13 @@ def initialize_environment() -> None:
     This should be called during application startup to keep OPENAI_* env vars
     aligned with current config values.
     """
-    try:
-        resolved = resolve_llm_runtime_config()
-        binding = resolved.binding
-        api_key = resolved.api_key
-        base_url = resolved.effective_url
-    except Exception:
-        env_store = get_env_store()
-        binding = _strip_value(env_store.get("LLM_BINDING")) or "openai"
-        api_key = _strip_value(env_store.get("LLM_API_KEY"))
-        base_url = _strip_value(env_store.get("LLM_HOST"))
-
-    if _is_openai_compatible_binding(binding):
-        _set_openai_env_vars(api_key, base_url, source="initialize_environment")
-
-
-def _strip_value(value: str | None) -> str | None:
-    """Remove leading/trailing whitespace and quotes from string."""
-    if value is None:
-        return None
-    return value.strip().strip("\"'")
-
-
-def _get_llm_config_from_env() -> LLMConfig:
-    """Get LLM configuration from environment variables."""
-    env_store = get_env_store()
-    binding = _strip_value(env_store.get("LLM_BINDING")) or "openai"
-    model = _strip_value(env_store.get("LLM_MODEL"))
-    api_key = _strip_value(env_store.get("LLM_API_KEY"))
-    base_url = _strip_value(env_store.get("LLM_HOST"))
-    api_version = _strip_value(env_store.get("LLM_API_VERSION"))
-
-    # Validate required configuration
-    if not model:
-        raise LLMConfigError(
-            "LLM_MODEL not set, please configure it in .env file or add a configuration in Settings"
+    resolved = resolve_llm_runtime_config()
+    if _is_openai_compatible_binding(resolved.binding):
+        _set_openai_env_vars(
+            resolved.api_key,
+            resolved.effective_url,
+            source="initialize_environment",
         )
-    if not base_url:
-        raise LLMConfigError(
-            "LLM_HOST not set, please configure it in .env file or add a configuration in Settings"
-        )
-
-    return LLMConfig(
-        binding=binding,
-        model=model,
-        api_key=api_key or "",
-        base_url=base_url,
-        api_version=api_version,
-    )
 
 
 def _get_llm_config_from_resolver() -> LLMConfig:
@@ -204,6 +181,7 @@ def _get_llm_config_from_resolver() -> LLMConfig:
         api_version=resolved.api_version,
         extra_headers=resolved.extra_headers,
         reasoning_effort=resolved.reasoning_effort,
+        context_window=resolved.context_window,
     )
 
 
@@ -219,17 +197,14 @@ def get_llm_config() -> LLMConfig:
     """
     global _LLM_CONFIG_CACHE
 
+    scoped = _SCOPED_LLM_CONFIG.get()
+    if scoped is not None:
+        return scoped
+
     if _LLM_CONFIG_CACHE is not None:
         return _LLM_CONFIG_CACHE
 
-    try:
-        _LLM_CONFIG_CACHE = _get_llm_config_from_resolver()
-    except Exception as exc:
-        logger.warning(
-            "LLM runtime resolver failed, falling back to env compatibility path: %s",
-            exc,
-        )
-        _LLM_CONFIG_CACHE = _get_llm_config_from_env()
+    _LLM_CONFIG_CACHE = _get_llm_config_from_resolver()
     return _LLM_CONFIG_CACHE
 
 

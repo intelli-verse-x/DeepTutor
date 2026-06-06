@@ -8,18 +8,21 @@ This is the canonical backend source for user-selected UI language/theme stored 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from deeptutor.services.path_service import get_path_service
-
-_path_service = get_path_service()
-INTERFACE_SETTINGS_FILE = _path_service.get_settings_file("interface")
 
 DEFAULT_UI_SETTINGS: dict[str, Any] = {
     "theme": "light",
     "language": "en",
 }
+
+
+def _interface_settings_file():
+    # Resolved on every call so a per-user PathService (set after auth)
+    # routes reads to the caller's own ``settings/interface.json`` instead
+    # of the admin scope frozen at import time.
+    return get_path_service().get_settings_file("interface")
 
 
 def _normalize_language(language: Any, default: str = "en") -> str:
@@ -51,9 +54,10 @@ def get_ui_settings() -> dict[str, Any]:
     Returns:
         dict containing at least: {"theme": "...", "language": "..."}
     """
-    if INTERFACE_SETTINGS_FILE.exists():
+    settings_file = _interface_settings_file()
+    if settings_file.exists():
         try:
-            with open(INTERFACE_SETTINGS_FILE, encoding="utf-8") as f:
+            with open(settings_file, encoding="utf-8") as f:
                 saved = json.load(f) or {}
             merged = {**DEFAULT_UI_SETTINGS, **saved}
             merged["language"] = _normalize_language(

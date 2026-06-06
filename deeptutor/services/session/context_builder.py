@@ -11,8 +11,9 @@ from deeptutor.agents.base_agent import BaseAgent
 from deeptutor.core.stream import StreamEvent, StreamEventType
 from deeptutor.core.trace import build_trace_metadata, merge_trace_metadata, new_call_id
 from deeptutor.services.llm.config import LLMConfig
+from deeptutor.services.llm.context_window import resolve_effective_context_window
 
-from .sqlite_store import SQLiteSessionStore
+from .protocol import SessionStoreProtocol
 
 
 def count_tokens(text: str) -> int:
@@ -89,7 +90,7 @@ class ContextBuilder:
 
     def __init__(
         self,
-        store: SQLiteSessionStore,
+        store: SessionStoreProtocol,
         history_budget_ratio: float = 0.35,
         summary_target_ratio: float = 0.40,
     ) -> None:
@@ -97,9 +98,16 @@ class ContextBuilder:
         self.history_budget_ratio = history_budget_ratio
         self.summary_target_ratio = summary_target_ratio
 
+    def _effective_context_window(self, llm_config: LLMConfig) -> int:
+        return resolve_effective_context_window(
+            context_window=getattr(llm_config, "context_window", None),
+            model=str(getattr(llm_config, "model", "") or ""),
+            max_tokens=getattr(llm_config, "max_tokens", None),
+        )
+
     def _history_budget(self, llm_config: LLMConfig) -> int:
-        configured = int(getattr(llm_config, "max_tokens", 4096) or 4096)
-        return max(256, int(configured * self.history_budget_ratio))
+        effective_context_window = self._effective_context_window(llm_config)
+        return max(256, int(effective_context_window * self.history_budget_ratio))
 
     def _summary_budget(self, budget: int) -> int:
         return max(96, int(budget * self.summary_target_ratio))
@@ -302,9 +310,15 @@ class ContextBuilder:
         llm_config: LLMConfig,
         language: str = "en",
         on_event: Callable[[StreamEvent], Awaitable[None]] | None = None,
+        leaf_message_id: int | None = None,
     ) -> ContextBuildResult:
         session = await self.store.get_session(session_id)
-        messages = await self.store.get_messages_for_context(session_id)
+        # When ``leaf_message_id`` is given (edit-branch turn), only the
+        # ancestor path of that message is included in context — sibling
+        # branches at any depth are excluded.
+        messages = await self.store.get_messages_for_context(
+            session_id, leaf_message_id=leaf_message_id
+        )
         if session is None:
             return ContextBuildResult([], "", "", [], 0, self._history_budget(llm_config))
 
@@ -314,7 +328,9 @@ class ContextBuilder:
 
         stored_summary = str(session.get("compressed_summary", "") or "").strip()
         summary_up_to_msg_id = int(session.get("summary_up_to_msg_id", 0) or 0)
-        unsummarized = [item for item in messages if int(item.get("id", 0) or 0) > summary_up_to_msg_id]
+        unsummarized = [
+            item for item in messages if int(item.get("id", 0) or 0) > summary_up_to_msg_id
+        ]
 
         current_history = self._build_history(stored_summary, unsummarized)
         current_tokens = count_tokens(build_history_text(current_history))
@@ -328,7 +344,9 @@ class ContextBuilder:
                 budget=budget,
             )
 
-        older_unsummarized, recent_messages = self._select_recent_messages(unsummarized, recent_budget)
+        older_unsummarized, recent_messages = self._select_recent_messages(
+            unsummarized, recent_budget
+        )
         merge_parts: list[str] = []
         if stored_summary:
             merge_parts.append(f"Existing summary:\n{stored_summary}")

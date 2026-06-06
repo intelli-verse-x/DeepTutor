@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from deeptutor.runtime.registry.tool_registry import ToolRegistry
 from deeptutor.core.tool_protocol import BaseTool, ToolDefinition, ToolParameter, ToolResult
+from deeptutor.runtime.registry.tool_registry import ToolRegistry
 from deeptutor.tools.builtin import (
     BrainstormTool,
     CodeExecutionTool,
@@ -22,9 +22,10 @@ from deeptutor.tools.builtin import (
 )
 
 
-def _install_module(monkeypatch: pytest.MonkeyPatch, fullname: str, **attrs: Any) -> types.ModuleType:
+def _install_module(
+    monkeypatch: pytest.MonkeyPatch, fullname: str, **attrs: Any
+) -> types.ModuleType:
     """Install a fake module (and missing parent packages) into sys.modules."""
-    __import__("src")
     parts = fullname.split(".")
     for idx in range(1, len(parts)):
         pkg_name = ".".join(parts[:idx])
@@ -93,6 +94,23 @@ async def test_rag_tool_forwards_query_and_extra_kwargs(monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
+async def test_rag_tool_rejects_empty_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = False
+
+    async def fake_rag_search(**_kwargs: Any) -> dict[str, Any]:
+        nonlocal called
+        called = True
+        return {"answer": "should not run"}
+
+    _install_module(monkeypatch, "deeptutor.tools.rag_tool", rag_search=fake_rag_search)
+
+    with pytest.raises(ValueError, match="RAG query must be a non-empty string"):
+        await RAGTool().execute(query="  ", kb_name="demo-kb")
+
+    assert called is False
+
+
+@pytest.mark.asyncio
 async def test_web_search_tool_wraps_sync_function(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
@@ -138,7 +156,9 @@ async def test_code_execution_tool_uses_direct_code_path(monkeypatch: pytest.Mon
 
 
 @pytest.mark.asyncio
-async def test_code_execution_tool_generates_code_from_intent(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_code_execution_tool_generates_code_from_intent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     executed: dict[str, Any] = {}
 
     async def fake_run_code(**kwargs: Any) -> dict[str, Any]:

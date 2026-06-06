@@ -1,7 +1,7 @@
 """
 Live LLM connectivity test.
 
-Run directly to verify your .env / config is working:
+Run directly to verify your data/user/settings model config is working:
 
     python tests/services/llm/test_llm_live.py
     python tests/services/llm/test_llm_live.py --stream    # also test streaming
@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
 
 # ensure project root is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))

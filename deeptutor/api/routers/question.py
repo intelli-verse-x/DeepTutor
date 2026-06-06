@@ -1,6 +1,7 @@
 import asyncio
 import base64
 from datetime import datetime
+import logging
 from pathlib import Path
 import re
 import sys
@@ -9,9 +10,13 @@ import traceback
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from deeptutor.agents.question import AgentCoordinator
-from deeptutor.api.utils.log_interceptor import LogInterceptor
 from deeptutor.api.utils.task_id_manager import TaskIDManager
-from deeptutor.logging import get_logger
+from deeptutor.logging import (
+    ProcessLogEvent,
+    bind_log_context,
+    capture_process_logs,
+    current_log_context,
+)
 from deeptutor.services.config import PROJECT_ROOT, load_config_with_main
 from deeptutor.services.llm.config import get_llm_config
 from deeptutor.services.path_service import get_path_service
@@ -23,13 +28,16 @@ from deeptutor.utils.error_utils import format_exception_message
 # Setup module logger with unified logging system (from config)
 config = load_config_with_main("main.yaml", PROJECT_ROOT)
 log_dir = config.get("paths", {}).get("user_log_dir") or config.get("logging", {}).get("log_dir")
-logger = get_logger("QuestionAPI", log_dir=log_dir)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Output directory for mimic mode - use agent/question/mimic_papers
-_path_service = get_path_service()
-MIMIC_OUTPUT_DIR = _path_service.get_question_dir() / "mimic_papers"
+
+def _mimic_output_dir():
+    # Resolved per-call so a per-user PathService (set after auth) routes
+    # generated mimic papers under the caller's own workspace instead of
+    # admin's directory frozen at import time.
+    return get_path_service().get_question_dir() / "mimic_papers"
 
 
 @router.websocket("/mimic")
@@ -58,6 +66,13 @@ async def websocket_mimic_generate(websocket: WebSocket):
         "max_questions": 5  // optional
     }
     """
+    from deeptutor.api.routers.auth import ws_auth_failed, ws_require_auth
+    from deeptutor.multi_user.context import reset_current_user
+
+    user_token = await ws_require_auth(websocket)
+    if user_token is ws_auth_failed:
+        return
+
     await websocket.accept()
 
     pusher_task = None
@@ -74,6 +89,11 @@ async def websocket_mimic_generate(websocket: WebSocket):
 
         # 2. Setup Log Queue
         log_queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+        task_id = f"question_mimic_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+
+        def emit_process_log(event: ProcessLogEvent) -> None:
+            loop.call_soon_threadsafe(log_queue.put_nowait, event.to_dict())
 
         async def log_pusher():
             while True:
@@ -109,13 +129,14 @@ async def websocket_mimic_generate(websocket: WebSocket):
                 # Then send to frontend (non-blocking)
                 if clean_message:
                     try:
-                        self.queue.put_nowait(
-                            {
-                                "type": "log",
-                                "content": clean_message,
-                                "timestamp": asyncio.get_event_loop().time(),
-                            }
+                        event = ProcessLogEvent(
+                            level="INFO",
+                            message=clean_message,
+                            logger="deeptutor.question.stdout",
+                            timestamp=datetime.now().timestamp(),
+                            context=current_log_context(),
                         )
+                        self.queue.put_nowait(event.to_dict())
                     except (asyncio.QueueFull, RuntimeError):
                         pass
 
@@ -173,7 +194,7 @@ async def websocket_mimic_generate(websocket: WebSocket):
                 # Create batch directory for this mimic session
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 pdf_stem = Path(safe_name).stem
-                batch_dir = MIMIC_OUTPUT_DIR / f"mimic_{timestamp}_{pdf_stem}"
+                batch_dir = _mimic_output_dir() / f"mimic_{timestamp}_{pdf_stem}"
                 batch_dir.mkdir(parents=True, exist_ok=True)
 
                 # Save uploaded PDF in batch directory
@@ -220,7 +241,7 @@ async def websocket_mimic_generate(websocket: WebSocket):
 
                 # Create batch directory for parsed mode too
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                batch_dir = MIMIC_OUTPUT_DIR / f"mimic_{timestamp}_{Path(paper_path).name}"
+                batch_dir = _mimic_output_dir() / f"mimic_{timestamp}_{Path(paper_path).name}"
                 batch_dir.mkdir(parents=True, exist_ok=True)
                 output_dir = str(batch_dir)
 
@@ -246,14 +267,16 @@ async def websocket_mimic_generate(websocket: WebSocket):
                 }
             )
 
-            result = await mimic_exam_questions(
-                pdf_path=pdf_path,
-                paper_dir=paper_dir,
-                kb_name=kb_name,
-                output_dir=output_dir,
-                max_questions=max_questions,
-                ws_callback=ws_callback,
-            )
+            with bind_log_context(task_id=task_id, capability="deep_question", sink="ui"):
+                with capture_process_logs(emit_process_log, task_id=task_id):
+                    result = await mimic_exam_questions(
+                        pdf_path=pdf_path,
+                        paper_dir=paper_dir,
+                        kb_name=kb_name,
+                        output_dir=output_dir,
+                        max_questions=max_questions,
+                        ws_callback=ws_callback,
+                    )
 
             if result.get("success"):
                 # Results are already sent via ws_callback during generation
@@ -262,7 +285,7 @@ async def websocket_mimic_generate(websocket: WebSocket):
                 generated = result.get("generated_questions", [])
                 failed = result.get("failed_questions", [])
 
-                logger.success(
+                logger.info(
                     f"Mimic generation complete: {len(generated)} succeeded, {len(failed)} failed"
                 )
 
@@ -320,9 +343,22 @@ async def websocket_mimic_generate(websocket: WebSocket):
         except Exception:
             pass
 
+        if user_token is not None:
+            try:
+                reset_current_user(user_token)
+            except Exception:
+                pass
+
 
 @router.websocket("/generate")
 async def websocket_question_generate(websocket: WebSocket):
+    from deeptutor.api.routers.auth import ws_auth_failed, ws_require_auth
+    from deeptutor.multi_user.context import reset_current_user
+
+    user_token = await ws_require_auth(websocket)
+    if user_token is ws_auth_failed:
+        return
+
     await websocket.accept()
 
     # Get task ID manager
@@ -382,6 +418,10 @@ async def websocket_question_generate(websocket: WebSocket):
 
         # 3. Setup Log Queue for WebSocket streaming
         log_queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def emit_process_log(event: ProcessLogEvent) -> None:
+            loop.call_soon_threadsafe(log_queue.put_nowait, event.to_dict())
 
         # WebSocket callback for coordinator to send structured updates
         async def ws_callback(data: dict):
@@ -404,79 +444,77 @@ async def websocket_question_generate(websocket: WebSocket):
 
         pusher_task = asyncio.create_task(log_pusher())
 
-        # 5. Setup LogInterceptor for capturing logger output (same as solve.py)
-        # Get the coordinator's logger to intercept
-        target_logger = coordinator.logger.logger
-        interceptor = LogInterceptor(target_logger, log_queue)
-
-        # 6. Run Generation with LogInterceptor
+        # 5. Run generation while streaming logs bound to this task.
         try:
-            with interceptor:
-                try:
-                    await websocket.send_json({"type": "status", "content": "started"})
-                except (RuntimeError, WebSocketDisconnect):
-                    logger.debug("WebSocket closed, stopping question generation")
-                    return
+            with bind_log_context(task_id=task_id, capability="deep_question", sink="ui"):
+                with capture_process_logs(emit_process_log, task_id=task_id):
+                    try:
+                        await websocket.send_json({"type": "status", "content": "started"})
+                    except (RuntimeError, WebSocketDisconnect):
+                        logger.debug("WebSocket closed, stopping question generation")
+                        return
 
-                # Extract fields from requirement dict
-                user_topic = (
-                    requirement.get("knowledge_point", "")
-                    if isinstance(requirement, dict)
-                    else str(requirement)
-                )
-                preference = (
-                    requirement.get("preference", "") if isinstance(requirement, dict) else ""
-                )
-                difficulty = (
-                    requirement.get("difficulty", "") if isinstance(requirement, dict) else ""
-                )
-                question_type = (
-                    requirement.get("question_type", "") if isinstance(requirement, dict) else ""
-                )
-
-                logger.info(
-                    f"Starting question generation for {count} question(s), topic: {user_topic}"
-                )
-
-                batch_result = await coordinator.generate_from_topic(
-                    user_topic=user_topic,
-                    preference=preference,
-                    num_questions=count,
-                    difficulty=difficulty,
-                    question_type=question_type,
-                )
-
-                # Send batch summary
-                try:
-                    await websocket.send_json(
-                        {
-                            "type": "batch_summary",
-                            "requested": count,
-                            "completed": batch_result.get("completed", 0),
-                            "failed": batch_result.get("failed", 0),
-                        }
+                    # Extract fields from requirement dict
+                    user_topic = (
+                        requirement.get("knowledge_point", "")
+                        if isinstance(requirement, dict)
+                        else str(requirement)
                     )
-                except (RuntimeError, WebSocketDisconnect):
-                    pass
-
-                if not batch_result.get("success"):
-                    logger.warning(
-                        f"Question generation had failures: {batch_result.get('failed', 0)} failed"
+                    preference = (
+                        requirement.get("preference", "") if isinstance(requirement, dict) else ""
+                    )
+                    difficulty = (
+                        requirement.get("difficulty", "") if isinstance(requirement, dict) else ""
+                    )
+                    question_type = (
+                        requirement.get("question_type", "")
+                        if isinstance(requirement, dict)
+                        else ""
                     )
 
-                # Wait for any pending messages in the queue to be sent
-                # Give the pusher a moment to process remaining messages
-                await asyncio.sleep(0.1)
-                while not log_queue.empty():
-                    await asyncio.sleep(0.05)
+                    logger.info(
+                        f"Starting question generation for {count} question(s), topic: {user_topic}"
+                    )
 
-                # Send complete signal
-                try:
-                    await websocket.send_json({"type": "complete"})
-                    logger.info(f"[{task_id}] Question generation completed")
-                    task_manager.update_task_status(task_id, "completed")
-                except (RuntimeError, WebSocketDisconnect):
-                    logger.debug("WebSocket closed, cannot send complete signal")
+                    batch_result = await coordinator.generate_from_topic(
+                        user_topic=user_topic,
+                        preference=preference,
+                        num_questions=count,
+                        difficulty=difficulty,
+                        question_type=question_type,
+                    )
+
+                    # Send batch summary
+                    try:
+                        await websocket.send_json(
+                            {
+                                "type": "batch_summary",
+                                "requested": count,
+                                "completed": batch_result.get("completed", 0),
+                                "failed": batch_result.get("failed", 0),
+                            }
+                        )
+                    except (RuntimeError, WebSocketDisconnect):
+                        pass
+
+                    if not batch_result.get("success"):
+                        logger.warning(
+                            f"Question generation had failures: {batch_result.get('failed', 0)} failed"
+                        )
+
+                    # Wait for any pending messages in the queue to be sent
+                    # Give the pusher a moment to process remaining messages
+                    await asyncio.sleep(0.1)
+                    while not log_queue.empty():
+                        await asyncio.sleep(0.05)
+
+                    # Send complete signal
+                    try:
+                        await websocket.send_json({"type": "complete"})
+                        logger.info(f"[{task_id}] Question generation completed")
+                        task_manager.update_task_status(task_id, "completed")
+                    except (RuntimeError, WebSocketDisconnect):
+                        logger.debug("WebSocket closed, cannot send complete signal")
 
         except Exception as e:
             error_msg = format_exception_message(e)
@@ -486,12 +524,13 @@ async def websocket_question_generate(websocket: WebSocket):
 
             # Log additional context if available
             try:
-                if "result" in locals():
+                context_result = locals().get("batch_result")
+                if context_result is not None:
                     logger.error(
-                        f"Result type: {type(result)}, result keys: {result.keys() if isinstance(result, dict) else 'N/A'}"
+                        f"Result type: {type(context_result)}, result keys: {context_result.keys() if isinstance(context_result, dict) else 'N/A'}"
                     )
-                    if isinstance(result, dict) and "validation" in result:
-                        validation = result["validation"]
+                    if isinstance(context_result, dict) and "validation" in context_result:
+                        validation = context_result["validation"]
                         logger.error(f"Validation type: {type(validation)}")
                         if isinstance(validation, dict):
                             logger.error(f"Validation keys: {validation.keys()}")
@@ -523,3 +562,9 @@ async def websocket_question_generate(websocket: WebSocket):
     except Exception as e:
         error_msg = format_exception_message(e)
         logger.error(f"WebSocket error: {error_msg}")
+    finally:
+        if user_token is not None:
+            try:
+                reset_current_user(user_token)
+            except Exception:
+                pass

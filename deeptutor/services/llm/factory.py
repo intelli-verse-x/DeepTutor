@@ -1,508 +1,37 @@
-"""
-LLM Factory - Central Hub for LLM Calls
-=======================================
-This module serves as the central hub for all LLM calls in DeepTutor.
-It provides a unified interface for agents to call LLMs, routing requests
-to the appropriate provider (cloud or local) based on URL detection.
+"""Unified services-layer LLM factory."""
 
-Compatibility:
-    This factory preserves legacy behaviors from the pre-provider refactor,
-    including BaseAgent.call_llm()/stream_llm() signatures and retry semantics.
-    The adapter layer remains until all legacy entry points migrate to direct
-    provider calls. Once all agents and tools depend on provider modules
-    directly, this wrapper can be removed.
-
-Architecture:
-    Agents (ChatAgent, GuideAgent, etc.)
-              ↓
-         BaseAgent.call_llm() / stream_llm()
-              ↓
-         LLM Factory (this module)
-              ↓
-    ┌─────────┴─────────┐
-    ↓                   ↓
-CloudProvider      LocalProvider
-(cloud_provider)   (local_provider)
-              ↓                   ↓
-OpenAI/DeepSeek/etc    LM Studio/Ollama/etc
-
-Routing:
-- Automatically routes to local_provider for local URLs (localhost, 127.0.0.1, etc.)
-- Routes to cloud_provider for all other URLs
-
-Retry Mechanism:
-- Automatic retry with exponential backoff for transient errors
-- Configurable max_retries, retry_delay, and exponential_backoff
-- Only retries on retriable errors (timeout, rate limit, server errors)
-"""
+from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, Mapping
-from typing import TYPE_CHECKING, TypedDict
-
-import tenacity
+import contextlib
+from types import SimpleNamespace
+from typing import Any, TypedDict
 
 from deeptutor.config.settings import settings
-from deeptutor.logging.logger import Logger, get_logger
+from deeptutor.services.provider_registry import (
+    PROVIDERS,
+    canonical_provider_name,
+    find_by_model,
+    find_by_name,
+    find_gateway,
+)
 
-from . import local_provider
+from .capabilities import supports_response_format, supports_vision
 from .config import LLMConfig, get_llm_config
-from .exceptions import (
-    LLMAPIError,
-    LLMAuthenticationError,
-    LLMConfigError,
-    LLMRateLimitError,
-    LLMTimeoutError,
-)
-from .executors import (
-    sdk_complete,
-    sdk_stream,
-)
+from .error_mapping import map_error
+from .multimodal import prepare_multimodal_messages
+from .provider_factory import get_runtime_provider
 from .utils import is_local_llm_server
 
-if TYPE_CHECKING:
-    from .providers.base_provider import BaseLLMProvider
-
-# Initialize logger
-logger: Logger = get_logger("LLMFactory")
-
-# Default retry configuration (bound to settings)
 DEFAULT_MAX_RETRIES = settings.retry.max_retries
 DEFAULT_RETRY_DELAY = settings.retry.base_delay
 DEFAULT_EXPONENTIAL_BACKOFF = settings.retry.exponential_backoff
+DEFAULT_STREAM_COALESCE_CHARS = 64
+DEFAULT_STREAM_COALESCE_SECONDS = 0.04
+STREAM_CONTROL_TOKENS = {"<think>", "</think>"}
 
-CallKwargs = dict[str, object]
-
-
-def _is_retriable_error(error: BaseException) -> bool:
-    """
-    Check if an error is retriable.
-
-    Retriable errors:
-    - Timeout errors
-    - Rate limit errors (429)
-    - Server errors (5xx)
-    - Network/connection errors
-
-    Non-retriable errors:
-    - CancelledError / KeyboardInterrupt (must propagate immediately)
-    - Authentication errors (401)
-    - Bad request (400)
-    - Not found (404)
-    - Client errors (4xx except 429)
-    """
-    if isinstance(error, (asyncio.CancelledError, KeyboardInterrupt, GeneratorExit)):
-        return False
-
-    from aiohttp import ClientError
-
-    if isinstance(error, (asyncio.TimeoutError, ClientError)):
-        return True
-    if isinstance(error, LLMTimeoutError):
-        return True
-    if isinstance(error, LLMRateLimitError):
-        return True
-    if isinstance(error, LLMAuthenticationError):
-        return False  # Don't retry auth errors
-    if isinstance(error, LLMConfigError):
-        return False
-
-    if isinstance(error, LLMAPIError):
-        status_code = error.status_code
-        if status_code:
-            # Retry on server errors (5xx) and rate limits (429)
-            if status_code >= 500 or status_code == 429:
-                return True
-            # Don't retry on client errors (4xx except 429)
-            if 400 <= status_code < 500:
-                return False
-
-        # When status_code is None (e.g. connection drop), retry.
-        return True
-
-    # For other exceptions (network errors, etc.), retry
-    return True
-
-
-def _should_use_local(base_url: str | None) -> bool:
-    """
-    Determine if we should use the local provider based on URL.
-
-    Args:
-        base_url: The base URL to check
-
-    Returns:
-        True if local provider should be used (localhost, 127.0.0.1, etc.)
-    """
-    return is_local_llm_server(base_url) if base_url else False
-
-
-async def complete(
-    prompt: str,
-    system_prompt: str = "You are a helpful assistant.",
-    model: str | None = None,
-    api_key: str | None = None,
-    base_url: str | None = None,
-    api_version: str | None = None,
-    binding: str | None = None,
-    messages: list[dict[str, object]] | None = None,
-    max_retries: int = DEFAULT_MAX_RETRIES,
-    retry_delay: float = DEFAULT_RETRY_DELAY,
-    exponential_backoff: bool = DEFAULT_EXPONENTIAL_BACKOFF,
-    **kwargs: object,
-) -> str:
-    """
-    Unified LLM completion function with automatic retry.
-
-    Routes to cloud_provider or local_provider based on configuration.
-    Includes automatic retry with exponential backoff for transient errors.
-
-    Args:
-        prompt: The user prompt
-        system_prompt: System prompt for context
-        model: Model name (optional, uses effective config if not provided)
-        api_key: API key (optional)
-        base_url: Base URL for the API (optional)
-        api_version: API version for Azure OpenAI (optional)
-        binding: Provider binding type (optional)
-        messages: Pre-built messages array (optional)
-        max_retries: Maximum number of retry attempts (default: 5)
-        retry_delay: Initial delay between retries in seconds (default: 2.0)
-        exponential_backoff: Whether to use exponential backoff (default: True)
-        **kwargs: Additional parameters (temperature, max_tokens, etc.)
-
-    Returns:
-        str: The LLM response
-    """
-    provider_name = binding or "openai"
-    provider_mode = "standard"
-    extra_headers: dict[str, str] = {}
-    caller_extra_headers = kwargs.pop("extra_headers", None) or {}
-    reasoning_effort = kwargs.pop("reasoning_effort", None)
-
-    if not model or not base_url or api_key is None or not binding:
-        config = get_llm_config()
-        model = model or config.model
-        api_key = api_key if api_key is not None else config.api_key
-        base_url = base_url or config.base_url
-        api_version = api_version or config.api_version
-        binding = binding or config.binding or "openai"
-        provider_name = getattr(config, "provider_name", binding or "openai")
-        provider_mode = getattr(config, "provider_mode", "standard")
-        extra_headers = getattr(config, "extra_headers", {}) or {}
-        if reasoning_effort is None:
-            reasoning_effort = getattr(config, "reasoning_effort", None)
-    else:
-        from .provider_registry import find_by_name
-
-        provider_name = binding or "openai"
-        spec = find_by_name(provider_name)
-        if spec is not None:
-            provider_mode = spec.mode
-
-    if caller_extra_headers:
-        extra_headers.update(caller_extra_headers)
-
-    use_local_fallback = _should_use_local(base_url)
-
-    def _is_retriable_llm_api_error(exc: BaseException) -> bool:
-        """Delegate retriable checks to shared helper."""
-        return _is_retriable_error(exc)
-
-    def _log_retry_warning(retry_state: tenacity.RetryCallState) -> None:
-        """Log retry warnings with safe handling for missing exceptions."""
-        outcome = retry_state.outcome
-        exception = outcome.exception() if outcome else None
-        error_message = str(exception) if exception else "unknown error"
-        if not error_message.strip():
-            error_message = f"{type(exception).__name__} (no message)"
-        logger.warning(
-            "LLM call failed (attempt %s/%s), retrying in %.1fs... Error: %s"
-            % (
-                retry_state.attempt_number,
-                max_retries + 1,
-                retry_state.upcoming_sleep,
-                error_message,
-            )
-        )
-
-    wait_strategy = (
-        tenacity.wait_exponential(
-            multiplier=retry_delay,
-            min=retry_delay,
-            max=120,
-        )
-        if exponential_backoff
-        else tenacity.wait_fixed(retry_delay)
-    )
-
-    total_attempts = max_retries + 1
-
-    @tenacity.retry(
-        retry=(
-            tenacity.retry_if_exception_type(LLMRateLimitError)
-            | tenacity.retry_if_exception_type(LLMTimeoutError)
-            | tenacity.retry_if_exception(_is_retriable_llm_api_error)
-        ),
-        wait=wait_strategy,
-        stop=tenacity.stop_after_attempt(total_attempts),
-        before_sleep=_log_retry_warning,
-    )
-    async def _do_complete(
-        *,
-        prompt_value: str,
-        system_prompt_value: str,
-        model_value: str,
-        api_key_value: str | None,
-        base_url_value: str | None,
-        api_version_value: str | None,
-        binding_value: str | None,
-        extra_kwargs: CallKwargs,
-        messages_value: list[dict[str, object]] | None,
-    ) -> str:
-        try:
-            if provider_mode == "oauth" and provider_name == "openai_codex":
-                raise LLMConfigError(
-                    "openai_codex requires OAuth login in CLI. "
-                    "Run `deeptutor provider login openai-codex` first."
-                )
-            if provider_mode == "oauth":
-                raise LLMConfigError(
-                    f"{provider_name} requires OAuth session. "
-                    "Run `deeptutor provider login ...` first."
-                )
-            if provider_mode != "direct":
-                return await sdk_complete(
-                    prompt=prompt_value,
-                    system_prompt=system_prompt_value,
-                    provider_name=provider_name,
-                    model=model_value,
-                    api_key=api_key_value,
-                    base_url=base_url_value,
-                    api_version=api_version_value,
-                    messages=messages_value,
-                    extra_headers=extra_headers or None,
-                    reasoning_effort=reasoning_effort,
-                    **extra_kwargs,
-                )
-
-            if use_local_fallback:
-                return await local_provider.complete(
-                    prompt=prompt_value,
-                    system_prompt=system_prompt_value,
-                    model=model_value,
-                    api_key=api_key_value,
-                    base_url=base_url_value,
-                    messages=messages_value,
-                    **extra_kwargs,
-                )
-            from . import cloud_provider
-
-            direct_binding = "azure_openai" if provider_name == "azure_openai" else "openai"
-            return await cloud_provider.complete(
-                prompt=prompt_value,
-                system_prompt=system_prompt_value,
-                model=model_value,
-                api_key=api_key_value,
-                base_url=base_url_value,
-                api_version=api_version_value,
-                binding=direct_binding if provider_mode == "direct" else (binding_value or "openai"),
-                messages=messages_value,
-                extra_headers=extra_headers or None,
-                **extra_kwargs,
-            )
-        except Exception as exc:
-            if isinstance(exc, LLMConfigError):
-                raise
-            from .error_mapping import map_error
-
-            provider_for_error = provider_name
-            if use_local_fallback and provider_mode != "direct":
-                provider_for_error = "local"
-            mapped_error = map_error(exc, provider=provider_for_error)
-            raise mapped_error from exc
-
-    extra_kwargs: CallKwargs = dict(kwargs)
-    extra_kwargs.pop("messages", None)
-    extra_kwargs.pop("extra_headers", None)
-
-    return await _do_complete(
-        prompt_value=prompt,
-        system_prompt_value=system_prompt,
-        model_value=model,
-        api_key_value=api_key,
-        base_url_value=base_url,
-        api_version_value=api_version,
-        binding_value=binding or "openai",
-        extra_kwargs=extra_kwargs,
-        messages_value=messages,
-    )
-
-
-async def stream(
-    prompt: str,
-    system_prompt: str = "You are a helpful assistant.",
-    model: str | None = None,
-    api_key: str | None = None,
-    base_url: str | None = None,
-    api_version: str | None = None,
-    binding: str | None = None,
-    messages: list[dict[str, object]] | None = None,
-    max_retries: int = DEFAULT_MAX_RETRIES,
-    retry_delay: float = DEFAULT_RETRY_DELAY,
-    exponential_backoff: bool = DEFAULT_EXPONENTIAL_BACKOFF,
-    **kwargs: object,
-) -> AsyncGenerator[str, None]:
-    """Stream LLM responses with retry handling."""
-    provider_name = binding or "openai"
-    provider_mode = "standard"
-    extra_headers: dict[str, str] = {}
-    caller_extra_headers = kwargs.pop("extra_headers", None) or {}
-    reasoning_effort = kwargs.pop("reasoning_effort", None)
-
-    if not model or not base_url or api_key is None or not binding:
-        config = get_llm_config()
-        model = model or config.model
-        api_key = api_key if api_key is not None else config.api_key
-        base_url = base_url or config.base_url
-        api_version = api_version or config.api_version
-        binding = binding or config.binding or "openai"
-        provider_name = getattr(config, "provider_name", binding or "openai")
-        provider_mode = getattr(config, "provider_mode", "standard")
-        extra_headers = getattr(config, "extra_headers", {}) or {}
-        if reasoning_effort is None:
-            reasoning_effort = getattr(config, "reasoning_effort", None)
-    else:
-        from .provider_registry import find_by_name
-
-        provider_name = binding or "openai"
-        spec = find_by_name(provider_name)
-        if spec is not None:
-            provider_mode = spec.mode
-
-    if caller_extra_headers:
-        extra_headers.update(caller_extra_headers)
-
-    use_local_fallback = _should_use_local(base_url)
-    extra_kwargs: CallKwargs = dict(kwargs)
-    extra_kwargs.pop("messages", None)
-    extra_kwargs.pop("extra_headers", None)
-
-    total_attempts = max_retries + 1
-    last_exception: Exception | None = None
-    delay = retry_delay
-    has_yielded = False
-    max_delay = 120
-
-    for attempt in range(total_attempts):
-        try:
-            if provider_mode == "oauth" and provider_name == "openai_codex":
-                raise LLMConfigError(
-                    "openai_codex requires OAuth login in CLI. "
-                    "Run `deeptutor provider login openai-codex` first."
-                )
-            if provider_mode == "oauth":
-                raise LLMConfigError(
-                    f"{provider_name} requires OAuth session. "
-                    "Run `deeptutor provider login ...` first."
-                )
-
-            if provider_mode != "direct":
-                async for chunk in sdk_stream(
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    provider_name=provider_name,
-                    model=model,
-                    api_key=api_key,
-                    base_url=base_url,
-                    api_version=api_version,
-                    messages=messages,
-                    extra_headers=extra_headers or None,
-                    reasoning_effort=reasoning_effort,
-                    **extra_kwargs,
-                ):
-                    has_yielded = True
-                    yield chunk
-            elif use_local_fallback:
-                async for chunk in local_provider.stream(
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    model=model,
-                    api_key=api_key,
-                    base_url=base_url,
-                    messages=messages,
-                    **extra_kwargs,
-                ):
-                    has_yielded = True
-                    yield chunk
-            else:
-                from . import cloud_provider
-
-                direct_binding = "azure_openai" if provider_name == "azure_openai" else "openai"
-                async for chunk in cloud_provider.stream(
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    model=model,
-                    api_key=api_key,
-                    base_url=base_url,
-                    api_version=api_version,
-                    binding=direct_binding if provider_mode == "direct" else (binding or "openai"),
-                    messages=messages,
-                    extra_headers=extra_headers or None,
-                    **extra_kwargs,
-                ):
-                    has_yielded = True
-                    yield chunk
-            return
-        except Exception as exc:
-            last_exception = exc
-            if has_yielded:
-                raise
-            if attempt >= max_retries or not _is_retriable_error(exc):
-                raise
-
-            if exponential_backoff:
-                current_delay = min(delay * (2**attempt), max_delay)
-            else:
-                current_delay = delay
-
-            if isinstance(exc, LLMRateLimitError) and exc.retry_after:
-                current_delay = max(current_delay, exc.retry_after)
-
-            logger.warning(
-                "LLM streaming failed (attempt %s/%s), retrying in %.1fs... Error: %s"
-                % (attempt + 1, total_attempts, current_delay, exc)
-            )
-            await asyncio.sleep(current_delay)
-
-    if last_exception:
-        raise last_exception
-
-
-async def fetch_models(
-    binding: str,
-    base_url: str,
-    api_key: str | None = None,
-) -> list[str]:
-    """
-    Fetch available models from the provider.
-
-    Routes to cloud_provider or local_provider based on URL.
-
-    Args:
-        binding: Provider type (openai, ollama, etc.)
-        base_url: API endpoint URL
-        api_key: API key (optional for local providers)
-
-    Returns:
-        List of available model names
-    """
-    if is_local_llm_server(base_url):
-        return await local_provider.fetch_models(base_url, api_key)
-    else:
-        from . import cloud_provider
-
-        return await cloud_provider.fetch_models(base_url, api_key, binding)
+CallKwargs = dict[str, Any]
 
 
 class ApiProviderPreset(TypedDict, total=False):
@@ -522,6 +51,7 @@ class LocalProviderPreset(TypedDict, total=False):
     base_url: str
     requires_key: bool
     default_key: str
+    binding: str
 
 
 ProviderPreset = ApiProviderPreset | LocalProviderPreset
@@ -529,68 +59,583 @@ ProviderPresetMap = Mapping[str, ProviderPreset]
 ProviderPresetBundle = Mapping[str, ProviderPresetMap]
 
 
-# API Provider Presets
-API_PROVIDER_PRESETS: dict[str, ApiProviderPreset] = {
-    "openai": {
-        "name": "OpenAI",
-        "base_url": "https://api.openai.com/v1",
-        "requires_key": True,
-        "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
-    },
-    "anthropic": {
-        "name": "Anthropic",
-        "base_url": "https://api.anthropic.com/v1",
-        "requires_key": True,
-        "binding": "anthropic",
-        "models": ["claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
-    },
-    "deepseek": {
-        "name": "DeepSeek",
-        "base_url": "https://api.deepseek.com",
-        "requires_key": True,
-        "models": ["deepseek-chat", "deepseek-reasoner"],
-    },
-    "openrouter": {
-        "name": "OpenRouter",
-        "base_url": "https://openrouter.ai/api/v1",
-        "requires_key": True,
-        "models": [],
-    },
-}
+def _build_retry_delays(
+    max_retries: int,
+    retry_delay: float,
+    exponential_backoff: bool,
+) -> tuple[float, ...]:
+    if max_retries <= 0:
+        return ()
+    delays: list[float] = []
+    base = max(float(retry_delay), 0.0)
+    for attempt in range(max_retries):
+        delay = base * (2**attempt) if exponential_backoff else base
+        delays.append(min(delay, 120.0))
+    return tuple(delays)
 
-# Local Provider Presets
-LOCAL_PROVIDER_PRESETS: dict[str, LocalProviderPreset] = {
-    "ollama": {
-        "name": "Ollama",
-        "base_url": "http://localhost:11434/v1",
-        "requires_key": False,
-        "default_key": "ollama",
-    },
-    "lm_studio": {
-        "name": "LM Studio",
-        "base_url": "http://localhost:1234/v1",
-        "requires_key": False,
-        "default_key": "lm-studio",
-    },
-    "vllm": {
-        "name": "vLLM",
-        "base_url": "http://localhost:8000/v1",
-        "requires_key": False,
-        "default_key": "vllm",
-    },
-    "llama_cpp": {
-        "name": "llama.cpp",
-        "base_url": "http://localhost:8080/v1",
-        "requires_key": False,
-        "default_key": "llama-cpp",
-    },
-}
+
+def _resolve_provider_spec(
+    *,
+    binding: str | None,
+    model: str,
+    api_key: str,
+    base_url: str | None,
+    fallback: str | None,
+):
+    explicit = find_by_name(binding)
+    gateway = find_gateway(
+        provider_name=explicit.name if explicit else None,
+        api_key=api_key or None,
+        api_base=base_url or None,
+    )
+    if explicit and gateway and explicit.name == "openai":
+        return gateway
+    if explicit:
+        return explicit
+    if gateway:
+        return gateway
+
+    model_spec = find_by_model(model)
+    if model_spec:
+        return model_spec
+
+    if is_local_llm_server(base_url):
+        if base_url and "11434" in base_url:
+            return find_by_name("ollama") or find_by_name("vllm")
+        return find_by_name("vllm") or find_by_name("ollama")
+
+    return find_by_name(fallback) or find_by_name("openai")
+
+
+def _url_matches_current(explicit_url: str | None, current: LLMConfig) -> bool:
+    if explicit_url is None:
+        return True
+    return explicit_url in {
+        url for url in (current.base_url, current.effective_url) if url is not None
+    }
+
+
+def _binding_matches_current(binding: str | None, current: LLMConfig) -> bool:
+    if not binding:
+        return True
+    canonical = canonical_provider_name(binding) or binding
+    return canonical in {current.binding, current.provider_name}
+
+
+def _matching_current_config(
+    *,
+    model: str,
+    api_key: str,
+    base_url: str | None,
+    api_version: str | None,
+    binding: str | None,
+) -> LLMConfig | None:
+    """Return the active config when explicit call fields came from it.
+
+    Several agent call sites pass model/api_key/base_url/binding explicitly
+    after reading ``get_llm_config()``. Treat those fields as a partial
+    override, not as a request to drop profile-only settings such as
+    extra_headers or reasoning_effort.
+    """
+    with contextlib.suppress(Exception):
+        current = get_llm_config()
+        if (
+            model == current.model
+            and api_key == current.api_key
+            and _url_matches_current(base_url, current)
+            and (api_version is None or api_version == current.api_version)
+            and _binding_matches_current(binding, current)
+        ):
+            return current
+    return None
+
+
+def _resolve_call_config(
+    *,
+    model: str | None,
+    api_key: str | None,
+    base_url: str | None,
+    api_version: str | None,
+    binding: str | None,
+    extra_headers: dict[str, str] | None,
+    reasoning_effort: str | None,
+) -> tuple[LLMConfig, Any]:
+    if model and api_key is not None and (base_url is not None or binding is not None):
+        current = _matching_current_config(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            api_version=api_version,
+            binding=binding,
+        )
+        merged_headers = dict(current.extra_headers or {}) if current is not None else {}
+        if extra_headers:
+            merged_headers.update(extra_headers)
+        resolved_reasoning_effort = (
+            reasoning_effort
+            if reasoning_effort is not None
+            else current.reasoning_effort
+            if current is not None
+            else None
+        )
+        provider_spec = _resolve_provider_spec(
+            binding=binding,
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            fallback=binding or "openai",
+        )
+        provider_name = (
+            provider_spec.name
+            if provider_spec is not None
+            else canonical_provider_name(binding) or binding or "openai"
+        )
+        provider_mode = provider_spec.mode if provider_spec is not None else "standard"
+        config = LLMConfig(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            effective_url=base_url,
+            binding=provider_name,
+            provider_name=provider_name,
+            provider_mode=provider_mode,
+            api_version=api_version,
+            extra_headers=merged_headers,
+            reasoning_effort=resolved_reasoning_effort,
+        )
+        return config, provider_spec
+
+    current = get_llm_config()
+    merged_headers = dict(getattr(current, "extra_headers", None) or {})
+    if extra_headers:
+        merged_headers.update(extra_headers)
+
+    resolved_model = model or current.model
+    resolved_api_key = current.api_key if api_key is None else api_key
+    resolved_base_url = base_url if base_url is not None else current.base_url
+    resolved_effective_url = base_url if base_url is not None else current.effective_url
+    resolved_api_version = api_version if api_version is not None else current.api_version
+    binding_hint = binding or current.provider_name or current.binding
+    provider_spec = _resolve_provider_spec(
+        binding=binding_hint,
+        model=resolved_model,
+        api_key=resolved_api_key,
+        base_url=resolved_effective_url,
+        fallback=current.provider_name or current.binding,
+    )
+    provider_name = provider_spec.name if provider_spec is not None else current.provider_name
+    provider_mode = provider_spec.mode if provider_spec is not None else current.provider_mode
+    resolved_binding = provider_name or binding_hint or current.binding or "openai"
+
+    config = current.model_copy(
+        update={
+            "model": resolved_model,
+            "api_key": resolved_api_key,
+            "base_url": resolved_base_url,
+            "effective_url": resolved_effective_url,
+            "binding": resolved_binding,
+            "provider_name": provider_name or resolved_binding,
+            "provider_mode": provider_mode,
+            "api_version": resolved_api_version,
+            "extra_headers": merged_headers,
+            "reasoning_effort": (
+                reasoning_effort if reasoning_effort is not None else current.reasoning_effort
+            ),
+        }
+    )
+    return config, provider_spec
+
+
+def _capability_binding(config: LLMConfig, provider_spec: Any) -> str:
+    backend = (
+        getattr(provider_spec, "backend", "openai_compat") if provider_spec else "openai_compat"
+    )
+    if backend == "anthropic":
+        return "anthropic"
+    if backend == "azure_openai":
+        return "azure_openai"
+    return (
+        getattr(provider_spec, "name", None) or config.provider_name or config.binding or "openai"
+    )
+
+
+def _build_messages(
+    prompt: str,
+    system_prompt: str,
+    messages: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    if messages is not None:
+        return messages
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt},
+    ]
+
+
+def _coerce_stream_coalesce_chars(value: Any) -> int:
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return DEFAULT_STREAM_COALESCE_CHARS
+
+
+def _coerce_stream_coalesce_seconds(value: Any) -> float:
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return DEFAULT_STREAM_COALESCE_SECONDS
+
+
+def _apply_inline_image_data(
+    messages: list[dict[str, Any]],
+    *,
+    binding: str,
+    model: str,
+    image_data: str | None,
+    image_mime_type: str = "image/png",
+    image_filename: str = "image.png",
+) -> list[dict[str, Any]]:
+    if not image_data:
+        return messages
+
+    attachment = SimpleNamespace(
+        type="image",
+        base64=image_data,
+        filename=image_filename,
+        mime_type=image_mime_type,
+    )
+    result = prepare_multimodal_messages(messages, [attachment], binding=binding, model=model)
+    return result.messages
+
+
+def _sanitize_call_kwargs(
+    *,
+    binding: str,
+    model: str,
+    kwargs: dict[str, Any],
+) -> CallKwargs:
+    extra_kwargs = dict(kwargs)
+    for key in (
+        "messages",
+        "image_data",
+        "image_mime_type",
+        "image_filename",
+        "api_key",
+        "base_url",
+        "api_version",
+        "binding",
+        "extra_headers",
+        "reasoning_effort",
+    ):
+        extra_kwargs.pop(key, None)
+
+    if not supports_response_format(binding, model):
+        extra_kwargs.pop("response_format", None)
+    return extra_kwargs
+
+
+async def complete(
+    prompt: str,
+    system_prompt: str = "You are a helpful assistant.",
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    api_version: str | None = None,
+    binding: str | None = None,
+    messages: list[dict[str, Any]] | None = None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_delay: float = DEFAULT_RETRY_DELAY,
+    exponential_backoff: bool = DEFAULT_EXPONENTIAL_BACKOFF,
+    **kwargs: Any,
+) -> str:
+    caller_extra_headers = kwargs.pop("extra_headers", None)
+    reasoning_effort = kwargs.pop("reasoning_effort", None)
+    image_data = kwargs.pop("image_data", None)
+    image_mime_type = kwargs.pop("image_mime_type", "image/png")
+    image_filename = kwargs.pop("image_filename", "image.png")
+
+    config, provider_spec = _resolve_call_config(
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        api_version=api_version,
+        binding=binding,
+        extra_headers=caller_extra_headers,
+        reasoning_effort=reasoning_effort,
+    )
+    provider = get_runtime_provider(config)
+    capability_binding = _capability_binding(config, provider_spec)
+    request_messages = _build_messages(prompt, system_prompt, messages)
+    request_messages = _apply_inline_image_data(
+        request_messages,
+        binding=capability_binding,
+        model=config.model,
+        image_data=image_data,
+        image_mime_type=str(image_mime_type or "image/png"),
+        image_filename=str(image_filename or "image.png"),
+    )
+    retry_delays = _build_retry_delays(max_retries, retry_delay, exponential_backoff)
+    extra_kwargs = _sanitize_call_kwargs(
+        binding=capability_binding, model=config.model, kwargs=kwargs
+    )
+
+    try:
+        response = await provider.chat_with_retry(
+            messages=request_messages,
+            model=config.model,
+            reasoning_effort=config.reasoning_effort,
+            retry_delays=retry_delays,
+            allow_image_fallback=not supports_vision(capability_binding, config.model),
+            **extra_kwargs,
+        )
+    except Exception as exc:
+        raise map_error(exc, provider=config.provider_name) from exc
+
+    if response.finish_reason == "error":
+        raise map_error(
+            RuntimeError(response.content or "LLM request failed"), provider=config.provider_name
+        )
+    return response.content or ""
+
+
+async def stream(
+    prompt: str,
+    system_prompt: str = "You are a helpful assistant.",
+    model: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    api_version: str | None = None,
+    binding: str | None = None,
+    messages: list[dict[str, Any]] | None = None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_delay: float = DEFAULT_RETRY_DELAY,
+    exponential_backoff: bool = DEFAULT_EXPONENTIAL_BACKOFF,
+    **kwargs: Any,
+) -> AsyncGenerator[str, None]:
+    caller_extra_headers = kwargs.pop("extra_headers", None)
+    reasoning_effort = kwargs.pop("reasoning_effort", None)
+    image_data = kwargs.pop("image_data", None)
+    image_mime_type = kwargs.pop("image_mime_type", "image/png")
+    image_filename = kwargs.pop("image_filename", "image.png")
+    stream_coalesce_chars = _coerce_stream_coalesce_chars(
+        kwargs.pop("stream_coalesce_chars", DEFAULT_STREAM_COALESCE_CHARS)
+    )
+    stream_coalesce_seconds = _coerce_stream_coalesce_seconds(
+        kwargs.pop("stream_coalesce_seconds", DEFAULT_STREAM_COALESCE_SECONDS)
+    )
+
+    config, provider_spec = _resolve_call_config(
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        api_version=api_version,
+        binding=binding,
+        extra_headers=caller_extra_headers,
+        reasoning_effort=reasoning_effort,
+    )
+    provider = get_runtime_provider(config)
+    capability_binding = _capability_binding(config, provider_spec)
+    request_messages = _build_messages(prompt, system_prompt, messages)
+    request_messages = _apply_inline_image_data(
+        request_messages,
+        binding=capability_binding,
+        model=config.model,
+        image_data=image_data,
+        image_mime_type=str(image_mime_type or "image/png"),
+        image_filename=str(image_filename or "image.png"),
+    )
+    retry_delays = _build_retry_delays(max_retries, retry_delay, exponential_backoff)
+    extra_kwargs = _sanitize_call_kwargs(
+        binding=capability_binding, model=config.model, kwargs=kwargs
+    )
+
+    queue: asyncio.Queue[str | BaseException | None] = asyncio.Queue()
+    saw_output = False
+    saw_content = False
+    in_think_block = False
+
+    async def _on_reasoning_delta(chunk: str) -> None:
+        nonlocal saw_output, in_think_block
+        if not chunk:
+            return
+        saw_output = True
+        if not in_think_block:
+            in_think_block = True
+            await queue.put("<think>")
+        await queue.put(chunk)
+
+    async def _on_content_delta(chunk: str) -> None:
+        nonlocal saw_output, saw_content, in_think_block
+        if not chunk:
+            return
+        saw_output = True
+        saw_content = True
+        if in_think_block:
+            in_think_block = False
+            await queue.put("</think>")
+        await queue.put(chunk)
+
+    async def _runner() -> None:
+        nonlocal in_think_block
+        try:
+            response = await provider.chat_stream_with_retry(
+                messages=request_messages,
+                model=config.model,
+                reasoning_effort=config.reasoning_effort,
+                on_content_delta=_on_content_delta,
+                on_reasoning_delta=_on_reasoning_delta,
+                retry_delays=retry_delays,
+                allow_image_fallback=not supports_vision(capability_binding, config.model),
+                **extra_kwargs,
+            )
+            if in_think_block:
+                in_think_block = False
+                await queue.put("</think>")
+            # Some providers synthesize a final response only after the stream.
+            # Do not replay reasoning_content as user-visible answer text.
+            if (
+                not saw_content
+                and response.content
+                and response.content != response.reasoning_content
+            ):
+                saw_output = True
+                await queue.put(response.content)
+            if response.finish_reason == "error" and not saw_output:
+                await queue.put(
+                    map_error(
+                        RuntimeError(response.content or "LLM request failed"),
+                        provider=config.provider_name,
+                    )
+                )
+        except Exception as exc:
+            await queue.put(map_error(exc, provider=config.provider_name))
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(_runner())
+    try:
+        sent_first_text_chunk = False
+        buffered_chunks: list[str] = []
+        buffered_chars = 0
+
+        def _flush_buffer() -> str:
+            nonlocal buffered_chars
+            text = "".join(buffered_chunks)
+            buffered_chunks.clear()
+            buffered_chars = 0
+            return text
+
+        async def _queue_get(timeout: float | None = None) -> str | BaseException | None:
+            if timeout is None:
+                return await queue.get()
+            return await asyncio.wait_for(queue.get(), timeout=timeout)
+
+        while True:
+            item = await queue.get()
+            if item is None:
+                if buffered_chunks:
+                    yield _flush_buffer()
+                break
+            if isinstance(item, BaseException):
+                if buffered_chunks:
+                    yield _flush_buffer()
+                raise item
+            if item in STREAM_CONTROL_TOKENS or stream_coalesce_seconds <= 0:
+                if buffered_chunks:
+                    yield _flush_buffer()
+                yield item
+                continue
+            if not sent_first_text_chunk:
+                sent_first_text_chunk = True
+                yield item
+                continue
+            buffered_chunks.append(item)
+            buffered_chars += len(item)
+            deadline = asyncio.get_running_loop().time() + stream_coalesce_seconds
+            while buffered_chunks and buffered_chars < stream_coalesce_chars:
+                timeout = deadline - asyncio.get_running_loop().time()
+                if timeout <= 0:
+                    break
+                try:
+                    next_item = await _queue_get(timeout)
+                except asyncio.TimeoutError:
+                    break
+                if next_item is None:
+                    if buffered_chunks:
+                        yield _flush_buffer()
+                    await task
+                    return
+                if isinstance(next_item, BaseException):
+                    if buffered_chunks:
+                        yield _flush_buffer()
+                    raise next_item
+                if next_item in STREAM_CONTROL_TOKENS:
+                    if buffered_chunks:
+                        yield _flush_buffer()
+                    yield next_item
+                    break
+                buffered_chunks.append(next_item)
+                buffered_chars += len(next_item)
+            if buffered_chunks:
+                yield _flush_buffer()
+        await task
+    finally:
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+async def fetch_models(
+    binding: str,
+    base_url: str,
+    api_key: str | None = None,
+) -> list[str]:
+    if is_local_llm_server(base_url):
+        from . import local_provider
+
+        return await local_provider.fetch_models(base_url, api_key)
+
+    from . import cloud_provider
+
+    return await cloud_provider.fetch_models(base_url, api_key, binding)
+
+
+def _build_api_provider_presets() -> dict[str, ApiProviderPreset]:
+    presets: dict[str, ApiProviderPreset] = {}
+    for spec in PROVIDERS:
+        if spec.is_local:
+            continue
+        presets[spec.name] = {
+            "name": spec.label,
+            "base_url": spec.default_api_base,
+            "requires_key": not spec.is_oauth,
+            "models": [],
+            "binding": spec.name,
+        }
+    return presets
+
+
+def _build_local_provider_presets() -> dict[str, LocalProviderPreset]:
+    presets: dict[str, LocalProviderPreset] = {}
+    for spec in PROVIDERS:
+        if not spec.is_local:
+            continue
+        presets[spec.name] = {
+            "name": spec.label,
+            "base_url": spec.default_api_base,
+            "requires_key": False,
+            "default_key": "sk-no-key-required",
+            "binding": spec.name,
+        }
+    return presets
+
+
+API_PROVIDER_PRESETS: dict[str, ApiProviderPreset] = _build_api_provider_presets()
+LOCAL_PROVIDER_PRESETS: dict[str, LocalProviderPreset] = _build_local_provider_presets()
 
 
 def get_provider_presets() -> ProviderPresetBundle:
-    """
-    Get all provider presets for frontend display.
-    """
     return {
         "api": API_PROVIDER_PRESETS,
         "local": LOCAL_PROVIDER_PRESETS,
@@ -604,7 +649,6 @@ __all__ = [
     "get_provider_presets",
     "API_PROVIDER_PRESETS",
     "LOCAL_PROVIDER_PRESETS",
-    # Retry configuration defaults
     "DEFAULT_MAX_RETRIES",
     "DEFAULT_RETRY_DELAY",
     "DEFAULT_EXPONENTIAL_BACKOFF",
@@ -613,11 +657,8 @@ __all__ = [
 
 
 class LLMFactory:
-    """Compatibility factory for legacy agent integrations."""
+    """Compatibility factory for legacy integrations."""
 
     @staticmethod
-    def get_provider(config: "LLMConfig") -> "BaseLLMProvider":
-        """Return a provider instance for the supplied config."""
-        from .providers.routing import RoutingProvider
-
-        return RoutingProvider(config)
+    def get_provider(config: LLMConfig):
+        return get_runtime_provider(config)

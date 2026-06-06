@@ -44,11 +44,16 @@ def test_run_command_json_mode(monkeypatch) -> None:
                 "run",
                 cap,
                 "hello world",
-                "--format", "json",
-                "--tool", "rag",
-                "--kb", "demo-kb",
-                "--history-ref", "session-old",
-                "--notebook-ref", "nb1:rec1,rec2",
+                "--format",
+                "json",
+                "--tool",
+                "rag",
+                "--kb",
+                "demo-kb",
+                "--history-ref",
+                "session-old",
+                "--notebook-ref",
+                "nb1:rec1,rec2",
             ],
         )
 
@@ -61,7 +66,9 @@ def test_run_command_json_mode(monkeypatch) -> None:
     assert captured_requests[0].tools == ["rag"]
     assert captured_requests[0].knowledge_bases == ["demo-kb"]
     assert captured_requests[0].history_references == ["session-old"]
-    assert captured_requests[0].notebook_references == [{"notebook_id": "nb1", "record_ids": ["rec1", "rec2"]}]
+    assert captured_requests[0].notebook_references == [
+        {"notebook_id": "nb1", "record_ids": ["rec1", "rec2"]}
+    ]
     assert captured_requests[-1].capability == "deep_research"
 
 
@@ -87,7 +94,7 @@ def test_run_command_with_config(monkeypatch) -> None:
             "deep_research",
             "compare retrieval stacks",
             "--config-json",
-            '{"mode":"report","depth":"deep","sources":["web","papers"]}',
+            '{"mode":"report","depth":"deep"}',
         ],
     )
 
@@ -97,8 +104,57 @@ def test_run_command_with_config(monkeypatch) -> None:
     assert request.config == {
         "mode": "report",
         "depth": "deep",
-        "sources": ["web", "papers"],
     }
+
+
+def test_chat_repl_config_commands_match_docs_syntax(monkeypatch) -> None:
+    captured_requests: list[TurnRequest] = []
+    _install_fake_runtime(monkeypatch, captured_requests)
+
+    result = runner.invoke(
+        app,
+        ["chat", "--config", "initial=true"],
+        input=(
+            "/config set num_questions 5\n"
+            '/config set question_types \'["short_answer","mcq"]\'\n'
+            "/refs\n"
+            "Generate questions\n"
+            "/quit\n"
+        ),
+    )
+
+    assert result.exit_code == 0, result.output
+    assert '"num_questions": 5' in result.output
+    assert '"question_types"' in result.output
+    assert captured_requests[0].config == {
+        "initial": True,
+        "num_questions": 5,
+        "question_types": ["short_answer", "mcq"],
+    }
+
+
+def test_chat_repl_backslash_continuation_sends_single_message(monkeypatch) -> None:
+    captured_requests: list[TurnRequest] = []
+    _install_fake_runtime(monkeypatch, captured_requests)
+
+    result = runner.invoke(
+        app,
+        ["chat"],
+        input="Please review this code:\\\ndef fib(n): return n\n/quit\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured_requests[0].content == "Please review this code:\ndef fib(n): return n"
+
+
+def test_plugin_info_includes_capability_aliases_and_availability() -> None:
+    result = runner.invoke(app, ["plugin", "info", "deep_solve"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["name"] == "deep_solve"
+    assert payload["cli_aliases"] == ["solve"]
+    assert payload["availability"]["available"] is True
 
 
 def test_session_list_command_uses_shared_store(monkeypatch) -> None:
@@ -120,3 +176,17 @@ def test_session_list_command_uses_shared_store(monkeypatch) -> None:
     assert result.exit_code == 0, result.output
     assert "session-1" in result.output
     assert "Algebra" in result.output
+
+
+def test_start_command_delegates_to_runtime_launcher(monkeypatch) -> None:
+    calls: list[object] = []
+
+    def _fake_start(home=None):  # noqa: ANN001
+        calls.append(home)
+
+    monkeypatch.setattr("deeptutor.runtime.launcher.start", _fake_start)
+
+    result = runner.invoke(app, ["start"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [None]
