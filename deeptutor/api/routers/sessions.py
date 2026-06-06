@@ -13,6 +13,65 @@ from deeptutor.services.session import get_session_store
 router = APIRouter()
 
 
+# --- Oversized event-payload truncation (upstream PR #524) -----------------
+# Session GET can replay tool results / observations whose payloads are huge
+# (a full scraped page, a file dump, etc.). Trim them before returning so the
+# history response stays small — the live WebSocket stream already delivered
+# the full content to the client at the time it was produced.
+MAX_EVENT_PAYLOAD = 50_000  # characters
+_TRUNCATION_NOTICE = "\n\n…[truncated]"
+_TRUNCATABLE_EVENT_TYPES = {"tool_result", "observation"}
+_TRUNCATABLE_NESTED_FIELDS = ("content", "answer")
+
+
+def _truncate_str(value: object) -> tuple[object, bool]:
+    """Return (possibly-truncated value, was_truncated)."""
+    if isinstance(value, str) and len(value) > MAX_EVENT_PAYLOAD:
+        return value[:MAX_EVENT_PAYLOAD] + _TRUNCATION_NOTICE, True
+    return value, False
+
+
+def _truncate_oversized_events(messages: object) -> None:
+    """Trim oversized tool-result/observation payloads in place.
+
+    Mutates each message's parsed ``events`` list. Tolerant of missing or
+    malformed ``events`` (does nothing for those). Only top-level ``content``
+    and ``metadata.tool_metadata.{content,answer}`` are trimmed, and only for
+    truncatable event types.
+    """
+    if not isinstance(messages, list):
+        return
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        events = message.get("events")
+        if not isinstance(events, list):
+            continue
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            if event.get("type") not in _TRUNCATABLE_EVENT_TYPES:
+                continue
+            truncated = False
+            if "content" in event:
+                new_val, did = _truncate_str(event["content"])
+                if did:
+                    event["content"] = new_val
+                    truncated = True
+            metadata = event.get("metadata")
+            if isinstance(metadata, dict):
+                tool_metadata = metadata.get("tool_metadata")
+                if isinstance(tool_metadata, dict):
+                    for field in _TRUNCATABLE_NESTED_FIELDS:
+                        if field in tool_metadata:
+                            new_val, did = _truncate_str(tool_metadata[field])
+                            if did:
+                                tool_metadata[field] = new_val
+                                truncated = True
+            if truncated:
+                event["_truncated"] = True
+
+
 class SessionRenameRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=100)
 
@@ -67,6 +126,8 @@ async def get_session(
     session = await store.get_session_with_messages(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    if isinstance(session, dict):
+        _truncate_oversized_events(session.get("messages"))
     return session
 
 
