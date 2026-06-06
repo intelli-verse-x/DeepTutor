@@ -69,9 +69,10 @@ DEFAULT_MAIN_SETTINGS = {
 
 DEFAULT_AGENTS_SETTINGS = {
     "capabilities": {
-        "solve": {"temperature": 0.3, "max_tokens": 8192},
-        "research": {"temperature": 0.5, "max_tokens": 12000},
+        "solve": {"temperature": 0.3, "max_tokens": 4096},  # vLLM safe
+        "research": {"temperature": 0.5, "max_tokens": 4096},  # vLLM safe
         "question": {"temperature": 0.7, "max_tokens": 4096},
+        "guide": {"temperature": 0.5, "max_tokens": 4096},  # vLLM safe
         "co_writer": {"temperature": 0.7, "max_tokens": 4096},
         "visualize": {"temperature": 0.4, "max_tokens": 16384},
         "chat": {
@@ -84,11 +85,11 @@ DEFAULT_AGENTS_SETTINGS = {
         "brainstorm": {"temperature": 0.8, "max_tokens": 2048},
     },
     "services": {
-        "personalization": {"temperature": 0.5, "max_tokens": 8192},
+        "personalization": {"temperature": 0.5, "max_tokens": 4096},  # vLLM safe
     },
     "plugins": {
-        "vision_solver": {"temperature": 0.3, "max_tokens": 12000},
-        "math_animator": {"temperature": 0.4, "max_tokens": 12000},
+        "vision_solver": {"temperature": 0.3, "max_tokens": 4096},  # vLLM safe
+        "math_animator": {"temperature": 0.4, "max_tokens": 4096},  # vLLM safe
     },
 }
 
