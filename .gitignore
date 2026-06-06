@@ -55,7 +55,6 @@ wheels/
 MANIFEST
 
 # Virtual Environments
-.env
 *.env
 *.env.local
 !.env.example
