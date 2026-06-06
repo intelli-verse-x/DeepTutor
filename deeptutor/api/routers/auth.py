@@ -180,9 +180,35 @@ def _install_current_user(payload: TokenPayload | None) -> _CtxToken:
     return set_current_user(user)
 
 
+def _install_noauth_user(x_user_id: str) -> _CtxToken:
+    """Install the current user from the ``x-user-id`` header when AUTH is off.
+
+    The fork drives multi-tenancy from ``x-user-id`` instead of upstream's login.
+    When ``AUTH_ENABLED=false`` we must still give each tenant its OWN per-user
+    scope, otherwise every request resolves to the local-admin workspace and all
+    users silently share one global store (cross-user leak across memory /
+    knowledge / books). An empty / missing id keeps the legacy single-user
+    behaviour (admin workspace), so CLI usage is unchanged.
+    """
+    from deeptutor.multi_user.models import LOCAL_ADMIN_ID, CurrentUser
+    from deeptutor.multi_user.paths import scope_for_user
+
+    uid = (x_user_id or "").strip()
+    if not uid or uid == LOCAL_ADMIN_ID:
+        return set_current_user(local_admin_user())
+    user = CurrentUser(
+        id=uid,
+        username=uid,
+        role="user",
+        scope=scope_for_user(uid, is_admin=False),
+    )
+    return set_current_user(user)
+
+
 async def require_auth(
     authorization: str | None = Header(default=None, alias="Authorization"),
     dt_token: str | None = Cookie(default=None),
+    x_user_id: str = Header(default="", alias="x-user-id"),
 ) -> TokenPayload | None:
     """
     FastAPI dependency that enforces authentication when AUTH_ENABLED=true.
@@ -207,7 +233,7 @@ async def require_auth(
     of #481.
     """
     if not AUTH_ENABLED:
-        _install_current_user(None)
+        _install_noauth_user(x_user_id)
         return None
 
     token = _extract_token(authorization, dt_token)
@@ -259,7 +285,16 @@ async def ws_require_auth(ws: WebSocket) -> _CtxToken | _WsAuthFailed:
             reset_current_user(user_token)
     """
     if not AUTH_ENABLED:
-        return _install_current_user(None)
+        # Browsers cannot set custom headers on WebSocket upgrades, so the SPA
+        # passes the tenant as a query param (?user_id=). Fall back to the
+        # x-user-id header for non-browser clients.
+        uid = (
+            ws.query_params.get("user_id")
+            or ws.query_params.get("x_user_id")
+            or ws.headers.get("x-user-id")
+            or ""
+        )
+        return _install_noauth_user(uid)
 
     token = ws.query_params.get("token") or ws.cookies.get("dt_token")
     payload = decode_token(token) if token else None

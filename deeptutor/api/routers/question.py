@@ -460,9 +460,6 @@ async def websocket_question_generate(websocket: WebSocket):
                         if isinstance(requirement, dict)
                         else str(requirement)
                     )
-                    preference = (
-                        requirement.get("preference", "") if isinstance(requirement, dict) else ""
-                    )
                     difficulty = (
                         requirement.get("difficulty", "") if isinstance(requirement, dict) else ""
                     )
@@ -478,10 +475,9 @@ async def websocket_question_generate(websocket: WebSocket):
 
                     batch_result = await coordinator.generate_from_topic(
                         user_topic=user_topic,
-                        preference=preference,
                         num_questions=count,
                         difficulty=difficulty,
-                        question_type=question_type,
+                        question_types=[question_type] if question_type else [],
                     )
 
                     # Send batch summary
