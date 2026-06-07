@@ -37,6 +37,39 @@ def _model_by_id(profile: dict[str, Any], model_id: str) -> dict[str, Any] | Non
     return None
 
 
+def _default_llm_access_from_catalog(catalog: dict[str, Any]) -> dict[str, Any] | None:
+    """Synthesize a single LLM access entry from the admin catalog's active LLM.
+
+    Used to auto-assign a default model to non-admin users who have no explicit
+    grant. The ids come from the admin catalog (``active_profile_id`` /
+    ``active_model_id``), so they resolve against the same catalog the turn
+    runtime applies for non-admin scopes.
+    """
+    service = catalog.get("services", {}).get("llm", {}) or {}
+    profiles = service.get("profiles", []) or []
+    if not profiles:
+        return None
+    active_profile_id = str(service.get("active_profile_id") or "")
+    profile = next(
+        (p for p in profiles if str(p.get("id") or "") == active_profile_id), None
+    ) or profiles[0]
+    models = profile.get("models", []) or []
+    if not models:
+        return None
+    active_model_id = str(service.get("active_model_id") or "")
+    model = next(
+        (m for m in models if str(m.get("id") or "") == active_model_id), None
+    ) or models[0]
+    return {
+        "profile_id": str(profile.get("id") or ""),
+        "model_id": str(model.get("id") or ""),
+        "name": (model.get("name") or model.get("model") or str(model.get("id") or "")),
+        "model": model.get("model") or "",
+        "source": "default",
+        "available": True,
+    }
+
+
 def redacted_model_access(user_id: str | None = None) -> dict[str, list[dict[str, Any]]]:
     user = get_current_user()
     if user_id is None:
@@ -82,6 +115,16 @@ def redacted_model_access(user_id: str | None = None) -> dict[str, list[dict[str
                         "available": model is not None,
                     }
                 )
+    # Auto-assign the admin's default LLM to non-admin users who have no
+    # explicit LLM grant. Without this, per-user-id tenants (x-user-id
+    # multi-tenancy with AUTH_ENABLED=false — e.g. TutorX ghost users) can
+    # never run the turn runtime (Research / Visualize / unified WS), which
+    # hard-requires an assigned model. Read-only: synthesized from the admin
+    # catalog's active LLM; no grant file is written.
+    if not result["llm"] and not user.is_admin:
+        default_llm = _default_llm_access_from_catalog(catalog)
+        if default_llm:
+            result["llm"].append(default_llm)
     return result
 
 
