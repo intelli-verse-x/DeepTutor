@@ -131,12 +131,22 @@ export function wsUrl(path: string): string {
   return `${normalizedBase}${normalizedPath}`;
 }
 
-// Evaluate the build-time flag at runtime (not a ``=== "true"`` compare) so the
-// Docker ``__NEXT_PUBLIC_AUTH_ENABLED_PLACEHOLDER__`` token survives minification
-// and ``start-frontend.sh`` can rewrite it on startup. See lib/auth.ts.
-const AUTH_ENABLED = /^(1|true|yes|on)$/i.test(
-  (process.env.NEXT_PUBLIC_AUTH_ENABLED ?? "").trim(),
-);
+/**
+ * Parse a ``NEXT_PUBLIC_AUTH_ENABLED``-style flag at runtime.
+ *
+ * The value is inlined at build time and, in the Docker image, baked as the
+ * ``__NEXT_PUBLIC_AUTH_ENABLED_PLACEHOLDER__`` token that ``start-frontend.sh``
+ * rewrites on container start. Evaluating it with a runtime regex — instead of
+ * a ``=== "true"`` literal comparison the minifier would constant-fold — keeps
+ * the placeholder in the bundle so it survives minification (the same approach
+ * used for the API base placeholder above). An unsubstituted placeholder
+ * therefore parses as "disabled".
+ */
+export function parseAuthEnabled(raw: string | undefined): boolean {
+  return /^(1|true|yes|on)$/i.test((raw ?? "").trim());
+}
+
+const AUTH_ENABLED = parseAuthEnabled(process.env.NEXT_PUBLIC_AUTH_ENABLED);
 
 /**
  * Authenticated fetch wrapper. Behaves identically to `fetch` but automatically
