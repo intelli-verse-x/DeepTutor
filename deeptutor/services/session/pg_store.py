@@ -298,9 +298,16 @@ class PGSessionStore:
         capability: str = "",
         events: list[dict[str, Any]] | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
+        parent_message_id: int | None = None,
         *,
         user_id: str | None = None,
     ) -> int:
+        # ``parent_message_id`` (branch threading) is not supported on the
+        # Postgres store — ChatMessage has no parent_message_id column — so it
+        # is accepted and ignored, matching the PocketBase store. The request
+        # snapshot ``metadata`` is persisted inside the metadata_ JSON blob.
+        _ = parent_message_id
         uid = _uid(user_id)
         now = time.time()
         factory = get_session_factory()
@@ -315,6 +322,7 @@ class PGSessionStore:
                     "capability": capability or "",
                     "events": events or [],
                     "attachments": attachments or [],
+                    "metadata": metadata or {},
                 },
             )
             session.add(msg)
@@ -365,6 +373,7 @@ class PGSessionStore:
                 "capability": (r.metadata_ or {}).get("capability", ""),
                 "events": (r.metadata_ or {}).get("events", []),
                 "attachments": (r.metadata_ or {}).get("attachments", []),
+                "metadata": (r.metadata_ or {}).get("metadata", {}),
                 "created_at": r.timestamp,
             }
             for r in rows
@@ -434,6 +443,7 @@ class PGSessionStore:
             "capability": meta.get("capability", ""),
             "events": meta.get("events", []),
             "attachments": meta.get("attachments", []),
+            "metadata": meta.get("metadata", {}),
             "created_at": r.timestamp,
         }
 
