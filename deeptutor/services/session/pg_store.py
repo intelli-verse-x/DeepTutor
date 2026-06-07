@@ -371,8 +371,19 @@ class PGSessionStore:
         ]
 
     async def get_messages_for_context(
-        self, session_id: str, *, user_id: str | None = None
+        self,
+        session_id: str,
+        leaf_message_id: int | None = None,
+        *,
+        user_id: str | None = None,
     ) -> list[dict[str, Any]]:
+        # ``leaf_message_id`` (branch-aware context) is not supported on the
+        # Postgres store — ChatMessage has no parent_message_id column — so we
+        # return the linear history, matching the PocketBase store. The turn
+        # runtime / ContextBuilder always pass this kwarg; accepting it here
+        # prevents a TypeError that previously aborted every turn-runtime
+        # capability (Research / Visualize / unified WS) on the PG backend.
+        _ = leaf_message_id
         uid = _uid(user_id)
         factory = get_session_factory()
         async with factory() as session:
@@ -392,6 +403,53 @@ class PGSessionStore:
             {"id": r.id, "role": r.role, "content": r.content or ""}
             for r in rows
         ]
+
+    async def get_last_message(
+        self,
+        session_id: str,
+        role: str | None = None,
+        *,
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        uid = _uid(user_id)
+        factory = get_session_factory()
+        async with factory() as session:
+            stmt = select(ChatMessage).where(
+                ChatMessage.session_id == session_id,
+                ChatMessage.user_id == uid,
+            )
+            if role is not None:
+                stmt = stmt.where(ChatMessage.role == role)
+            stmt = stmt.order_by(ChatMessage.id.desc()).limit(1)
+            result = await session.execute(stmt)
+            r = result.scalar_one_or_none()
+        if r is None:
+            return None
+        meta = r.metadata_ or {}
+        return {
+            "id": r.id,
+            "session_id": r.session_id,
+            "role": r.role,
+            "content": r.content,
+            "capability": meta.get("capability", ""),
+            "events": meta.get("events", []),
+            "attachments": meta.get("attachments", []),
+            "created_at": r.timestamp,
+        }
+
+    async def delete_message(
+        self, message_id: int | str, *, user_id: str | None = None
+    ) -> bool:
+        uid = _uid(user_id)
+        factory = get_session_factory()
+        async with factory() as session:
+            stmt = delete(ChatMessage).where(
+                ChatMessage.id == message_id,
+                ChatMessage.user_id == uid,
+            )
+            result = await session.execute(stmt)
+            await session.commit()
+        return result.rowcount > 0  # type: ignore[union-attr]
 
     async def list_sessions(
         self,
