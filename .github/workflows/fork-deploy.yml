@@ -71,6 +71,41 @@ jobs:
           echo "Waiting for deeptutor rollout..."
           kubectl rollout status deployment/deeptutor -n $K8S_NAMESPACE --timeout=5m || true
 
+      # Keep the GitOps manifest in lock-step with the image we just deployed.
+      # Without this, intelli-verse-kube-infra/deeptutor/deploy.yaml holds a
+      # stale tag and the infra repo's "Deploy to EKS" workflow downgrades the
+      # live image on its next `kubectl apply`. The commit carries [skip ci] so
+      # it does not trigger a redundant apply (we already `set image` above).
+      # No-op until INFRA_REPO_TOKEN (a PAT/App token with write access to
+      # intelli-verse-kube-infra) is added as a repo secret.
+      - name: Sync image SHA back to infra manifest
+        env:
+          INFRA_TOKEN: ${{ secrets.INFRA_REPO_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          INFRA_REPO: intelli-verse-x/intelli-verse-kube-infra
+          MANIFEST: deeptutor/deploy.yaml
+        run: |
+          set -euo pipefail
+          if [ -z "${INFRA_TOKEN:-}" ]; then
+            echo "INFRA_REPO_TOKEN not set — skipping manifest write-back."
+            echo "Add a PAT with write access to ${INFRA_REPO} as secret INFRA_REPO_TOKEN to enable auto-sync."
+            exit 0
+          fi
+          rm -rf infra-sync
+          git clone --depth 1 "https://x-access-token:${INFRA_TOKEN}@github.com/${INFRA_REPO}.git" infra-sync
+          cd infra-sync
+          sed -i -E "s#(deeptutor:)[A-Za-z0-9._-]+#\1${TAG}#g" "${MANIFEST}"
+          if git diff --quiet -- "${MANIFEST}"; then
+            echo "Manifest already pinned to ${TAG}; nothing to sync."
+            exit 0
+          fi
+          git config user.name  "deeptutor-ci"
+          git config user.email "ci@intelli-verse-x.local"
+          git add "${MANIFEST}"
+          git commit -m "chore(deeptutor): sync manifest image to ${TAG} [skip ci]"
+          git push origin HEAD:main
+          echo "✅ Synced ${MANIFEST} → deeptutor:${TAG}"
+
       - name: Verify pods
         if: always()
         run: |
