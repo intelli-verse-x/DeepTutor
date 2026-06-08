@@ -296,14 +296,21 @@ def get_vision_llm_config() -> LLMConfig:
     Raises:
         LLMConfigError: If required configuration is missing
     """
-    env_store = get_env_store()
-    
+    # Vision config is sourced from the process environment (populated from the
+    # deeptutor-secrets k8s Secret via envFrom). Use a local strip helper so a
+    # blank/whitespace env value is treated as "unset".
+    def _strip_value(value: str | None) -> str | None:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return None
+
     # Try to get vision-specific config first
-    vision_binding = _strip_value(env_store.get("VISION_LLM_BINDING"))
-    vision_model = _strip_value(env_store.get("VISION_LLM_MODEL"))
-    vision_api_key = _strip_value(env_store.get("VISION_LLM_API_KEY"))
-    vision_base_url = _strip_value(env_store.get("VISION_LLM_HOST"))
-    vision_api_version = _strip_value(env_store.get("VISION_LLM_API_VERSION"))
+    vision_binding = _strip_value(os.environ.get("VISION_LLM_BINDING"))
+    vision_model = _strip_value(os.environ.get("VISION_LLM_MODEL"))
+    vision_api_key = _strip_value(os.environ.get("VISION_LLM_API_KEY"))
+    vision_base_url = _strip_value(os.environ.get("VISION_LLM_HOST"))
+    vision_api_version = _strip_value(os.environ.get("VISION_LLM_API_VERSION"))
     
     # If vision-specific config exists, use it
     if vision_model and vision_base_url:

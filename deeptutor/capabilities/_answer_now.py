@@ -201,13 +201,14 @@ async def stream_synthesis(
         temperature = 0.2
     if max_tokens is None:
         answer_now_cfg = chat_cfg.get("answer_now") or {}
+        # Default capped at 3072 to fit the 8192-token vLLM context window.
         if isinstance(answer_now_cfg, dict):
             try:
-                max_tokens = int(answer_now_cfg.get("max_tokens", 8000))
+                max_tokens = int(answer_now_cfg.get("max_tokens", 3072))
             except (TypeError, ValueError):
-                max_tokens = 8000
+                max_tokens = 3072
         else:
-            max_tokens = 8000
+            max_tokens = 3072
 
     await stream.progress(
         trace_meta.get("label", "Answer now"),

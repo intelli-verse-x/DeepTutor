@@ -273,11 +273,13 @@ def get_agent_params(module_name: str) -> dict:
     }
 
 
+# responding/answer_now output budgets are capped so prompt + output fit the
+# default 8192-token vLLM context window (see DEFAULT_AGENTS_SETTINGS note).
 DEFAULT_CHAT_PARAMS: dict[str, Any] = {
     "temperature": 0.5,
     "max_iterations": 20,
-    "responding": {"max_tokens": 8192},
-    "answer_now": {"max_tokens": 8192},
+    "responding": {"max_tokens": 3072},
+    "answer_now": {"max_tokens": 3072},
 }
 
 
