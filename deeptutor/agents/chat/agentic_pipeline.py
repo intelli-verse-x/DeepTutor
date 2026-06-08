@@ -336,11 +336,13 @@ class AgenticChatPipeline:
         # Token budgets for the two LLM call shapes used by this pipeline.
         # ``responding`` caps each loop iteration; ``answer_now`` caps the
         # single-shot fallback when the user clicks "Answer now" mid-stream.
+        # Defaults capped at 3072 so prompt + output fit the 8192-token vLLM
+        # context window when agents.yaml has no explicit chat budget.
         self._responding_max_tokens = _read_int(
-            chat_cfg.get("responding"), key="max_tokens", default=8000
+            chat_cfg.get("responding"), key="max_tokens", default=3072
         )
         self._answer_now_max_tokens = _read_int(
-            chat_cfg.get("answer_now"), key="max_tokens", default=8000
+            chat_cfg.get("answer_now"), key="max_tokens", default=3072
         )
         self._max_iterations = _read_int(
             chat_cfg, key="max_iterations", default=DEFAULT_MAX_ITERATIONS
