@@ -102,8 +102,13 @@ async def llm_json(
 
     Reasoning models can spend the whole response budget on hidden/scratchpad
     tokens and leave the visible JSON object empty. For structured book blocks
-    we first honor the configured reasoning mode, then retry once with minimal
+    we first honor the configured reasoning mode, then retry once with reduced
     reasoning if parsing fails or the expected top-level key is missing.
+
+    The retry uses ``"low"`` rather than ``"minimal"``: ``minimal`` is an
+    OpenAI-only value and vLLM-served models (the default tutor LLM) reject it
+    with a 400, which previously turned the retry into a guaranteed failure and
+    left section/JSON blocks in an error state. ``"low"`` is valid on both.
     """
 
     async def _once(reasoning_effort: str | None) -> dict[str, Any]:
@@ -123,9 +128,9 @@ async def llm_json(
     if _json_has_expected(data, expected_key):
         return data
 
-    retry_data = await _once("minimal")
+    retry_data = await _once("low")
     if _json_has_expected(retry_data, expected_key):
-        retry_data.setdefault("_metadata", {})["reasoning_retry"] = "minimal"
+        retry_data.setdefault("_metadata", {})["reasoning_retry"] = "low"
         return retry_data
     return data or retry_data
 
