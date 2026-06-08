@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 import logging
+import os
 import time
 from typing import Any
 
@@ -76,6 +77,26 @@ from .streaming import (
 logger = logging.getLogger(__name__)
 
 
+def _int_env(name: str, default: int, *, lo: int = 1, hi: int = 32) -> int:
+    """Read a positive-int tunable from the environment with clamping."""
+    try:
+        value = int(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(lo, min(hi, value))
+
+
+# How many pages of a single book compile concurrently in the background, and
+# how many blocks within a page compile concurrently. Both stay well under the
+# global LLM traffic-control semaphore (max_concurrency=20) so a book compile
+# can't starve the rest of the app: worst case is roughly
+# PAGE_CONCURRENCY * BLOCK_CONCURRENCY in-flight block LLM calls.
+# Overridable via env without a code change (BOOK_PAGE_CONCURRENCY /
+# BOOK_BLOCK_CONCURRENCY) for per-environment tuning.
+BOOK_PAGE_CONCURRENCY = _int_env("BOOK_PAGE_CONCURRENCY", 3)
+BOOK_BLOCK_CONCURRENCY = _int_env("BOOK_BLOCK_CONCURRENCY", 3)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-book runtime state (queues, workers)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -87,7 +108,7 @@ class _BookRuntime:
 
     queue: asyncio.Queue[str] = field(default_factory=asyncio.Queue)
     queued: set[str] = field(default_factory=set)
-    worker: asyncio.Task[None] | None = None
+    workers: set[asyncio.Task[None]] = field(default_factory=set)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     stream: BookStream | None = None  # default stream for background work
 
@@ -109,7 +130,8 @@ class BookEngine:
         self.storage = storage or get_book_storage()
         self.compiler = BookCompiler(
             storage=self.storage,
-            options=compiler_options or CompilerOptions(phase=2),
+            options=compiler_options
+            or CompilerOptions(phase=2, block_concurrency=BOOK_BLOCK_CONCURRENCY),
         )
         self._runtimes: dict[str, _BookRuntime] = {}
         self._global_lock = asyncio.Lock()
@@ -146,8 +168,10 @@ class BookEngine:
 
     def delete_book(self, book_id: str) -> bool:
         runtime = self._runtimes.pop(book_id, None)
-        if runtime and runtime.worker and not runtime.worker.done():
-            runtime.worker.cancel()
+        if runtime:
+            for worker in runtime.workers:
+                if not worker.done():
+                    worker.cancel()
         return self.storage.delete_book(book_id)
 
     def set_page_chat_session(self, *, book_id: str, page_id: str, session_id: str) -> Book | None:
@@ -660,9 +684,10 @@ class BookEngine:
         runtime = self._runtimes.get(book_id)
         if runtime is not None:
             async with runtime.lock:
-                if runtime.worker is not None and not runtime.worker.done():
-                    runtime.worker.cancel()
-                    runtime.worker = None
+                for worker in runtime.workers:
+                    if not worker.done():
+                        worker.cancel()
+                runtime.workers.clear()
                 runtime.queued.clear()
                 while not runtime.queue.empty():
                     try:
@@ -782,12 +807,22 @@ class BookEngine:
             return runtime
 
     def _ensure_worker(self, book_id: str) -> None:
+        """Spawn background workers up to BOOK_PAGE_CONCURRENCY.
+
+        Multiple workers drain the same queue, so pages of one book compile
+        concurrently. Dedup is guaranteed by ``runtime.queued`` (a page id is
+        enqueued at most once) plus the ``page.status == READY`` skip, so two
+        workers never compile the same page.
+        """
         runtime = self._runtimes.get(book_id)
         if runtime is None:
             return
-        if runtime.worker is not None and not runtime.worker.done():
-            return
-        runtime.worker = asyncio.create_task(self._worker_loop(book_id))
+        # Drop finished workers, then top up to the desired pool size, but never
+        # spawn more workers than there is queued work to do.
+        runtime.workers = {w for w in runtime.workers if not w.done()}
+        want = min(BOOK_PAGE_CONCURRENCY, max(1, runtime.queue.qsize()))
+        while len(runtime.workers) < want:
+            runtime.workers.add(asyncio.create_task(self._worker_loop(book_id)))
 
     async def _worker_loop(self, book_id: str) -> None:
         runtime = self._runtimes.get(book_id)
@@ -798,11 +833,11 @@ class BookEngine:
             try:
                 page_id = await asyncio.wait_for(runtime.queue.get(), timeout=2.0)
             except asyncio.TimeoutError:
+                # No work for this worker; let it exit. Other workers (if any)
+                # keep draining, and _enqueue_pending_pages re-spawns on demand.
                 async with runtime.lock:
-                    if runtime.queue.empty():
-                        runtime.worker = None
-                        return
-                continue
+                    runtime.workers.discard(asyncio.current_task())  # type: ignore[arg-type]
+                    return
 
             try:
                 book = self.storage.load_book(book_id)
