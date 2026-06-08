@@ -137,11 +137,15 @@ _PROTOCOL_EXPLAIN = LabelProtocol(
 DEFAULT_MAX_ITERATIONS_PER_STEP = 7
 DEFAULT_MAX_REPLANS = 2
 DEFAULT_NUM_QUERIES = 3
-DEFAULT_MAX_TOKENS = 8000
+# Capped at 3072 so prompt + output fit the default 8192-token vLLM context
+# window (Qwen2.5-32B on the voice pipeline). 8000 output left only ~192 tokens
+# for the prompt, which overflowed and returned HTTP 400. Raise once a
+# larger-context model is the default tutor LLM.
+DEFAULT_MAX_TOKENS = 3072
 SYNTHESIZE_MAX_TOKENS = 2000
 PRE_RETRIEVE_MAX_TOKENS = 2000
 EXPLAIN_JUDGE_MAX_TOKENS = 500
-EXPLAIN_MAX_TOKENS = 8000
+EXPLAIN_MAX_TOKENS = 3072
 
 # Caps that match the legacy planner's pre-retrieve sub-DAG so we don't
 # blow up the aggregation call when retrieval pulls a lot of text.

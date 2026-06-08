@@ -67,29 +67,39 @@ DEFAULT_MAIN_SETTINGS = {
     },
 }
 
+# NOTE: Output ``max_tokens`` must leave room for the prompt within the served
+# model's context window. The default self-hosted vLLM (Qwen2.5-32B-Instruct on
+# the voice pipeline) is started with ``--max-model-len 8192``, so prompt +
+# output must stay <= 8192. Agentic prompts (system + tools + history + RAG) can
+# already consume 4-5k tokens, so output budgets are capped at 3072 to avoid
+# "maximum context length is 8192 tokens" 400 errors on solve/question/
+# research/visualize. Raise these once a larger-context model is the default.
+_VLLM_8K_SAFE_TOKENS = 3072
 DEFAULT_AGENTS_SETTINGS = {
     "capabilities": {
-        "solve": {"temperature": 0.3, "max_tokens": 4096},  # vLLM safe
-        "research": {"temperature": 0.5, "max_tokens": 4096},  # vLLM safe
-        "question": {"temperature": 0.7, "max_tokens": 4096},
-        "guide": {"temperature": 0.5, "max_tokens": 4096},  # vLLM safe
-        "co_writer": {"temperature": 0.7, "max_tokens": 4096},
-        "visualize": {"temperature": 0.4, "max_tokens": 16384},
+        "solve": {"temperature": 0.3, "max_tokens": _VLLM_8K_SAFE_TOKENS},
+        "research": {"temperature": 0.5, "max_tokens": _VLLM_8K_SAFE_TOKENS},
+        "question": {"temperature": 0.7, "max_tokens": _VLLM_8K_SAFE_TOKENS},
+        "guide": {"temperature": 0.5, "max_tokens": _VLLM_8K_SAFE_TOKENS},
+        "co_writer": {"temperature": 0.7, "max_tokens": _VLLM_8K_SAFE_TOKENS},
+        "visualize": {"temperature": 0.4, "max_tokens": _VLLM_8K_SAFE_TOKENS},
         "chat": {
             "temperature": 0.2,
-            "responding": {"max_tokens": 8000},
-            "answer_now": {"max_tokens": 8000},
+            "responding": {"max_tokens": _VLLM_8K_SAFE_TOKENS},
+            "answer_now": {"max_tokens": _VLLM_8K_SAFE_TOKENS},
         },
     },
     "tools": {
         "brainstorm": {"temperature": 0.8, "max_tokens": 2048},
     },
     "services": {
-        "personalization": {"temperature": 0.5, "max_tokens": 4096},  # vLLM safe
+        "personalization": {"temperature": 0.5, "max_tokens": _VLLM_8K_SAFE_TOKENS},
     },
     "plugins": {
-        "vision_solver": {"temperature": 0.3, "max_tokens": 4096},  # vLLM safe
-        "math_animator": {"temperature": 0.4, "max_tokens": 4096},  # vLLM safe
+        # vision_solver runs against the OpenAI vision endpoint (large context),
+        # so it is not bound by the 8192 vLLM limit.
+        "vision_solver": {"temperature": 0.3, "max_tokens": 4096},
+        "math_animator": {"temperature": 0.4, "max_tokens": _VLLM_8K_SAFE_TOKENS},
     },
 }
 
