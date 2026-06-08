@@ -210,12 +210,18 @@ DEFAULT_REPHRASE_MAX_ITERATIONS = (
 DEFAULT_REPHRASE_MAX_ROUNDS = 3
 DEFAULT_REPHRASE_MAX_QUESTIONS_PER_ROUND = 3
 DEFAULT_BLOCK_MAX_ITERATIONS = 5
-DEFAULT_BLOCK_MAX_TOKENS = 6000
+# Output-token budgets are capped so that prompt (system + block instructions +
+# citation summaries + accumulated evidence) PLUS the requested output fit the
+# default 8192-token vLLM context window. At the old 6000 value a single block
+# left only ~2k tokens for the prompt, so evidence-heavy blocks overflowed with
+# "maximum context length is 8192 tokens" and were dropped from the report.
+# (Same fix class as the capability budgets in services/setup/init.py.)
+DEFAULT_BLOCK_MAX_TOKENS = 3072
 DEFAULT_OUTLINE_MAX_TOKENS = 2000
 DEFAULT_REPORT_OUTLINE_MAX_TOKENS = 2000
-DEFAULT_REPORT_INTRO_MAX_TOKENS = 3000
-DEFAULT_REPORT_SECTION_MAX_TOKENS = 6000
-DEFAULT_REPORT_CONCLUSION_MAX_TOKENS = 3000
+DEFAULT_REPORT_INTRO_MAX_TOKENS = 2048
+DEFAULT_REPORT_SECTION_MAX_TOKENS = 3072
+DEFAULT_REPORT_CONCLUSION_MAX_TOKENS = 2048
 DEFAULT_INITIAL_SUBTOPICS = 5
 DEFAULT_MAX_PARALLEL_TOPICS = 3
 DEFAULT_QUEUE_MAX_LENGTH = 8
