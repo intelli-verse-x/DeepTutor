@@ -409,6 +409,7 @@ async def diagnostic_answer(
     new_number = answer_count + 2
     if new_number > ds.total_questions:
         ds.status = "completed"
+        await _finalize_diagnostic(session, ds)
         await session.commit()
         _schedule_kb_push()
         return {"status": "completed", "session_id": str(ds.id)}
@@ -434,6 +435,7 @@ async def diagnostic_answer(
     )
     if not next_q:
         ds.status = "completed"
+        await _finalize_diagnostic(session, ds)
         await session.commit()
         _schedule_kb_push()
         return {"status": "completed", "session_id": str(ds.id)}
@@ -449,22 +451,19 @@ async def diagnostic_answer(
     }
 
 
-@router.get("/diagnostic/{session_id}/results", response_model=DiagResultOut)
-async def diagnostic_results(
-    session_id: str,
-    x_user_id: str = Header(),
-    session: AsyncSession = Depends(get_session),
-):
-    ds = await session.get(DiagnosticSession, _as_uuid(session_id, "session_id"))
-    # 404 (not 403) on owner mismatch so a session's existence isn't leaked.
-    if not ds or ds.user_id != x_user_id:
-        raise HTTPException(404, "Session not found")
+async def _compute_diagnostic_results(
+    session: AsyncSession, ds: DiagnosticSession
+) -> dict[str, Any]:
+    """Compute the diagnostic score breakdown from stored answers.
 
+    Returns a plain dict (also used to persist ds.result on completion) so the
+    learning-outcome signal is queryable in SQL, not only via the GET endpoint.
+    """
     answers_stmt = select(DiagnosticAnswer).where(DiagnosticAnswer.session_id == ds.id)
     answers = (await session.execute(answers_stmt)).scalars().all()
 
     subj_scores: dict[str, dict[str, int]] = {}
-    diff_progression = []
+    diff_progression: list[str] = []
     correct_total = 0
     for a in answers:
         s = a.subject or "Unknown"
@@ -477,14 +476,53 @@ async def diagnostic_results(
         diff_progression.append(a.difficulty or "medium")
 
     total = len(answers)
+    score_pct = round((correct_total / total) * 100, 1) if total else 0
+    return {
+        "total_questions": total,
+        "correct": correct_total,
+        "score_pct": score_pct,
+        "subject_scores": subj_scores,
+        "difficulty_progression": diff_progression,
+    }
+
+
+async def _finalize_diagnostic(session: AsyncSession, ds: DiagnosticSession) -> None:
+    """Persist the computed result + ability estimate when a diagnostic completes.
+
+    Without this the session row keeps an empty ``result`` ({}) and a 0
+    ``ability_estimate``, so the baseline score is lost for cohort/lift analysis.
+    Called right before commit at every completion path.
+    """
+    try:
+        res = await _compute_diagnostic_results(session, ds)
+        ds.result = res
+        total = res["total_questions"]
+        ds.ability_estimate = round(res["correct"] / total, 4) if total else 0.0
+        ds.completed_at = datetime.now(timezone.utc)
+    except Exception:  # never block completion on analytics persistence
+        logger.exception("[_finalize_diagnostic] failed for session %s", ds.id)
+
+
+@router.get("/diagnostic/{session_id}/results", response_model=DiagResultOut)
+async def diagnostic_results(
+    session_id: str,
+    x_user_id: str = Header(),
+    session: AsyncSession = Depends(get_session),
+):
+    ds = await session.get(DiagnosticSession, _as_uuid(session_id, "session_id"))
+    # 404 (not 403) on owner mismatch so a session's existence isn't leaked.
+    if not ds or ds.user_id != x_user_id:
+        raise HTTPException(404, "Session not found")
+
+    res = await _compute_diagnostic_results(session, ds)
     return DiagResultOut(
         session_id=session_id,
         status=ds.status,
-        total_questions=total,
-        correct=correct_total,
-        score_pct=round((correct_total / total) * 100, 1) if total else 0,
-        subject_scores=subj_scores,
-        difficulty_progression=diff_progression,
+        total_questions=res["total_questions"],
+        correct=res["correct"],
+        score_pct=res["score_pct"],
+        subject_scores=res["subject_scores"],
+        difficulty_progression=res["difficulty_progression"],
     )
 
 
