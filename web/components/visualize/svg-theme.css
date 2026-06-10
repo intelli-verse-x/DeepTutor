@@ -14,6 +14,31 @@
   height: auto;
 }
 
+/* Chart.js wrapper: keep inline charts compact. The canvas itself must
+   never be CSS-clamped — Chart.js owns the canvas size, and a stylesheet
+   max-height would squish the bitmap non-uniformly. */
+.dt-chart-wrap {
+  max-height: 480px;
+}
+
+/* ---- Fullscreen overlay (.dt-viz-fullscreen wraps the figure) ----
+   Fit every render type to the viewport in BOTH dimensions. */
+
+/* SVG (ours + mermaid's): clamp height; the default preserveAspectRatio
+   (xMidYMid meet) letterboxes the content inside the clamped box, so
+   nothing distorts. Width-only scaling would overflow the screen. */
+.dt-viz-fullscreen svg {
+  max-height: calc(100vh - 140px);
+}
+
+/* Chart.js: cap the WIDTH so the chart's own aspect-ratio scaling (default
+   2:1) lands within the viewport height, instead of clamping the canvas. */
+.dt-viz-fullscreen .dt-chart-wrap {
+  max-height: none;
+  max-width: min(100%, calc((100vh - 140px) * 2));
+  margin-inline: auto;
+}
+
 /* Use the app sans font (Geist), overriding any font-family on the SVG itself
    and the serif (Lora) inherited from a surrounding .prose container. */
 .dt-svg-root,

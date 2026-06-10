@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { Code2, Copy, Check, ExternalLink, Maximize2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Mermaid } from "@/components/Mermaid";
@@ -100,7 +101,7 @@ function ChartJsRenderer({ config }: { config: string }) {
   }
 
   return (
-    <div className="relative w-full" style={{ maxHeight: 480 }}>
+    <div className="dt-chart-wrap relative w-full">
       <canvas ref={canvasRef} />
     </div>
   );
@@ -502,43 +503,51 @@ export default function VisualizationViewer({
         </p>
       )}
 
-      {/* Fullscreen overlay */}
-      {fullscreen && supportsFullscreen && (
-        <div
-          className="fixed inset-0 z-[120] flex flex-col bg-black/85 p-4 backdrop-blur-sm"
-          onClick={() => setFullscreen(false)}
-        >
-          <div className="mb-2 flex shrink-0 items-center justify-between text-white">
-            <div className="text-xs uppercase tracking-wider opacity-80">
-              {result.render_type === "svg"
-                ? "SVG"
-                : result.render_type === "mermaid"
-                  ? `Mermaid · ${result.analysis.chart_type || "diagram"}`
-                  : `Chart.js · ${result.analysis.chart_type || "chart"}`}
-            </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setFullscreen(false);
-              }}
-              title={t("Close")}
-              className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-white/20"
-            >
-              <X size={12} strokeWidth={1.8} />
-              {t("Close")}
-            </button>
-          </div>
+      {/* Fullscreen overlay — rendered via portal: the message bubble sits
+          inside transformed/overflow ancestors (streaming animations, chat
+          scroll root), which break position:fixed and put the composer above
+          the overlay. document.body has neither problem. */}
+      {fullscreen &&
+        supportsFullscreen &&
+        createPortal(
           <div
-            className="flex flex-1 items-center justify-center overflow-auto rounded-xl bg-[var(--card)] p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[120] flex flex-col bg-black/85 p-4 backdrop-blur-sm"
+            onClick={() => setFullscreen(false)}
           >
-            <div className="w-full max-w-[1600px]">
-              {renderTextVisualization(result)}
+            <div className="mb-2 flex shrink-0 items-center justify-between text-white">
+              <div className="text-xs uppercase tracking-wider opacity-80">
+                {result.render_type === "svg"
+                  ? "SVG"
+                  : result.render_type === "mermaid"
+                    ? `Mermaid · ${result.analysis.chart_type || "diagram"}`
+                    : `Chart.js · ${result.analysis.chart_type || "chart"}`}
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFullscreen(false);
+                }}
+                title={t("Close")}
+                className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-white/20"
+              >
+                <X size={12} strokeWidth={1.8} />
+                {t("Close")}
+              </button>
             </div>
-          </div>
-        </div>
-      )}
+            {/* m-auto (not items-center/justify-center) so oversized content
+                stays scrollable from its start edge instead of clipping. */}
+            <div
+              className="flex flex-1 overflow-auto rounded-xl bg-[var(--card)] p-6 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="dt-viz-fullscreen m-auto w-full max-w-[1600px]">
+                {renderTextVisualization(result)}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
