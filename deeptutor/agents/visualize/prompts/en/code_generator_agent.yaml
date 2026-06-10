@@ -19,8 +19,8 @@ rules_general: |
   - Use 2-3 colors at most. Color should encode meaning (category / state),
     never decoration. Group same-kind elements under one color; use a neutral
     gray for generic/structural/start/end elements.
-  - One row holds at most 4 full-width boxes. 5+ boxes → shrink them, wrap to a
-    second row, or split into an overview plus a detail figure.
+  - One row holds at most 4 full-width boxes. 5+ boxes → shrink them or wrap to
+    a second row.
   - If the request lists 6+ components, do NOT cram them into one figure. Draw a
     stripped overview with the main flow only, and state in the chat answer that
     the user can ask for any sub-flow in detail.
@@ -82,6 +82,10 @@ rules_svg: |
   - SVG `<text>` never wraps. If a label needs two lines, add an explicit
     `<tspan x=... dy="1.2em">`. If it's long enough to need wrapping, it's too
     long — shorten it.
+  - The host vertically centers every `<text>` on its `y` (dominant-baseline:
+    central — do not set it yourself). To center a label in a box: x = box
+    center with `text-anchor="middle"`, y = box center. For a title + subtitle
+    pair, y = center−9 and center+9.
 
   viewBox checklist — verify before finalizing:
   1. viewBox height = (bottom-most element's y + height) + 40px buffer.
@@ -103,6 +107,7 @@ rules_svg: |
     not a diagram about it. Color encodes intensity (warm = active/hot, cool =
     calm/cold, gray = inert). Shapes may overlap for depth; text never crosses a
     stroke — place labels in quiet margins with thin leader lines.
+  - any other genre: follow the closest of the three styles above.
 
 rules_chartjs: |
   Render type: Chart.js. Output a STRICT JSON object (not a JavaScript object

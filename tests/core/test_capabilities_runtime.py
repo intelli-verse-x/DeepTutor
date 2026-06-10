@@ -33,7 +33,10 @@ def _install_module(
             monkeypatch.setitem(sys.modules, pkg_name, pkg)
             if idx > 1:
                 parent = sys.modules[".".join(parts[: idx - 1])]
-                setattr(parent, parts[idx - 1], pkg)
+                # monkeypatch (not raw setattr) so the parent package's
+                # attribute is restored on teardown and never leaks a fake
+                # submodule into later tests.
+                monkeypatch.setattr(parent, parts[idx - 1], pkg, raising=False)
 
     module = types.ModuleType(fullname)
     for key, value in attrs.items():
@@ -41,7 +44,7 @@ def _install_module(
     monkeypatch.setitem(sys.modules, fullname, module)
     if len(parts) > 1:
         parent = sys.modules[".".join(parts[:-1])]
-        setattr(parent, parts[-1], module)
+        monkeypatch.setattr(parent, parts[-1], module, raising=False)
     return module
 
 
@@ -393,18 +396,6 @@ async def test_visualize_capability_passes_attachments_to_analysis_agent(
                 "data_description": self.data_description,
             }
 
-    class FakeReview:
-        optimized_code = "<svg></svg>"
-        changed = False
-        review_notes = "ok"
-
-        def model_dump(self) -> dict[str, Any]:
-            return {
-                "optimized_code": self.optimized_code,
-                "changed": self.changed,
-                "review_notes": self.review_notes,
-            }
-
     class FakeVisualizePipeline:
         def __init__(self, **kwargs: Any) -> None:
             captured["init"] = kwargs
@@ -415,11 +406,9 @@ async def test_visualize_capability_passes_attachments_to_analysis_agent(
 
         async def run_code_generation(self, **kwargs: Any) -> str:
             captured["code_generation"] = kwargs
-            return "<svg></svg>"
-
-        async def run_review(self, **kwargs: Any) -> FakeReview:
-            captured["review"] = kwargs
-            return FakeReview()
+            # Valid per validate_visualization (well-formed XML + camelCase
+            # viewBox), so the capability takes the no-repair path.
+            return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"></svg>'
 
     monkeypatch.setattr(
         visualize_pipeline,

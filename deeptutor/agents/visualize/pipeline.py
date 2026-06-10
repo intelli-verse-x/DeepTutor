@@ -72,19 +72,6 @@ class VisualizePipeline:
             analysis=analysis,
         )
 
-    async def run_review(
-        self,
-        *,
-        user_input: str,
-        analysis: VisualizationAnalysis,
-        code: str,
-    ) -> ReviewResult:
-        return await self.review_agent.process(
-            user_input=user_input,
-            analysis=analysis,
-            code=code,
-        )
-
     async def run_repair(
         self,
         *,
@@ -93,7 +80,7 @@ class VisualizePipeline:
         code: str,
         error: str,
     ) -> ReviewResult:
-        return await self.review_agent.repair(
+        return await self.review_agent.process(
             user_input=user_input,
             analysis=analysis,
             code=code,
