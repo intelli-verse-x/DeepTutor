@@ -65,9 +65,8 @@ class VisualizeCapability(BaseCapability):
         from deeptutor.agents.visualize.pipeline import VisualizePipeline
         from deeptutor.agents.visualize.utils import (
             build_fallback_html,
-            is_valid_html_document,
+            validate_visualization,
         )
-        from deeptutor.capabilities._answer_now import extract_answer_now_context
         from deeptutor.services.llm.config import get_llm_config
 
         request_config = validate_visualize_request_config(context.config_overrides)
@@ -76,20 +75,6 @@ class VisualizeCapability(BaseCapability):
 
         llm_config_for_usage = get_llm_config()
         usage = UsageTracker(model=getattr(llm_config_for_usage, "model", None))
-
-        answer_now_payload = extract_answer_now_context(context)
-        if answer_now_payload is not None:
-            # Manim takes ~30-90s even on the fast path; answer-now's point is
-            # to skip slow analysis when the user is impatient, so we redirect
-            # explicit manim answer-now requests to the full path. The text
-            # paths keep their dedicated fast-path implementation.
-            if render_mode in _MANIM_RENDER_TYPES:
-                pass  # fall through to the full manim path below
-            else:
-                await self._run_answer_now(
-                    context, stream, answer_now_payload, usage=usage, i18n=i18n
-                )
-                return
 
         llm_config = get_llm_config()
         history_context = str(context.metadata.get("conversation_context_text", "") or "").strip()
@@ -158,86 +143,95 @@ class VisualizeCapability(BaseCapability):
                 stage="generating",
             )
 
-        # Stage 3: Review & optimise
+        # Stage 3: Validate locally; repair only on failure.
+        #
+        # The old generic LLM review is replaced by a deterministic, zero-cost
+        # local check (well-formed XML / strict-JSON / mermaid lint / HTML
+        # sanity). When it passes we ship the draft as-is — saving a whole
+        # serial LLM call. When it fails we spend one *targeted* repair call
+        # driven by the concrete error, not an open-ended re-judgement.
         async with stream.stage("reviewing", source=self.name):
-            if analysis.render_type == "html":
-                # Skip the LLM review pass for html — it would cost another
-                # 30-60s on a 10k-token document with negligible quality gain.
-                # Instead, do a local sanity check and fall back to a minimal
-                # template if the model returned something unrenderable.
-                if is_valid_html_document(code):
-                    final_code = code
-                    review = ReviewResult(
-                        optimized_code=final_code,
-                        changed=False,
-                        review_notes="Skipped LLM review for html render_type.",
-                    )
-                    await stream.progress(
-                        message=i18n.t(
-                            "html_ready_review_skipped",
-                            "HTML page ready (review skipped).",
-                        ),
-                        source=self.name,
-                        stage="reviewing",
-                    )
-                else:
-                    final_code = build_fallback_html(
-                        title=analysis.description or "Visualization",
-                        summary=analysis.data_description,
-                        note="The model did not return a renderable HTML document.",
-                    )
-                    review = ReviewResult(
-                        optimized_code=final_code,
-                        changed=True,
-                        review_notes="Used fallback HTML template.",
-                    )
-                    await stream.progress(
-                        message=i18n.t(
-                            "html_invalid_fallback",
-                            "HTML did not validate; using fallback template.",
-                        ),
-                        source=self.name,
-                        stage="reviewing",
-                    )
+            ok, validation_error = validate_visualization(code, analysis.render_type)
+            if ok:
+                final_code = code
+                review = ReviewResult(
+                    optimized_code=final_code,
+                    changed=False,
+                    review_notes="Passed local validation.",
+                )
+                await stream.progress(
+                    message=i18n.t(
+                        "validation_passed",
+                        "Looks good — passed local checks.",
+                    ),
+                    source=self.name,
+                    stage="reviewing",
+                )
+            elif analysis.render_type == "html":
+                # html documents are 8-16k tokens; we don't run them through
+                # the repair loop — fall back to a minimal renderable template.
+                final_code = build_fallback_html(
+                    title=analysis.description or "Visualization",
+                    summary=analysis.data_description,
+                    note="The model did not return a renderable HTML document.",
+                )
+                review = ReviewResult(
+                    optimized_code=final_code,
+                    changed=True,
+                    review_notes=f"Used fallback HTML template ({validation_error}).",
+                )
+                await stream.progress(
+                    message=i18n.t(
+                        "html_invalid_fallback",
+                        "HTML did not validate; using fallback template.",
+                    ),
+                    source=self.name,
+                    stage="reviewing",
+                )
             else:
                 await stream.thinking(
-                    i18n.t("reviewing", "Reviewing and optimizing code..."),
+                    i18n.t("repairing", "Fixing a validation issue..."),
                     source=self.name,
                     stage="reviewing",
                 )
                 try:
-                    review = await pipeline.run_review(
+                    review = await pipeline.run_repair(
                         user_input=context.user_message,
                         analysis=analysis,
                         code=code,
+                        error=validation_error,
                     )
                 except Exception as exc:
-                    # Review wraps generated code inside a JSON string field;
-                    # large/complex SVGs trip JSON-mode escaping and crash the
-                    # whole turn. Fall back to the unreviewed draft so the user
-                    # still gets a rendered result.
-                    logger.warning("Visualize review failed (%s); using unreviewed draft.", exc)
+                    # Repair wraps code inside a JSON string field; large/complex
+                    # SVGs can trip JSON-mode escaping. Fall back to the draft so
+                    # the user still gets a rendered result.
+                    logger.warning(
+                        "Visualize repair failed (%s); using unvalidated draft.", exc
+                    )
                     review = ReviewResult(
                         optimized_code=code,
                         changed=False,
-                        review_notes=f"Review skipped due to error: {exc}",
+                        review_notes=f"Repair skipped due to error: {exc}",
                     )
                     final_code = code
                     await stream.progress(
                         message=i18n.t(
-                            "review_skipped_error",
-                            "Review skipped — using draft as-is.",
+                            "repair_skipped_error",
+                            "Repair skipped — using draft as-is.",
                         ),
                         source=self.name,
                         stage="reviewing",
                     )
                 else:
-                    final_code = review.optimized_code
-                    if review.changed:
+                    final_code = review.optimized_code or code
+                    repaired_ok, repaired_error = validate_visualization(
+                        final_code, analysis.render_type
+                    )
+                    if repaired_ok:
                         await stream.progress(
                             message=i18n.t(
-                                "code_optimized",
-                                f"Code optimized: {review.review_notes}",
+                                "code_repaired",
+                                f"Fixed: {review.review_notes}",
                                 notes=review.review_notes,
                             ),
                             source=self.name,
@@ -246,8 +240,9 @@ class VisualizeCapability(BaseCapability):
                     else:
                         await stream.progress(
                             message=i18n.t(
-                                "code_no_changes",
-                                "Code looks good — no changes needed.",
+                                "repair_incomplete",
+                                f"Repair attempted; residual issue: {repaired_error}",
+                                error=repaired_error,
                             ),
                             source=self.name,
                             stage="reviewing",
@@ -493,149 +488,6 @@ class VisualizeCapability(BaseCapability):
                 },
                 "analysis": analysis.model_dump(),
                 "design": design.model_dump(),
-            },
-            source=self.name,
-            usage=usage,
-        )
-
-    async def _run_answer_now(
-        self,
-        context: UnifiedContext,
-        stream: StreamBus,
-        payload: dict[str, Any],
-        *,
-        usage: UsageTracker | None = None,
-        i18n: StatusI18n | None = None,
-    ) -> None:
-        """
-        Fast-path for ``visualize``: skip analysis + review and emit final
-        code in a single structured LLM call. The result envelope mirrors
-        the standard pipeline so ``VisualizationViewer`` renders it
-        directly.
-        """
-        import json
-        import re
-
-        from deeptutor.capabilities._answer_now import (
-            build_answer_now_trace_metadata,
-            format_trace_summary,
-            join_chunks,
-            labeled_block,
-            load_answer_now_prompts,
-            make_skip_notice,
-            stream_synthesis,
-        )
-
-        if i18n is None:
-            i18n = StatusI18n(self.name, context.language)
-        original = str(payload.get("original_user_message") or context.user_message).strip()
-        partial = str(payload.get("partial_response") or "").strip()
-        trace_summary = format_trace_summary(payload.get("events"), language=context.language)
-
-        render_mode = (
-            str(context.config_overrides.get("render_mode", "auto") or "auto").strip().lower()
-        )
-
-        prompts = load_answer_now_prompts("visualize", context.language)
-        system_prompt = str(prompts.get("system", "")).strip()
-        user_prompt = str(prompts.get("user_template", "")).format(
-            original=original,
-            render_mode=render_mode,
-            current_draft=labeled_block("Current Draft", partial),
-            execution_trace=labeled_block("Execution Trace", trace_summary),
-        )
-
-        trace_meta = build_answer_now_trace_metadata(
-            capability=self.name, phase="generating", label="Answer now"
-        )
-        notice = make_skip_notice(
-            capability=self.name,
-            language=context.language,
-            stages_skipped=["analyzing", "reviewing"],
-        )
-
-        # html pages are larger; bump the answer-now budget for that mode.
-        is_html_mode = render_mode == "html"
-        max_tokens = 16000 if is_html_mode else 2400
-
-        chunks: list[str] = []
-        async with stream.stage("generating", source=self.name, metadata=trace_meta):
-            async for chunk in stream_synthesis(
-                stream=stream,
-                source=self.name,
-                stage="generating",
-                trace_meta=trace_meta,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                max_tokens=max_tokens,
-                push_content=False,
-                response_format={"type": "json_object"},
-            ):
-                chunks.append(chunk)
-
-        raw = join_chunks(chunks).strip()
-        # Strip optional code fences for resilience.
-        if raw.startswith("```"):
-            raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
-            if raw.endswith("```"):
-                raw = raw[:-3].rstrip()
-        try:
-            parsed = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            parsed = {"render_type": "html" if is_html_mode else "svg", "code": raw}
-        if not isinstance(parsed, dict):
-            parsed = {
-                "render_type": "html" if is_html_mode else "svg",
-                "code": str(parsed),
-            }
-
-        default_type = "html" if is_html_mode else "svg"
-        render_type = str(parsed.get("render_type") or default_type).strip().lower()
-        if render_type not in {"svg", "chartjs", "mermaid", "html"}:
-            render_type = default_type
-        final_code = str(parsed.get("code") or "").strip()
-
-        if render_type == "html":
-            lang_tag = "html"
-        elif render_type == "svg":
-            lang_tag = "svg"
-        elif render_type == "mermaid":
-            lang_tag = "mermaid"
-        else:
-            lang_tag = "javascript"
-        content_md = f"```{lang_tag}\n{final_code}\n```"
-        body = (notice + "\n\n" + content_md).strip() if notice else content_md
-        await stream.content(body, source=self.name, stage="generating")
-
-        await emit_capability_result(
-            stream,
-            {
-                "response": body,
-                "render_type": render_type,
-                "code": {
-                    "language": lang_tag,
-                    "content": final_code,
-                },
-                "analysis": {
-                    "render_type": render_type,
-                    "description": i18n.t(
-                        "answer_now_skipped_analysis",
-                        "Answer-now: skipped analysis stage.",
-                    ),
-                    "data_description": "",
-                    "chart_type": "",
-                    "visual_elements": [],
-                    "rationale": "",
-                },
-                "review": {
-                    "optimized_code": final_code,
-                    "changed": False,
-                    "review_notes": i18n.t(
-                        "answer_now_skipped_review",
-                        "Answer-now: skipped review stage.",
-                    ),
-                },
-                "metadata": {"answer_now": True},
             },
             source=self.name,
             usage=usage,

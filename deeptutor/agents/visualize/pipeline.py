@@ -85,5 +85,20 @@ class VisualizePipeline:
             code=code,
         )
 
+    async def run_repair(
+        self,
+        *,
+        user_input: str,
+        analysis: VisualizationAnalysis,
+        code: str,
+        error: str,
+    ) -> ReviewResult:
+        return await self.review_agent.repair(
+            user_input=user_input,
+            analysis=analysis,
+            code=code,
+            error=error,
+        )
+
 
 __all__ = ["VisualizePipeline"]
