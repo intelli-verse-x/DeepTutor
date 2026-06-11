@@ -74,6 +74,7 @@ WORKDIR /app
 # Install system dependencies
 # Note: libgl1 and libglib2.0-0 are required for OpenCV (used by mineru)
 # Rust is required for building tiktoken and other packages without pre-built wheels
+# ffmpeg + libcairo2-dev + libpango1.0-dev + texlive* + cmake are required by manim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
@@ -86,6 +87,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
     libpq-dev \
+    ffmpeg \
+    libcairo2-dev \
+    libpango1.0-dev \
+    cmake \
+    texlive \
+    texlive-latex-extra \
+    texlive-fonts-extra \
+    texlive-science \
+    dvisvgm \
     && rm -rf /var/lib/apt/lists/* \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
@@ -96,7 +106,8 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 COPY requirements/ ./requirements/
 COPY requirements.txt ./
 RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install -r requirements.txt && \
+    pip install -r requirements/math-animator.txt
 
 # ============================================
 # Stage 3: Production Image
@@ -118,6 +129,7 @@ WORKDIR /app
 
 # Install system dependencies
 # Note: libgl1 and libglib2.0-0 are required for OpenCV (used by mineru)
+# ffmpeg, libcairo2, libpango*, texlive* and dvisvgm are required by manim at runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
@@ -129,6 +141,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender1 \
     libpq5 \
+    ffmpeg \
+    libcairo2 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    texlive \
+    texlive-latex-extra \
+    texlive-fonts-extra \
+    texlive-science \
+    dvisvgm \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Node.js from node-runtime stage (platform-matched binary)
