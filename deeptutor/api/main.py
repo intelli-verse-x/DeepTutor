@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import logging
 import os
 import re
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,7 +44,17 @@ CONFIG_DRIFT_ERROR_TEMPLATE = (
 
 
 class SafeOutputStaticFiles(StaticFiles):
-    """Static file mount that only exposes explicitly whitelisted artifacts."""
+    """Static file mount that only exposes explicitly whitelisted artifacts.
+
+    Tenant-aware: in multi-user deployments each user's artifacts live under
+    ``multi-user/<uid>/user/...`` while the returned URL is rooted at
+    ``/api/outputs/workspace/...`` (no tenant prefix, by design). The mount is
+    created once at startup with the *default* root, so without per-request
+    resolution a tenant video would always 404. We therefore resolve the
+    requesting user's ``PathService`` from the ``user_id`` query param (browsers
+    can't set headers on a plain ``<video src>``) or the ``x-user-id`` header,
+    then validate + serve from that user's outputs root.
+    """
 
     def __init__(
         self,
@@ -53,12 +64,18 @@ class SafeOutputStaticFiles(StaticFiles):
         cors_origin_regex=None,
         **kwargs,
     ):
+        # ``check_dir`` is disabled so the default mount can boot before any
+        # per-user workspace exists; path validity is enforced per request.
+        kwargs.setdefault("check_dir", False)
         super().__init__(*args, **kwargs)
-        self._path_service = path_service
+        self._default_path_service = path_service
         self._cors_origins = set(cors_origins or [])
         self._cors_origin_regex = (
             re.compile(cors_origin_regex) if cors_origin_regex else None
         )
+        # Cache one StaticFiles delegate per resolved tenant root directory so
+        # range/conditional handling from the base class is reused per tenant.
+        self._tenant_delegates: dict[str, StaticFiles] = {}
 
     def _origin_allowed(self, origin: str) -> bool:
         if origin in self._cors_origins:
@@ -74,10 +91,60 @@ class SafeOutputStaticFiles(StaticFiles):
             response.headers["Vary"] = "Origin"
         return response
 
+    @staticmethod
+    def _user_id_from_scope(scope) -> str:
+        """Extract the tenant id from the query string, then header."""
+        from urllib.parse import parse_qs
+
+        qs = scope.get("query_string", b"")
+        if qs:
+            params = parse_qs(qs.decode("latin-1"))
+            for key in ("user_id", "x_user_id"):
+                vals = params.get(key)
+                if vals and vals[0].strip():
+                    return vals[0].strip()
+        for name, value in scope.get("headers", []):
+            if name == b"x-user-id":
+                uid = value.decode("latin-1").strip()
+                if uid:
+                    return uid
+        return ""
+
+    def _path_service_for_scope(self, scope):
+        """Resolve the PathService for the requesting tenant (or default)."""
+        uid = self._user_id_from_scope(scope)
+        if not uid:
+            return self._default_path_service
+        try:
+            from deeptutor.multi_user.paths import (
+                ensure_user_workspace,
+                get_path_service_for_scope,
+                scope_for_user,
+            )
+
+            ensure_user_workspace(uid)
+            return get_path_service_for_scope(scope_for_user(uid, is_admin=False))
+        except Exception:  # noqa: BLE001 — multi_user optional; fall back to default
+            return self._default_path_service
+
+    def _delegate_for(self, directory: str) -> StaticFiles:
+        delegate = self._tenant_delegates.get(directory)
+        if delegate is None:
+            delegate = StaticFiles(directory=directory, check_dir=False)
+            self._tenant_delegates[directory] = delegate
+        return delegate
+
     async def get_response(self, path: str, scope):
-        if not self._path_service.is_public_output_path(path):
+        path_service = self._path_service_for_scope(scope)
+        if not path_service.is_public_output_path(path):
             raise HTTPException(status_code=404, detail="Output not found")
-        response = await super().get_response(path, scope)
+
+        tenant_root = str(path_service.get_public_outputs_root())
+        if Path(tenant_root).resolve() == Path(self.directory).resolve():
+            response = await super().get_response(path, scope)
+        else:
+            response = await self._delegate_for(tenant_root).get_response(path, scope)
+
         origin = None
         for name, value in scope.get("headers", []):
             if name == b"origin":
