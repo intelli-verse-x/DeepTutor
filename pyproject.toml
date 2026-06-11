@@ -44,6 +44,8 @@ dependencies = [
     "openpyxl>=3.1.0",
     "python-pptx>=1.0.0",
     "pypdf>=4.0.0",
+    "pdfplumber>=0.11.0,<0.11.8",  # 0.11.8+ pins pdfminer.six==20251230, conflicts with mineru (via raganything)
+    "reportlab>=4.0.0",
     "defusedxml>=0.7.1",
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.24.0",
@@ -75,11 +77,13 @@ cli = [
     "PyMuPDF>=1.26.0",
     "numpy>=1.24.0,<3.0.0",
     "arxiv>=2.0.0",
-    # Document text extraction (chat attachments)
+    # Document text extraction (chat attachments) + office-skill authoring libs
     "python-docx>=1.1.0",
     "openpyxl>=3.1.0",
     "python-pptx>=1.0.0",
     "pypdf>=4.0.0",
+    "pdfplumber>=0.11.0,<0.11.8",  # 0.11.8+ pins pdfminer.six==20251230, conflicts with mineru (via raganything)
+    "reportlab>=4.0.0",
     "defusedxml>=0.7.1",
 ]
 
@@ -96,16 +100,15 @@ server = [
     "pocketbase>=0.12.0",
     "loguru>=0.7.3,<1.0.0",
     "json-repair>=0.57.0,<1.0.0",
+    "croniter>=6.0.0,<7.0.0",
 ]
 
-# TutorBot agent engine + channel SDKs. Mirrors requirements/tutorbot.txt.
-tutorbot = [
+# Partner channel SDKs + MCP client. Mirrors requirements/partners.txt.
+# Partners run on the chat agent loop, so there is no engine here — just the
+# IM platform SDKs and the MCP client used for deferred tools.
+partners = [
     "deeptutor[server]",
-    "croniter>=6.0.0,<7.0.0",
-    "tiktoken>=0.12.0,<1.0.0",
-    "chardet>=3.0.2,<6.0.0",
     "mcp>=1.26.0,<2.0.0",
-    "readability-lxml>=0.8.4,<1.0.0",
     "python-telegram-bot[socks]>=22.6,<23.0",
     "lark-oapi>=1.5.0,<2.0.0",
     "dingtalk-stream>=0.24.0,<1.0.0",
@@ -118,9 +121,21 @@ tutorbot = [
     "socksio>=1.0.0,<2.0.0",
     "websocket-client>=1.9.0,<2.0.0",
     "zulip>=0.8.0,<1.0.0",
+    # slack-sdk Socket Mode + napcat need the async `websockets` lib — pin it
+    # explicitly instead of relying on dingtalk-stream/lark-oapi transitives.
+    "websockets>=12.0",
+    # napcat (OneBot v11) media downloads
+    "aiohttp>=3.10.0,<4.0.0",
+    # msteams Bot Framework token validation
+    "PyJWT[crypto]>=2.8.0,<3.0.0",
+    # weixin QR-code login
+    "qrcode>=7.4.0,<9.0.0",
 ]
 
-# Matrix (Element) channel for TutorBot. Mirrors requirements/matrix.txt.
+# Legacy alias kept for one release: `pip install deeptutor[tutorbot]`.
+tutorbot = ["deeptutor[partners]"]
+
+# Matrix (Element) channel for partners. Mirrors requirements/matrix.txt.
 # Default Matrix install is non-E2EE so it works without libolm/python-olm.
 matrix = [
     "matrix-nio>=0.25.2,<1.0.0",
@@ -155,9 +170,9 @@ dev = [
     "defusedxml>=0.7.1",
 ]
 
-# Everything: server + tutorbot + non-E2EE matrix + math-animator + dev tools.
+# Everything: server + partners + non-E2EE matrix + math-animator + dev tools.
 all = [
-    "deeptutor[tutorbot]",
+    "deeptutor[partners]",
     "deeptutor[matrix]",
     "deeptutor[math-animator]",
     "deeptutor[dev]",
@@ -176,9 +191,9 @@ include = ["deeptutor*", "deeptutor_cli*"]
 [tool.setuptools.package-data]
 # Runtime data shipped inside the deeptutor package: prompt YAMLs (loaded by
 # PromptManager from PACKAGE_ROOT/deeptutor/.../prompts/*.yaml), markdown
-# templates (tutorbot SKILL.md, vision_solver prompts), and helper shell
-# scripts (tutorbot tmux skill). Without these, ``pip install deeptutor`` ships
-# a wheel missing every agent prompt and capability fails at first use.
+# templates (builtin SKILL.md files, vision_solver prompts), and helper shell
+# scripts. Without these, ``pip install deeptutor`` ships a wheel missing
+# every agent prompt and capability fails at first use.
 deeptutor = [
     "**/*.yaml",
     "**/*.yml",
@@ -342,7 +357,7 @@ max-complexity = 10
 # Pytest configuration
 # ============================================
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "deeptutor/learning/tests"]
 pythonpath = ["."]
 markers = [
     "asyncio: mark async tests that require pytest-asyncio",
@@ -352,7 +367,8 @@ addopts = [
     "--strict-markers",
     "--strict-config",
     "--disable-warnings",
-    "--tb=short"
+    "--tb=short",
+    "--import-mode=importlib",
 ]
 
 # ============================================
