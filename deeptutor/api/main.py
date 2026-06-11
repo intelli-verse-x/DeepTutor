@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 import logging
 import os
+import re
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,14 +45,45 @@ CONFIG_DRIFT_ERROR_TEMPLATE = (
 class SafeOutputStaticFiles(StaticFiles):
     """Static file mount that only exposes explicitly whitelisted artifacts."""
 
-    def __init__(self, *args, path_service, **kwargs):
+    def __init__(
+        self,
+        *args,
+        path_service,
+        cors_origins=None,
+        cors_origin_regex=None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self._path_service = path_service
+        self._cors_origins = set(cors_origins or [])
+        self._cors_origin_regex = (
+            re.compile(cors_origin_regex) if cors_origin_regex else None
+        )
+
+    def _origin_allowed(self, origin: str) -> bool:
+        if origin in self._cors_origins:
+            return True
+        if self._cors_origin_regex and self._cors_origin_regex.fullmatch(origin):
+            return True
+        return False
+
+    def _apply_cors(self, response, origin: str | None):
+        if origin and self._origin_allowed(origin):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Vary"] = "Origin"
+        return response
 
     async def get_response(self, path: str, scope):
         if not self._path_service.is_public_output_path(path):
             raise HTTPException(status_code=404, detail="Output not found")
-        return await super().get_response(path, scope)
+        response = await super().get_response(path, scope)
+        origin = None
+        for name, value in scope.get("headers", []):
+            if name == b"origin":
+                origin = value.decode("latin-1")
+                break
+        return self._apply_cors(response, origin)
 
 
 def validate_tool_consistency():
@@ -298,7 +330,12 @@ except Exception:
 
 app.mount(
     "/api/outputs",
-    SafeOutputStaticFiles(directory=str(user_dir), path_service=path_service),
+    SafeOutputStaticFiles(
+        directory=str(user_dir),
+        path_service=path_service,
+        cors_origins=_cors_settings["allow_origins"],
+        cors_origin_regex=_cors_settings["allow_origin_regex"],
+    ),
     name="outputs",
 )
 
