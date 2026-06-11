@@ -395,14 +395,24 @@ except Exception:
     if not user_dir.exists():
         user_dir.mkdir(parents=True)
 
+_outputs_static = SafeOutputStaticFiles(
+    directory=str(user_dir),
+    path_service=path_service,
+    cors_origins=_cors_settings["allow_origins"],
+    cors_origin_regex=_cors_settings["allow_origin_regex"],
+)
+# Mount at the bare path (direct/local access) and under the ``/api/v1`` prefix.
+# Production reverse proxies forward only ``/api/v1/*`` to this backend, so the
+# v1 mount is what makes artifact downloads (e.g. Manim videos) reachable for
+# browsers hitting the public host; the bare mount stays for local/Docker use.
+app.mount(
+    "/api/v1/outputs",
+    _outputs_static,
+    name="outputs_v1",
+)
 app.mount(
     "/api/outputs",
-    SafeOutputStaticFiles(
-        directory=str(user_dir),
-        path_service=path_service,
-        cors_origins=_cors_settings["allow_origins"],
-        cors_origin_regex=_cors_settings["allow_origin_regex"],
-    ),
+    _outputs_static,
     name="outputs",
 )
 
