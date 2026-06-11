@@ -209,16 +209,18 @@ export default function PartnerChannels({
               const cfg = channels[name] as Record<string, unknown> | undefined;
               const enabled = cfg?.enabled === true;
               const isActive = activeChannel === name;
+              const unavailable = entry.available === false;
               return (
                 <li key={name}>
                   <button
                     type="button"
                     onClick={() => setActiveChannel(name)}
+                    title={unavailable ? entry.unavailable_reason : undefined}
                     className={`group flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors ${
                       isActive
                         ? "bg-[var(--muted)] font-medium text-[var(--foreground)]"
                         : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-                    }`}
+                    } ${unavailable ? "opacity-45" : ""}`}
                   >
                     <ChannelIcon name={name} size={15} />
                     <span className="min-w-0 flex-1 truncate">
@@ -254,28 +256,43 @@ export default function PartnerChannels({
                   {activeEntry.name}
                 </code>
               </div>
-              {(activeEntry.json_schema as JsonSchema).description && (
-                <p className="text-[11px] text-[var(--muted-foreground)]">
-                  {(activeEntry.json_schema as JsonSchema).description}
-                </p>
+              {activeEntry.available === false || !activeEntry.json_schema ? (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-700 dark:text-amber-300">
+                  <strong className="font-medium">
+                    {t("This channel is not available on the server.")}
+                  </strong>{" "}
+                  {activeEntry.unavailable_reason && (
+                    <span className="font-mono">
+                      {activeEntry.unavailable_reason}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {(activeEntry.json_schema as JsonSchema).description && (
+                    <p className="text-[11px] text-[var(--muted-foreground)]">
+                      {(activeEntry.json_schema as JsonSchema).description}
+                    </p>
+                  )}
+                  {Object.entries(
+                    (activeEntry.json_schema as JsonSchema).properties ?? {},
+                  ).map(([k, child]) => (
+                    <SchemaField
+                      key={k}
+                      fieldKey={k}
+                      schema={child}
+                      value={activeValue[k] ?? defaultFor(child)}
+                      onChange={(next) =>
+                        setActiveChannelConfig({ ...activeValue, [k]: next })
+                      }
+                      secretFields={activeSecretSet}
+                      path={k}
+                      showSecretFor={revealed}
+                      toggleSecret={toggleSecret}
+                    />
+                  ))}
+                </>
               )}
-              {Object.entries(
-                (activeEntry.json_schema as JsonSchema).properties ?? {},
-              ).map(([k, child]) => (
-                <SchemaField
-                  key={k}
-                  fieldKey={k}
-                  schema={child}
-                  value={activeValue[k] ?? defaultFor(child)}
-                  onChange={(next) =>
-                    setActiveChannelConfig({ ...activeValue, [k]: next })
-                  }
-                  secretFields={activeSecretSet}
-                  path={k}
-                  showSecretFor={revealed}
-                  toggleSecret={toggleSecret}
-                />
-              ))}
             </>
           )}
         </section>

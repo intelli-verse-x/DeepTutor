@@ -2362,5 +2362,7 @@
   "Upload photo or SVG": "Upload photo or SVG",
   "Use a PNG, JPG, WebP, GIF, or SVG image.": "Use a PNG, JPG, WebP, GIF, or SVG image.",
   "That file is too large.": "That file is too large.",
-  "Could not read that image.": "Could not read that image."
+  "Could not read that image.": "Could not read that image.",
+  "Please use the attached file(s).": "Please use the attached file(s).",
+  "This channel is not available on the server.": "This channel is not available on the server."
 }

@@ -1,8 +1,10 @@
 """Discord channel implementation using Discord Gateway websocket."""
 
 import asyncio
+from dataclasses import dataclass
 import json
 from pathlib import Path
+import time
 from typing import Any, Literal
 
 import httpx
@@ -14,15 +16,26 @@ from deeptutor.partners.bus.events import OutboundMessage
 from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.channels.base import BaseChannel
 from deeptutor.partners.config.paths import get_media_dir
-from deeptutor.partners.config.schema import Base, DeliveryOverrides
+from deeptutor.partners.config.schema import Base, DeliveryOverrides, StreamingSupport
 from deeptutor.partners.helpers import split_message
 
 DISCORD_API_BASE = "https://discord.com/api/v10"
 MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024  # 20MB
 MAX_MESSAGE_LEN = 2000  # Discord message character limit
+_STREAM_EDIT_INTERVAL = 0.8  # min seconds between message edits
 
 
-class DiscordConfig(DeliveryOverrides):
+@dataclass
+class _StreamBuf:
+    """Per-chat streaming accumulator for progressive message editing."""
+
+    text: str = ""
+    message_id: str | None = None
+    last_edit: float = 0.0
+    stream_id: str | None = None
+
+
+class DiscordConfig(DeliveryOverrides, StreamingSupport):
     """Discord channel configuration."""
 
     enabled: bool = False
@@ -53,6 +66,7 @@ class DiscordChannel(BaseChannel):
         self._heartbeat_task: asyncio.Task | None = None
         self._typing_tasks: dict[str, asyncio.Task] = {}
         self._http: httpx.AsyncClient | None = None
+        self._stream_bufs: dict[str, _StreamBuf] = {}  # chat_id -> streaming state
         self._bot_user_id: str | None = None
 
     async def start(self) -> None:
@@ -133,9 +147,103 @@ class DiscordChannel(BaseChannel):
                     payload["allowed_mentions"] = {"replied_user": False}
 
                 if not await self._send_payload(url, headers, payload):
-                    break  # Abort remaining chunks on failure
+                    # Raise so the channel manager's retry policy applies.
+                    raise RuntimeError(f"Discord send failed for chat {msg.chat_id}")
         finally:
             await self._stop_typing(msg.chat_id)
+
+    def _api_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bot {self.config.token}"}
+
+    async def _api_request(self, method: str, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """One Discord REST call with rate-limit retry; raises on failure."""
+        assert self._http is not None
+        for _attempt in range(3):
+            response = await self._http.request(
+                method, url, headers=self._api_headers(), json=payload
+            )
+            if response.status_code == 429:
+                data = response.json()
+                retry_after = float(data.get("retry_after", 1.0))
+                logger.warning("Discord rate limited, retrying in {}s", retry_after)
+                await asyncio.sleep(retry_after)
+                continue
+            response.raise_for_status()
+            return response.json()
+        raise RuntimeError("Discord API rate limit retries exhausted")
+
+    async def send_delta(
+        self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
+    ) -> None:
+        """Progressive Discord delivery: send once, then edit until the stream ends."""
+        if not self._http:
+            logger.warning("Discord HTTP client not initialized; dropping stream delta")
+            return
+
+        meta = metadata or {}
+        stream_id = meta.get("_stream_id")
+        create_url = f"{DISCORD_API_BASE}/channels/{chat_id}/messages"
+
+        if meta.get("_stream_end"):
+            buf = self._stream_bufs.get(chat_id)
+            if not buf or buf.message_id is None or not buf.text:
+                return
+            if stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id:
+                return
+            await self._stop_typing(chat_id)
+            # Final render: edit in the full text, splitting overflow into
+            # follow-up messages (Discord caps content at 2000 chars).
+            chunks = split_message(buf.text, MAX_MESSAGE_LEN)
+            edit_url = f"{create_url}/{buf.message_id}"
+            await self._api_request("PATCH", edit_url, {"content": chunks[0]})
+            for chunk in chunks[1:]:
+                await self._api_request("POST", create_url, {"content": chunk})
+            self._stream_bufs.pop(chat_id, None)
+            return
+
+        buf = self._stream_bufs.get(chat_id)
+        if buf is None or (
+            stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id
+        ):
+            buf = _StreamBuf(stream_id=stream_id)
+            self._stream_bufs[chat_id] = buf
+        elif buf.stream_id is None:
+            buf.stream_id = stream_id
+        buf.text += delta
+
+        if not buf.text.strip():
+            return
+
+        now = time.monotonic()
+        if buf.message_id is None:
+            data = await self._api_request(
+                "POST", create_url, {"content": buf.text[:MAX_MESSAGE_LEN]}
+            )
+            buf.message_id = str(data.get("id") or "") or None
+            buf.last_edit = now
+            return
+
+        if (now - buf.last_edit) < _STREAM_EDIT_INTERVAL:
+            return
+
+        if len(buf.text) > MAX_MESSAGE_LEN:
+            # Overflow mid-stream: freeze the first chunk in the current
+            # message, post intermediates, and continue streaming the tail
+            # in a fresh message.
+            chunks = split_message(buf.text, MAX_MESSAGE_LEN)
+            edit_url = f"{create_url}/{buf.message_id}"
+            await self._api_request("PATCH", edit_url, {"content": chunks[0]})
+            for chunk in chunks[1:-1]:
+                await self._api_request("POST", create_url, {"content": chunk})
+            data = await self._api_request("POST", create_url, {"content": chunks[-1]})
+            buf.message_id = str(data.get("id") or "") or None
+            buf.text = chunks[-1]
+            buf.last_edit = now
+            return
+
+        edit_url = f"{create_url}/{buf.message_id}"
+        await self._api_request("PATCH", edit_url, {"content": buf.text})
+        buf.last_edit = now
 
     async def _send_payload(
         self, url: str, headers: dict[str, str], payload: dict[str, Any]

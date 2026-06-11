@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import re
 import time
 from typing import Any, Literal
@@ -11,6 +12,7 @@ import unicodedata
 from loguru import logger
 from pydantic import Field
 from telegram import BotCommand, ReplyParameters, Update
+from telegram.error import BadRequest, TimedOut
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
@@ -23,9 +25,41 @@ from deeptutor.partners.helpers import split_message
 from deeptutor.services.partners.commands import build_partner_help_text, partner_command_palette
 
 TELEGRAM_MAX_MESSAGE_LEN = 4000  # Telegram message character limit
+TELEGRAM_HTML_MAX_LEN = 4096  # Hard API limit for rendered HTML payloads
 TELEGRAM_REPLY_CONTEXT_MAX_LEN = (
     TELEGRAM_MAX_MESSAGE_LEN  # Max length for reply context in user message
 )
+
+_SEND_MAX_RETRIES = 3
+_SEND_RETRY_BASE_DELAY = 0.5  # seconds, doubled each retry
+_STREAM_EDIT_INTERVAL_DEFAULT = 0.6  # min seconds between edit_message_text calls
+
+
+@dataclass
+class _StreamBuf:
+    """Per-chat streaming accumulator for progressive message editing."""
+
+    text: str = ""
+    message_id: int | None = None
+    last_edit: float = 0.0
+    stream_id: str | None = None
+
+
+def _strip_md_block(text: str) -> str:
+    """Strip block-level and inline markdown for readable plain-text preview.
+
+    Used during streaming mid-edits so users see clean text instead of raw
+    markdown syntax while the response is still being generated.
+    """
+    text = re.sub(r"```[\w]*\n?([\s\S]*?)```", r"\1", text)
+    text = re.sub(r"^#{1,6}\s+(.+)$", r"\1", text, flags=re.MULTILINE)
+    text = re.sub(r"^>\s*(.*)$", r"\1", text, flags=re.MULTILINE)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])", r"\1", text)
+    text = re.sub(r"~~(.+?)~~", r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    return text
 
 
 def _strip_md(s: str) -> str:
@@ -168,6 +202,8 @@ class TelegramConfig(DeliveryOverrides, StreamingSupport):
     # getUpdates never starves sends.
     connection_pool_size: int = 16
     pool_timeout: float = 15.0
+    # Min seconds between in-place stream edits (Telegram flood control).
+    stream_edit_interval: float = Field(default=_STREAM_EDIT_INTERVAL_DEFAULT, ge=0.1)
 
 
 class TelegramChannel(BaseChannel):
@@ -205,6 +241,7 @@ class TelegramChannel(BaseChannel):
         self._media_group_buffers: dict[str, dict] = {}
         self._media_group_tasks: dict[str, asyncio.Task] = {}
         self._message_threads: dict[tuple[str, int], int] = {}
+        self._stream_bufs: dict[str, _StreamBuf] = {}  # chat_id -> streaming state
         self._bot_user_id: int | None = None
         self._bot_username: str | None = None
 
@@ -471,6 +508,198 @@ class TelegramChannel(BaseChannel):
         except Exception:
             pass
         await self._send_text(chat_id, text, reply_params, thread_kwargs)
+
+    async def _call_with_retry(self, fn, *args, **kwargs):
+        """Call an async Telegram API function with retry on timeout and RetryAfter.
+
+        This inner retry handles Telegram-specific transient errors (flood
+        control gives an explicit wait time); persistent failures still raise
+        so the channel manager's outer policy applies.
+        """
+        from telegram.error import RetryAfter
+
+        for attempt in range(1, _SEND_MAX_RETRIES + 1):
+            try:
+                return await fn(*args, **kwargs)
+            except TimedOut:
+                if attempt == _SEND_MAX_RETRIES:
+                    raise
+                delay = _SEND_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.warning(
+                    "Telegram timeout (attempt {}/{}), retrying in {:.1f}s",
+                    attempt,
+                    _SEND_MAX_RETRIES,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+            except RetryAfter as e:
+                if attempt == _SEND_MAX_RETRIES:
+                    raise
+                delay = float(e.retry_after)
+                logger.warning(
+                    "Telegram flood control (attempt {}/{}), retrying in {:.1f}s",
+                    attempt,
+                    _SEND_MAX_RETRIES,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+
+    @staticmethod
+    def _is_not_modified_error(exc: Exception) -> bool:
+        return isinstance(exc, BadRequest) and "message is not modified" in str(exc).lower()
+
+    async def send_delta(
+        self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
+    ) -> None:
+        """Progressive message editing: send on first delta, edit on subsequent ones."""
+        if not self._app:
+            return
+        meta = metadata or {}
+        int_chat_id = int(chat_id)
+        stream_id = meta.get("_stream_id")
+
+        if meta.get("_stream_end"):
+            buf = self._stream_bufs.get(chat_id)
+            if not buf or not buf.message_id or not buf.text:
+                return
+            if stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id:
+                return
+            self._stop_typing(chat_id)
+            raw_text = buf.text
+            html = _markdown_to_telegram_html(raw_text)
+            if len(html) <= TELEGRAM_HTML_MAX_LEN:
+                primary_html = html
+                extra_html_chunks = []
+            else:
+                html_chunks = split_message(html, TELEGRAM_HTML_MAX_LEN)
+                primary_html = html_chunks[0]
+                extra_html_chunks = html_chunks[1:]
+            try:
+                await self._call_with_retry(
+                    self._app.bot.edit_message_text,
+                    chat_id=int_chat_id,
+                    message_id=buf.message_id,
+                    text=primary_html,
+                    parse_mode="HTML",
+                )
+            except BadRequest as e:
+                if self._is_not_modified_error(e):
+                    self._stream_bufs.pop(chat_id, None)
+                    return
+                # Only fall back to plain text on actual HTML parse errors;
+                # network errors propagate so the manager can retry without
+                # doubling connection demand during pool exhaustion.
+                logger.debug("Final stream edit failed (HTML), trying plain: {}", e)
+                primary_plain = (
+                    split_message(raw_text, TELEGRAM_MAX_MESSAGE_LEN)[0]
+                    if len(raw_text) > TELEGRAM_MAX_MESSAGE_LEN
+                    else raw_text
+                )
+                try:
+                    await self._call_with_retry(
+                        self._app.bot.edit_message_text,
+                        chat_id=int_chat_id,
+                        message_id=buf.message_id,
+                        text=primary_plain,
+                    )
+                except Exception as e2:
+                    if self._is_not_modified_error(e2):
+                        logger.debug("Final stream plain edit already applied for {}", chat_id)
+                    else:
+                        logger.warning("Final stream edit failed: {}", e2)
+                        raise  # Let ChannelManager handle retry
+            for extra_html_chunk in extra_html_chunks:
+                try:
+                    await self._call_with_retry(
+                        self._app.bot.send_message,
+                        chat_id=int_chat_id,
+                        text=extra_html_chunk,
+                        parse_mode="HTML",
+                    )
+                except Exception:
+                    await self._send_text(int_chat_id, extra_html_chunk)
+            self._stream_bufs.pop(chat_id, None)
+            return
+
+        buf = self._stream_bufs.get(chat_id)
+        if buf is None or (
+            stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id
+        ):
+            buf = _StreamBuf(stream_id=stream_id)
+            self._stream_bufs[chat_id] = buf
+        elif buf.stream_id is None:
+            buf.stream_id = stream_id
+        buf.text += delta
+
+        if not buf.text.strip():
+            return
+
+        now = time.monotonic()
+        if buf.message_id is None:
+            preview = _strip_md_block(buf.text)
+            sent = await self._call_with_retry(
+                self._app.bot.send_message,
+                chat_id=int_chat_id,
+                text=preview,
+            )
+            buf.message_id = sent.message_id
+            buf.last_edit = now
+        elif (now - buf.last_edit) >= self.config.stream_edit_interval:
+            if len(buf.text) > TELEGRAM_MAX_MESSAGE_LEN:
+                await self._flush_stream_overflow(int_chat_id, buf)
+                buf.last_edit = now
+                return
+            preview = _strip_md_block(buf.text)
+            try:
+                await self._call_with_retry(
+                    self._app.bot.edit_message_text,
+                    chat_id=int_chat_id,
+                    message_id=buf.message_id,
+                    text=preview,
+                )
+                buf.last_edit = now
+            except Exception as e:
+                if self._is_not_modified_error(e):
+                    buf.last_edit = now
+                    return
+                logger.warning("Stream edit failed: {}", e)
+                raise  # Let ChannelManager handle retry
+
+    async def _flush_stream_overflow(self, chat_id: int, buf: _StreamBuf) -> None:
+        """Split an oversized stream buffer mid-flight.
+
+        Edits the current stream message with the first chunk, sends any
+        intermediate chunks as standalone messages, then opens a new message
+        for the tail so subsequent deltas continue streaming into it.
+        """
+        chunks = split_message(buf.text, TELEGRAM_MAX_MESSAGE_LEN)
+        if len(chunks) <= 1:
+            return
+        try:
+            await self._call_with_retry(
+                self._app.bot.edit_message_text,
+                chat_id=chat_id,
+                message_id=buf.message_id,
+                text=chunks[0],
+            )
+        except Exception as e:
+            if not self._is_not_modified_error(e):
+                logger.warning("Stream overflow edit failed: {}", e)
+                raise
+        for chunk in chunks[1:-1]:
+            await self._call_with_retry(
+                self._app.bot.send_message,
+                chat_id=chat_id,
+                text=chunk,
+            )
+        tail = chunks[-1]
+        sent = await self._call_with_retry(
+            self._app.bot.send_message,
+            chat_id=chat_id,
+            text=tail,
+        )
+        buf.message_id = sent.message_id
+        buf.text = tail
 
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""

@@ -56,11 +56,25 @@ def discover_all() -> dict[str, type[BaseChannel]]:
 
     Built-in channels take priority — an external plugin cannot shadow a built-in name.
     """
+    channels, _errors = discover_all_with_errors()
+    return channels
+
+
+def discover_all_with_errors() -> tuple[dict[str, type[BaseChannel]], dict[str, str]]:
+    """Like :func:`discover_all`, but also report channels that failed to load.
+
+    Returns ``(channels, errors)`` where ``errors`` maps each unloadable
+    built-in channel name to its import error message (typically a missing
+    optional dependency). Surfacing these keeps "why is X missing from the
+    UI?" diagnosable instead of silently dropping the channel.
+    """
     builtin: dict[str, type[BaseChannel]] = {}
+    errors: dict[str, str] = {}
     for modname in discover_channel_names():
         try:
             builtin[modname] = load_channel_class(modname)
         except ImportError as e:
+            errors[modname] = str(e)
             logger.debug("Skipping built-in channel '{}': {}", modname, e)
 
     external = discover_plugins()
@@ -68,4 +82,4 @@ def discover_all() -> dict[str, type[BaseChannel]]:
     if shadowed:
         logger.warning("Plugin(s) shadowed by built-in channels (ignored): {}", shadowed)
 
-    return {**external, **builtin}
+    return {**external, **builtin}, errors

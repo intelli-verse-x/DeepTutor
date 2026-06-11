@@ -2,12 +2,15 @@
 
 import asyncio
 from collections import OrderedDict
+from dataclasses import dataclass
 import importlib.util
 import json
 import os
 import re
 import threading
+import time
 from typing import Any, Literal
+import uuid
 
 from loguru import logger
 from pydantic import Field
@@ -16,7 +19,7 @@ from deeptutor.partners.bus.events import OutboundMessage
 from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.channels.base import BaseChannel
 from deeptutor.partners.config.paths import get_media_dir
-from deeptutor.partners.config.schema import Base, DeliveryOverrides
+from deeptutor.partners.config.schema import Base, DeliveryOverrides, StreamingSupport
 
 FEISHU_AVAILABLE = importlib.util.find_spec("lark_oapi") is not None
 
@@ -232,7 +235,7 @@ def _extract_post_text(content_json: dict) -> str:
     return text
 
 
-class FeishuConfig(DeliveryOverrides):
+class FeishuConfig(DeliveryOverrides, StreamingSupport):
     """Feishu/Lark channel configuration using WebSocket long connection."""
 
     enabled: bool = False
@@ -243,6 +246,20 @@ class FeishuConfig(DeliveryOverrides):
     allow_from: list[str] = Field(default_factory=list)
     react_emoji: str = "THUMBSUP"
     group_policy: Literal["open", "mention"] = "mention"
+
+
+_STREAM_ELEMENT_ID = "streaming_md"
+
+
+@dataclass
+class _FeishuStreamBuf:
+    """Per-chat streaming accumulator using CardKit streaming API."""
+
+    text: str = ""
+    card_id: str | None = None
+    sequence: int = 0
+    last_edit: float = 0.0
+    stream_id: str | None = None
 
 
 class FeishuChannel(BaseChannel):
@@ -260,6 +277,8 @@ class FeishuChannel(BaseChannel):
     name = "feishu"
     display_name = "Feishu"
 
+    _STREAM_EDIT_INTERVAL = 0.5  # throttle between CardKit streaming updates
+
     @classmethod
     def default_config(cls) -> dict[str, Any]:
         return FeishuConfig().model_dump(by_alias=True)
@@ -273,7 +292,14 @@ class FeishuChannel(BaseChannel):
         self._ws_client: Any = None
         self._ws_thread: threading.Thread | None = None
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()  # Ordered dedup cache
+        self._stream_bufs: dict[str, _FeishuStreamBuf] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
+
+    @staticmethod
+    def _stream_key(chat_id: str, metadata: dict[str, Any] | None = None) -> str:
+        """Scope streaming buffers to the stream segment when available."""
+        meta = metadata or {}
+        return str(meta.get("_stream_id") or chat_id)
 
     @staticmethod
     def _register_optional_event(builder: Any, method_name: str, handler: Any) -> Any:
@@ -894,6 +920,207 @@ class FeishuChannel(BaseChannel):
         except Exception as e:
             logger.error("Error sending Feishu {} message: {}", msg_type, e)
             return False
+
+    # ── CardKit streaming (send_delta) ───────────────────────────────
+
+    def _create_streaming_card_sync(self, receive_id_type: str, chat_id: str) -> str | None:
+        """Create a CardKit streaming card, send it to chat, return card_id."""
+        from lark_oapi.api.cardkit.v1 import CreateCardRequest, CreateCardRequestBody
+
+        card_json = {
+            "schema": "2.0",
+            "config": {"wide_screen_mode": True, "update_multi": True, "streaming_mode": True},
+            "body": {
+                "elements": [{"tag": "markdown", "content": "", "element_id": _STREAM_ELEMENT_ID}]
+            },
+        }
+        try:
+            request = (
+                CreateCardRequest.builder()
+                .request_body(
+                    CreateCardRequestBody.builder()
+                    .type("card_json")
+                    .data(json.dumps(card_json, ensure_ascii=False))
+                    .build()
+                )
+                .build()
+            )
+            response = self._client.cardkit.v1.card.create(request)
+            if not response.success():
+                logger.warning(
+                    "Failed to create Feishu streaming card: code={}, msg={}",
+                    response.code,
+                    response.msg,
+                )
+                return None
+            card_id = getattr(response.data, "card_id", None)
+            if card_id:
+                card_content = json.dumps(
+                    {"type": "card", "data": {"card_id": card_id}}, ensure_ascii=False
+                )
+                if self._send_message_sync(receive_id_type, chat_id, "interactive", card_content):
+                    return card_id
+                logger.warning(
+                    "Created Feishu streaming card {} but failed to send it to {}",
+                    card_id,
+                    chat_id,
+                )
+            return None
+        except Exception as e:
+            logger.warning("Error creating Feishu streaming card: {}", e)
+            return None
+
+    def _stream_update_text_sync(self, card_id: str, content: str, sequence: int) -> bool:
+        """Stream-update the markdown element on a CardKit card (typewriter effect)."""
+        from lark_oapi.api.cardkit.v1 import (
+            ContentCardElementRequest,
+            ContentCardElementRequestBody,
+        )
+
+        try:
+            request = (
+                ContentCardElementRequest.builder()
+                .card_id(card_id)
+                .element_id(_STREAM_ELEMENT_ID)
+                .request_body(
+                    ContentCardElementRequestBody.builder()
+                    .content(content)
+                    .sequence(sequence)
+                    .build()
+                )
+                .build()
+            )
+            response = self._client.cardkit.v1.card_element.content(request)
+            if not response.success():
+                logger.warning(
+                    "Failed to stream-update Feishu card {}: code={}, msg={}",
+                    card_id,
+                    response.code,
+                    response.msg,
+                )
+                return False
+            return True
+        except Exception as e:
+            logger.warning("Error stream-updating Feishu card {}: {}", card_id, e)
+            return False
+
+    def _close_streaming_mode_sync(self, card_id: str, sequence: int) -> bool:
+        """Turn off CardKit streaming_mode after the final content update.
+
+        Per Feishu docs, streaming cards keep a generating-style summary in
+        the session list until streaming_mode is set to false via card
+        settings. Sequence must strictly exceed the previous card operation.
+        """
+        from lark_oapi.api.cardkit.v1 import SettingsCardRequest, SettingsCardRequestBody
+
+        settings_payload = json.dumps({"config": {"streaming_mode": False}}, ensure_ascii=False)
+        try:
+            request = (
+                SettingsCardRequest.builder()
+                .card_id(card_id)
+                .request_body(
+                    SettingsCardRequestBody.builder()
+                    .settings(settings_payload)
+                    .sequence(sequence)
+                    .uuid(str(uuid.uuid4()))
+                    .build()
+                )
+                .build()
+            )
+            response = self._client.cardkit.v1.card.settings(request)
+            if not response.success():
+                logger.warning(
+                    "Failed to close streaming on Feishu card {}: code={}, msg={}",
+                    card_id,
+                    response.code,
+                    response.msg,
+                )
+                return False
+            return True
+        except Exception as e:
+            logger.warning("Error closing streaming on Feishu card {}: {}", card_id, e)
+            return False
+
+    async def send_delta(
+        self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
+    ) -> None:
+        """Progressive streaming via CardKit: create card on first delta, stream-update after.
+
+        Buffers are keyed by ``_stream_id`` so each loop round gets its own
+        card (narration rounds freeze in place; the finish round becomes the
+        reply). On ``_stream_end`` the final text lands via a last stream
+        update, then streaming_mode closes; if that fails (e.g. Feishu timed
+        the card out) the text falls back to a regular interactive card.
+        """
+        if not self._client:
+            return
+        meta = metadata or {}
+        stream_key = self._stream_key(chat_id, meta)
+        loop = asyncio.get_running_loop()
+        rid_type = "chat_id" if chat_id.startswith("oc_") else "open_id"
+
+        if meta.get("_stream_end"):
+            buf = self._stream_bufs.pop(stream_key, None)
+            if not buf or not buf.text:
+                return
+            if buf.card_id:
+                buf.sequence += 1
+                ok = await loop.run_in_executor(
+                    None,
+                    self._stream_update_text_sync,
+                    buf.card_id,
+                    buf.text,
+                    buf.sequence,
+                )
+                if ok:
+                    buf.sequence += 1
+                    await loop.run_in_executor(
+                        None,
+                        self._close_streaming_mode_sync,
+                        buf.card_id,
+                        buf.sequence,
+                    )
+                    return
+                logger.warning(
+                    "Feishu streaming card {} final update failed, falling back to regular card",
+                    buf.card_id,
+                )
+            for chunk in self._split_elements_by_table_limit(self._build_card_elements(buf.text)):
+                card = json.dumps(
+                    {"config": {"wide_screen_mode": True}, "elements": chunk},
+                    ensure_ascii=False,
+                )
+                await loop.run_in_executor(
+                    None, self._send_message_sync, rid_type, chat_id, "interactive", card
+                )
+            return
+
+        buf = self._stream_bufs.get(stream_key)
+        if buf is None:
+            buf = _FeishuStreamBuf(stream_id=meta.get("_stream_id"))
+            self._stream_bufs[stream_key] = buf
+        buf.text += delta
+        if not buf.text.strip():
+            return
+
+        now = time.monotonic()
+        if buf.card_id is None:
+            card_id = await loop.run_in_executor(
+                None, self._create_streaming_card_sync, rid_type, chat_id
+            )
+            if card_id:
+                buf.card_id = card_id
+                buf.sequence = 1
+                await loop.run_in_executor(
+                    None, self._stream_update_text_sync, card_id, buf.text, 1
+                )
+                buf.last_edit = now
+        elif (now - buf.last_edit) >= self._STREAM_EDIT_INTERVAL:
+            buf.sequence += 1
+            await loop.run_in_executor(
+                None, self._stream_update_text_sync, buf.card_id, buf.text, buf.sequence
+            )
+            buf.last_edit = now
 
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Feishu, including media (images/files) if present."""

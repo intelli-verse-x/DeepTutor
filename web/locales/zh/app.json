@@ -2362,5 +2362,7 @@
   "Upload photo or SVG": "上传图片 / SVG",
   "Use a PNG, JPG, WebP, GIF, or SVG image.": "请使用 PNG、JPG、WebP、GIF 或 SVG 图片。",
   "That file is too large.": "文件太大了。",
-  "Could not read that image.": "无法读取该图片。"
+  "Could not read that image.": "无法读取该图片。",
+  "Please use the attached file(s).": "请结合附件文件回答。",
+  "This channel is not available on the server.": "该频道在此服务器上不可用。"
 }

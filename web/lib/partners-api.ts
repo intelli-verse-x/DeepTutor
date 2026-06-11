@@ -275,7 +275,11 @@ export interface ChannelSchemaEntry {
   display_name: string;
   default_config: Record<string, unknown>;
   secret_fields: string[];
-  json_schema: Record<string, unknown>;
+  // null when the channel module failed to import (missing optional
+  // dependency); `unavailable_reason` then carries the import error.
+  json_schema: Record<string, unknown> | null;
+  available?: boolean;
+  unavailable_reason?: string;
 }
 
 export interface ChannelsSchemaResponse {
@@ -290,7 +294,13 @@ export async function getPartnerHistory(
   partnerId: string,
   options?: { sessionKey?: string; limit?: number },
 ): Promise<
-  { role: string; content: string; timestamp?: string; channel?: string }[]
+  {
+    role: string;
+    content: string;
+    timestamp?: string;
+    channel?: string;
+    attachments?: Record<string, unknown>[];
+  }[]
 > {
   const params = new URLSearchParams();
   if (options?.sessionKey) params.set("session_key", options.sessionKey);

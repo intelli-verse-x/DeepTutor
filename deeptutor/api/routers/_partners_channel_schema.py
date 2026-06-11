@@ -147,12 +147,30 @@ def channel_schema_payload(channel_cls: type) -> dict[str, Any] | None:
 
 
 def all_channel_schemas() -> dict[str, dict[str, Any]]:
-    """Build the schema dict for every discovered channel (built-in + plugins)."""
-    from deeptutor.partners.channels.registry import discover_all
+    """Build the schema dict for every discovered channel (built-in + plugins).
+
+    Channels whose module failed to import (missing optional dependency)
+    still appear, marked ``available: False`` with the import error — the UI
+    shows them grayed out instead of silently dropping them.
+    """
+    from deeptutor.partners.channels.registry import discover_all_with_errors
+
+    channels, errors = discover_all_with_errors()
 
     out: dict[str, dict[str, Any]] = {}
-    for name, cls in discover_all().items():
+    for name, cls in channels.items():
         payload = channel_schema_payload(cls)
         if payload is not None:
+            payload["available"] = True
             out[name] = payload
+    for name, reason in errors.items():
+        out[name] = {
+            "name": name,
+            "display_name": name.title(),
+            "available": False,
+            "unavailable_reason": reason,
+            "default_config": {"enabled": False},
+            "secret_fields": [],
+            "json_schema": None,
+        }
     return out
