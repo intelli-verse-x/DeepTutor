@@ -214,6 +214,22 @@ deeptutor kb search physics "..." --mode hybrid --format json
 
 重新索引不是一个 CLI 命令 —— 要从 **Web UI**（Knowledge → 选 KB → **Index versions** 标签页 → **Re-index now**）触发。换了 embedding 模型后通常需要这一步。
 
+## `deeptutor skill` —— 技能库与 Hub
+
+```bash
+deeptutor skill list                              # 本地技能列表，含 hub 来源信息
+deeptutor skill search "git release notes"        # 在 hub 上语义搜索（默认 clawhub）
+deeptutor skill install clawhub:gh-release-notes  # 校验 → 下载 → 注册
+deeptutor skill install some-skill@1.2.0          # hub 前缀默认 clawhub；@ 钉住版本
+deeptutor skill remove gh-release-notes
+```
+
+Hub 引用格式为 `<hub>:<slug>[@version]`。所有安装都过同一道导入门：先查 hub 的安全裁定（被标记的包除非显式传 `--allow-unverified` 否则拒装）、压缩包带 zip-slip / zip-bomb 防护解压、支持文件过文本/脚本后缀白名单（二进制永远进不了工作区）、frontmatter 里的 `always:` 会被剥掉 —— 下载来的包不可能把自己注入每条 system prompt。来源信息（hub、版本、裁定）记录在技能旁边的 `.hub-lock.json` 里。
+
+`install` 的 flag：`--name` 换个本地名字安装，`--force` 覆盖同名技能，`--allow-unverified` 无视可疑裁定继续装。
+
+ClawHub 之外的注册表在 `settings/skill_hubs.json` 里声明 —— `type: "clawhub"` 指向任意兼容的 HTTP API，`type: "command"` 包一个把包下载到 `{dest}` 的命令行工具。在多用户部署里，这套 CLI 操作的是管理员工作区：装好的技能在 grant 分配之前对其他用户不可见。
+
 ## `deeptutor session` —— session 查看
 
 ### `session list`

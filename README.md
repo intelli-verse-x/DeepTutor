@@ -44,16 +44,18 @@
 
 ### 📦 Releases
 
+> **[2026.6.13]** [v1.4.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.4) — The skill library opens up to the Agent-Skills ecosystem: install community skills from [ClawHub](https://clawhub.ai/) with `deeptutor skill install`, behind a security gate (verdict check, safe extraction, no prompt self-injection). Plus real in-browser DOCX/XLSX previews for knowledge-base files and re-synced localized READMEs.
+
 > **[2026.6.12]** [v1.4.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.3) — TutorBot becomes **Partners** on a production-grade IM pipeline with live streaming replies and 15 channels, Chat moves to a single agent loop, real per-user isolation for multi-user deployments, Visualize rebuilt with local validate+repair, plus upgrades across Co-writer, file viewer, MinerU cloud parsing, and the CLI. Docs fully refreshed at [deeptutor.info](https://deeptutor.info/).
 
 > **[2026.5.28]** [v1.4.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.2) — Stability + polish on v1.4.1: Gemini 2.5+ unblocked across Visualize and Chat, ContextVar auth-routing fix (#485), reasoning + native-tools label protocol hardened, smooth-streaming UX on every chat surface, new collapsible Recents sidebar, and Lemonade local-provider support.
 
 > **[2026.5.27]** [v1.4.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.1) — Security + stability patch: TutorBot tool sandbox locked down, per-user resource isolation, multimodal image fallback for vision-capable providers, an HTTP/SSE API for talking to a TutorBot, and a v1.4.0 chat regression fix.
 
-> **[2026.5.22]** [v1.4.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0) — GA cut of v1.4: Auto Mode, three-layer Memory, agentic Deep Research / Solve / Question, LlamaIndex RAG refactor, Visualize/Animator merge, plus reasoning-effort normalization, tool-schema fallback, and restart-safe turn runtime.
-
 <details>
 <summary><b>Past releases (more than 2 weeks ago)</b></summary>
+
+> **[2026.5.22]** [v1.4.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0) — GA cut of v1.4: Auto Mode, three-layer Memory, agentic Deep Research / Solve / Question, LlamaIndex RAG refactor, Visualize/Animator merge, plus reasoning-effort normalization, tool-schema fallback, and restart-safe turn runtime.
 
 > **[2026.5.21]** [v1.4.0-beta](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0-beta) — Three-layer Memory workbench (L1/L2/L3), every chat capability rebuilt on a single agentic engine, LlamaIndex-only RAG, and a unified Settings + Capabilities surface.
 
@@ -169,7 +171,7 @@ DeepTutor is organized around an agent-native runtime: a shared ChatOrchestrator
 
 DeepTutor ships four installation paths. They all share one workspace layout: settings live in `data/user/settings/` under the directory you launch from (or under `DEEPTUTOR_HOME` / `deeptutor start --home` if you set one explicitly). For the full app, the recommended flow is **pick a workspace directory → install → `deeptutor init` → `deeptutor start`**.
 
-> ✨ **v1.4.3 is live.** `pip install -U deeptutor` picks up the latest stable. Pre-releases (when available) opt in with `pip install --pre -U deeptutor`.
+> ✨ **v1.4.4 is live.** `pip install -U deeptutor` picks up the latest stable. Pre-releases (when available) opt in with `pip install --pre -U deeptutor`.
 
 ### Option 1 — Install From PyPI
 
@@ -526,13 +528,14 @@ deeptutor kb create calculus --doc textbook.pdf
 | `deeptutor chat` | Interactive REPL with capability, tool, KB, notebook, and history controls |
 | `deeptutor partner list/create/start/stop` | Manage IM-connected partners |
 | `deeptutor kb list/info/create/add/search/set-default/delete` | Manage LlamaIndex knowledge bases |
+| `deeptutor skill search/install/list/remove` | Manage skills and install from hubs (`clawhub:<slug>`, see Ecosystem) |
 | `deeptutor memory show/clear` | Inspect L2/L3 memory docs or clear L1/all memory |
 | `deeptutor session list/show/open/rename/delete` | Manage shared sessions |
 | `deeptutor notebook list/create/show/add-md/replace-md/remove-record` | Manage notebooks from Markdown files |
 | `deeptutor book list/health/refresh-fingerprints` | Inspect books and refresh source fingerprints |
 | `deeptutor plugin list/info` | Inspect registered tools and capabilities |
 | `deeptutor config show` | Print configuration summary |
-| `deeptutor provider login <provider>` | Manage provider OAuth login where supported |
+| `deeptutor provider login <provider>` | Provider auth (`openai-codex` OAuth login; `github-copilot` validates an existing Copilot auth session) |
 
 </details>
 
@@ -570,7 +573,33 @@ For a local trial, set `data/user/settings/auth.json` to enable auth, restart `d
 PocketBase mode remains a single-user integration in this tree; multi-user deployments should keep `integrations.pocketbase_url` blank and use the default JSON/SQLite auth and session stores unless an external user store has been explicitly designed for the deployment.
 
 ---
-## 🌐 Community & Ecosystem
+
+## 🧩 Ecosystem — Hub Skills, One Command Away
+
+DeepTutor skills speak the same language as the wider Agent-Skills ecosystem: a directory holding a `SKILL.md` playbook (YAML frontmatter + markdown) plus optional reference files. That makes external skill registries a native source for the skill library — [ClawHub](https://clawhub.ai/) is wired in out of the box:
+
+```bash
+deeptutor skill search "git release notes"        # semantic search on the hub
+deeptutor skill install clawhub:gh-release-notes  # one command: verify → fetch → register
+deeptutor skill install some-skill@1.2.0          # hub prefix defaults to clawhub; @ pins a version
+deeptutor skill list                              # local skills with hub provenance (clawhub@1.2.0)
+```
+
+Skills are addressed as `<hub>:<slug>[@version]`. Registries beyond ClawHub plug in through `settings/skill_hubs.json` — point `type: "clawhub"` at any compatible HTTP API, or use `type: "command"` to wrap whatever fetch CLI a registry ships (the command just drops the package into `{dest}`).
+
+Every import runs the same gate, whatever the source:
+
+- the hub's **security verdict** is checked first — flagged packages are refused unless `--allow-unverified` is passed explicitly;
+- archives are extracted defensively (zip-slip and zip-bomb guards) and support files pass a text/script **suffix whitelist**, so binaries never land in the workspace;
+- frontmatter is adapted to DeepTutor's schema — flat `bins:`/`env:` keys fold into `requires.*` availability gates, and `always:` is **stripped**, so a downloaded package can never inject itself into every system prompt;
+- provenance (hub, version, verdict, install time) is recorded in `.hub-lock.json` beside the skill for audits and updates.
+
+In multi-user deployments, installing is admin-only (`POST /api/v1/multi-user/admin/skills/install`). The skill lands in the admin catalog — invisible to other users until a grant assigns it — so an admin can vet a hub skill in their own chats before rolling it out.
+
+ClawHub also distributes *plugins* (OpenClaw gateway runtime extensions); those are out of scope by design — DeepTutor's equivalent extension point is an MCP server, configured in Settings.
+
+---
+## 🌐 Community
 
 DeepTutor stands on the shoulders of outstanding open-source projects:
 

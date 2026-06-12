@@ -75,6 +75,32 @@ BUILTIN_SKILLS_ROOT = Path(__file__).resolve().parents[2] / "skills" / "builtin"
 # context window. Mirrors the truncation posture of the other read tools.
 _MAX_READ_CHARS = 100_000
 
+# Provenance ledger for skills imported from an external hub (ClawHub, …).
+# Sits beside ``.tags.json`` so the UI/CLI can show "from clawhub@1.2.0" and
+# an update path knows where each imported skill came from.
+_HUB_LOCK_FILE = ".hub-lock.json"
+
+# Bounds for importing a skill package from an untrusted source. A skill is a
+# text playbook plus small supporting files — anything bigger is suspect, so
+# the import fails closed instead of filling the workspace.
+_IMPORT_MAX_FILE_BYTES = 1_000_000
+_IMPORT_MAX_TOTAL_BYTES = 20_000_000
+_IMPORT_MAX_FILES = 500
+
+# Supporting-file suffixes an imported skill may carry (whitelist, lowercase).
+# Text playbooks, references, and scripts only — never binaries or archives.
+# Suffix-less files (LICENSE, Makefile) are allowed; copies drop the exec bit.
+_IMPORT_ALLOWED_SUFFIXES = frozenset(
+    {
+        "",
+        ".md", ".markdown", ".txt", ".rst",
+        ".py", ".js", ".mjs", ".ts", ".sh", ".rb", ".lua", ".r",
+        ".json", ".jsonl", ".yaml", ".yml", ".toml", ".ini", ".cfg",
+        ".csv", ".tsv", ".html", ".htm", ".css", ".xml", ".sql",
+        ".jinja", ".j2", ".tmpl", ".template",
+    }
+)  # fmt: skip
+
 
 @dataclass(slots=True)
 class SkillInfo:
@@ -123,6 +149,19 @@ class SkillSummaryEntry:
     always: bool = False
 
 
+@dataclass(slots=True)
+class SkillInstallResult:
+    """Outcome of :meth:`SkillService.install_tree`.
+
+    ``skipped`` lists support files the import gate dropped, as
+    ``(relative-path, reason)`` pairs, so callers can surface what did not
+    make it into the workspace instead of failing the whole install.
+    """
+
+    info: SkillInfo
+    skipped: list[tuple[str, str]] = field(default_factory=list)
+
+
 class SkillNotFoundError(Exception):
     pass
 
@@ -141,6 +180,10 @@ class InvalidSkillNameError(Exception):
 
 class InvalidSkillPathError(Exception):
     """Raised when ``read_skill_file`` is asked for a path outside the skill dir."""
+
+
+class SkillImportError(Exception):
+    """Raised when an imported skill package fails a structural/safety gate."""
 
 
 class InvalidTagError(Exception):
@@ -577,6 +620,227 @@ class SkillService:
         slug = self._validate_name(name)
         self._assert_writable(slug)
         shutil.rmtree(self._skill_dir(slug))
+        self._drop_hub_origin(slug)
+
+    # ── imported skill packages (hub) ────────────────────────────────────
+
+    def install_tree(
+        self,
+        source_dir: str | Path,
+        *,
+        rename_to: str | None = None,
+        fallback_description: str | None = None,
+        origin: dict[str, Any] | None = None,
+        force: bool = False,
+    ) -> SkillInstallResult:
+        """Import an extracted skill package directory into the user layer.
+
+        Unlike :meth:`create` (single authored ``SKILL.md``), this takes a
+        whole package tree — ``SKILL.md`` plus support files — as produced by
+        an external hub download, and applies the import policy:
+
+        * frontmatter is adapted: ``name`` is forced to the slug, flat
+          ``bins:``/``env:`` keys (Agent-Skills style) fold into
+          ``requires.*``, and ``always:`` is **stripped** — an imported skill
+          must never eager-inject itself into the system prompt;
+        * support files pass a suffix whitelist plus size/count caps;
+          symlinks abort the import (see :meth:`_copy_support_tree`);
+        * the tree is staged and swapped in atomically, so a failed import
+          never leaves a half-written skill;
+        * ``origin`` (hub provenance) is recorded in ``.hub-lock.json``.
+        """
+        source = Path(source_dir).resolve()
+        skill_md = source / "SKILL.md"
+        if not skill_md.is_file():
+            raise SkillImportError("Package has no SKILL.md at its root.")
+        if skill_md.stat().st_size > _IMPORT_MAX_FILE_BYTES:
+            raise SkillImportError("SKILL.md exceeds the import size limit.")
+        text = skill_md.read_text(encoding="utf-8", errors="replace")
+        meta, body = self._parse_frontmatter(text)
+
+        slug = self._validate_name(self._slugify(str(rename_to or meta.get("name") or source.name)))
+        description = (
+            str(meta.get("description") or "").strip() or (fallback_description or "").strip()
+        )
+        if not description:
+            raise SkillImportError("SKILL.md has no description and no fallback was provided.")
+        tags = self._validate_tag_list(
+            meta.get("tags") if isinstance(meta.get("tags"), list) else None
+        )
+
+        target_dir = self._skill_dir(slug)
+        if target_dir.exists() and not force:
+            raise SkillExistsError(slug)
+
+        header = yaml.safe_dump(
+            self._compose_imported_frontmatter(meta, slug=slug, description=description, tags=tags),
+            sort_keys=False,
+            allow_unicode=True,
+        ).strip()
+        adapted = f"---\n{header}\n---\n\n{body.lstrip()}".rstrip() + "\n"
+
+        staging = self._root / f".install-{slug}.tmp"
+        if staging.exists():
+            shutil.rmtree(staging)
+        try:
+            staging.mkdir(parents=True)
+            skipped = self._copy_support_tree(source, staging)
+            (staging / "SKILL.md").write_text(adapted, encoding="utf-8")
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            staging.rename(target_dir)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+
+        self._merge_tags_into_vocab(tags)
+        if origin is not None:
+            self.record_hub_origin(slug, origin)
+        else:
+            self._drop_hub_origin(slug)
+        return SkillInstallResult(
+            info=SkillInfo(name=slug, description=description, tags=tags),
+            skipped=skipped,
+        )
+
+    @staticmethod
+    def _slugify(raw: str) -> str:
+        candidate = re.sub(r"[^a-z0-9-]+", "-", (raw or "").strip().lower())
+        return re.sub(r"-{2,}", "-", candidate).strip("-")[:64]
+
+    @staticmethod
+    def _as_str_list(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str) and value.strip():
+            return [value.strip()]
+        return []
+
+    def _compose_imported_frontmatter(
+        self,
+        meta: dict[str, Any],
+        *,
+        slug: str,
+        description: str,
+        tags: list[str],
+    ) -> dict[str, Any]:
+        """Frontmatter for an imported skill: our schema, their extras.
+
+        Flat ``bins``/``env`` (the Agent-Skills/ClawHub spelling) merge into
+        ``requires.*``; ``always`` is dropped — letting a downloaded package
+        force itself into every system prompt would be an injection vector.
+        Unknown keys (version, license, metadata, …) ride along untouched.
+        """
+        requires_raw = meta.get("requires")
+        requires = dict(requires_raw) if isinstance(requires_raw, dict) else {}
+        bins = self._dedupe_tags(
+            self._as_str_list(requires.get("bins")) + self._as_str_list(meta.get("bins"))
+        )
+        env = self._dedupe_tags(
+            self._as_str_list(requires.get("env")) + self._as_str_list(meta.get("env"))
+        )
+        if bins:
+            requires["bins"] = bins
+        if env:
+            requires["env"] = env
+
+        out: dict[str, Any] = {"name": slug, "description": description}
+        if tags:
+            out["tags"] = list(tags)
+        if requires:
+            out["requires"] = requires
+        for key, value in meta.items():
+            if key in {"name", "description", "tags", "requires", "bins", "env", "always"}:
+                continue
+            out[key] = value
+        return out
+
+    def _copy_support_tree(self, source: Path, staging: Path) -> list[tuple[str, str]]:
+        """Copy a package's support files into the staging dir, gated.
+
+        Dotfiles/dot-dirs are silently ignored; disallowed suffixes and
+        oversized files are skipped and reported; symlinks abort the whole
+        import (a link can alias content outside the package). Copies go
+        through ``shutil.copyfile`` so no permission bits (notably exec)
+        survive the import.
+        """
+        skipped: list[tuple[str, str]] = []
+        count = 0
+        total = 0
+        for path in sorted(source.rglob("*")):
+            rel = path.relative_to(source)
+            if any(part.startswith(".") for part in rel.parts):
+                continue
+            if path.is_symlink():
+                raise SkillImportError(f"Symbolic links are not allowed: {rel}")
+            if path.is_dir():
+                continue
+            if rel.as_posix() == "SKILL.md":
+                continue  # rewritten separately after frontmatter adaptation
+            if path.suffix.lower() not in _IMPORT_ALLOWED_SUFFIXES:
+                skipped.append((rel.as_posix(), "file type not allowed"))
+                continue
+            size = path.stat().st_size
+            if size > _IMPORT_MAX_FILE_BYTES:
+                skipped.append((rel.as_posix(), "file exceeds size limit"))
+                continue
+            count += 1
+            total += size
+            if count > _IMPORT_MAX_FILES:
+                raise SkillImportError("Package has too many files.")
+            if total > _IMPORT_MAX_TOTAL_BYTES:
+                raise SkillImportError("Package exceeds the total size limit.")
+            dest = staging / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(path, dest)
+        return skipped
+
+    # ── hub provenance (.hub-lock.json) ──────────────────────────────────
+
+    def _hub_lock_path(self) -> Path:
+        return self._root / _HUB_LOCK_FILE
+
+    def _read_hub_lock(self) -> dict[str, dict[str, Any]]:
+        path = self._hub_lock_path()
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {
+            key: value
+            for key, value in data.items()
+            if isinstance(key, str) and isinstance(value, dict)
+        }
+
+    def _write_hub_lock(self, data: dict[str, dict[str, Any]]) -> None:
+        self._root.mkdir(parents=True, exist_ok=True)
+        self._hub_lock_path().write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def record_hub_origin(self, name: str, origin: dict[str, Any]) -> None:
+        slug = self._validate_name(name)
+        lock = self._read_hub_lock()
+        lock[slug] = dict(origin)
+        self._write_hub_lock(lock)
+
+    def hub_origin(self, name: str) -> dict[str, Any] | None:
+        try:
+            slug = self._validate_name(name)
+        except InvalidSkillNameError:
+            return None
+        return self._read_hub_lock().get(slug)
+
+    def _drop_hub_origin(self, slug: str) -> None:
+        lock = self._read_hub_lock()
+        if slug in lock:
+            del lock[slug]
+            self._write_hub_lock(lock)
 
     # ── tag management API ─────────────────────────────────────────────
 
@@ -769,7 +1033,9 @@ __all__ = [
     "InvalidTagError",
     "SkillDetail",
     "SkillExistsError",
+    "SkillImportError",
     "SkillInfo",
+    "SkillInstallResult",
     "SkillNotFoundError",
     "SkillReadOnlyError",
     "SkillService",

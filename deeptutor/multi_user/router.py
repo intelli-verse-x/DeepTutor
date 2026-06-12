@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -23,6 +24,13 @@ router = APIRouter()
 
 class GrantPayload(BaseModel):
     grant: dict[str, Any]
+
+
+class SkillInstallPayload(BaseModel):
+    ref: str
+    name: str | None = None
+    force: bool = False
+    allow_unverified: bool = False
 
 
 def _admin_catalog_summary() -> dict[str, list[dict[str, Any]]]:
@@ -133,6 +141,62 @@ async def put_user_grants(
         },
     )
     return {"grant": grant}
+
+
+@router.post("/admin/skills/install")
+async def admin_install_skill(
+    payload: SkillInstallPayload,
+    _: object = Depends(require_admin),
+) -> dict[str, Any]:
+    """Install a hub skill into the admin catalog (``<hub>:<slug>[@version]``).
+
+    The skill lands in the admin workspace — the same pool ``/admin/resources``
+    lists — so it stays invisible to non-admin users until a grant assigns it.
+    The install pipeline (verdict gate, safe extraction, ``always`` stripping)
+    lives in :func:`deeptutor.services.skill.hub.install_from_hub`; this
+    endpoint only chooses the target root and audits the action.
+    """
+    from deeptutor.services.skill.hub import HubError, install_from_hub
+    from deeptutor.services.skill.service import (
+        InvalidSkillNameError,
+        SkillExistsError,
+        SkillImportError,
+    )
+
+    service = SkillService(root=get_admin_path_service().get_workspace_dir() / "skills")
+    try:
+        outcome = await asyncio.to_thread(
+            install_from_hub,
+            payload.ref,
+            service=service,
+            rename_to=payload.name,
+            force=payload.force,
+            allow_unverified=payload.allow_unverified,
+        )
+    except SkillExistsError as exc:
+        raise HTTPException(status_code=409, detail=f"Skill already exists: {exc}") from exc
+    except (SkillImportError, InvalidSkillNameError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HubError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    log_admin_action(
+        "skill_hub_install",
+        summary={
+            "ref": payload.ref,
+            "installed_as": outcome.result.info.name,
+            "version": outcome.ref.version,
+            "verdict": outcome.verdict.status,
+            "forced": payload.force,
+            "allow_unverified": payload.allow_unverified,
+        },
+    )
+    return {
+        "skill": outcome.result.info.to_dict(),
+        "verdict": {"status": outcome.verdict.status, "detail": outcome.verdict.detail},
+        "version": outcome.ref.version,
+        "skipped": [{"path": rel, "reason": reason} for rel, reason in outcome.result.skipped],
+    }
 
 
 @router.get("/users")

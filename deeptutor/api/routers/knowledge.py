@@ -25,7 +25,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from deeptutor.api.utils.progress_broadcaster import ProgressBroadcaster
@@ -50,6 +50,11 @@ from deeptutor.multi_user.knowledge_access import (
 from deeptutor.services.config import PROJECT_ROOT, load_config_with_main
 from deeptutor.services.rag.factory import DEFAULT_PROVIDER
 from deeptutor.services.rag.file_routing import FileTypeRouter
+from deeptutor.utils.document_extractor import (
+    MAX_EXTRACTED_CHARS_PER_DOC,
+    DocumentExtractionError,
+    extract_text_from_path,
+)
 from deeptutor.utils.document_validator import DocumentValidator
 from deeptutor.utils.error_utils import format_exception_message
 
@@ -1024,6 +1029,25 @@ def _resolve_kb_raw_dir(kb_name: str) -> Path:
     return kb_path / "raw"
 
 
+def _resolve_kb_raw_file_or_404(kb_name: str, filename: str) -> Path:
+    """Resolve a raw KB file while preventing traversal outside raw/."""
+    raw_dir = _resolve_kb_raw_dir(kb_name)
+    if not raw_dir.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    raw_resolved = raw_dir.resolve()
+    target = (raw_dir / filename).resolve()
+    try:
+        target.relative_to(raw_resolved)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return target
+
+
 @router.get("/{kb_name}/files")
 async def list_kb_raw_files(kb_name: str):
     """List raw documents stored under data/knowledge_bases/<kb>/raw/."""
@@ -1051,6 +1075,29 @@ async def list_kb_raw_files(kb_name: str):
     return {"files": files}
 
 
+@router.get("/{kb_name}/file-preview-text/{filename:path}")
+async def serve_kb_raw_file_text_preview(kb_name: str, filename: str):
+    """Serve extracted plain text for a raw KB document preview."""
+    target = _resolve_kb_raw_file_or_404(kb_name, filename)
+    max_bytes = (
+        DocumentValidator.MAX_PDF_SIZE
+        if target.suffix.lower() == ".pdf"
+        else DocumentValidator.MAX_FILE_SIZE
+    )
+    try:
+        text = extract_text_from_path(
+            target,
+            max_bytes=max_bytes,
+            max_chars=MAX_EXTRACTED_CHARS_PER_DOC,
+        )
+    except DocumentExtractionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+    return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
+
+
 @router.get("/{kb_name}/files/{filename:path}")
 async def serve_kb_raw_file(kb_name: str, filename: str):
     """Serve a single raw document for inline preview / download.
@@ -1058,20 +1105,7 @@ async def serve_kb_raw_file(kb_name: str, filename: str):
     Resolution is sandboxed to the KB's raw/ directory; any path that
     escapes via traversal yields 403.
     """
-    raw_dir = _resolve_kb_raw_dir(kb_name)
-    if not raw_dir.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-
-    raw_resolved = raw_dir.resolve()
-    target = (raw_dir / filename).resolve()
-    try:
-        target.relative_to(raw_resolved)
-    except ValueError:
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    if not target.exists() or not target.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
-
+    target = _resolve_kb_raw_file_or_404(kb_name, filename)
     media_type, _ = mimetypes.guess_type(target.name)
     return FileResponse(
         target,

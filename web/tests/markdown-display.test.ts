@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   escapeUnknownHtmlTagsForDisplay,
   hasVisibleMarkdownContent,
+  markdownUrlTransform,
   normalizeMarkdownForDisplay,
 } from "../lib/markdown-display";
 
@@ -127,6 +128,37 @@ test("escapeUnknownHtmlTagsForDisplay strips unsafe html attributes", () => {
   const input =
     '<a href="javascript:alert(1)" onclick="alert(2)" style="color:red">link</a>';
   assert.equal(escapeUnknownHtmlTagsForDisplay(input), "<a>link</a>");
+});
+
+test("markdownUrlTransform keeps raster data images on img src", () => {
+  const png = "data:image/png;base64,iVBORw0KGgo=";
+  assert.equal(markdownUrlTransform(png, "src", { tagName: "img" }), png);
+});
+
+test("markdownUrlTransform rejects active data URLs", () => {
+  assert.equal(
+    markdownUrlTransform("data:text/html;base64,PHNjcmlwdD4=", "src", {
+      tagName: "img",
+    }),
+    "",
+  );
+  assert.equal(
+    markdownUrlTransform(
+      "data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+",
+      "src",
+      { tagName: "img" },
+    ),
+    "",
+  );
+});
+
+test("markdownUrlTransform only allows data images on img src", () => {
+  assert.equal(
+    markdownUrlTransform("data:image/png;base64,iVBORw0KGgo=", "href", {
+      tagName: "a",
+    }),
+    "",
+  );
 });
 
 test("hasVisibleMarkdownContent rejects empty raw-html placeholders", () => {

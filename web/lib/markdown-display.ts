@@ -155,6 +155,52 @@ const HTML_SRCDOC_ATTR_REGEX = new RegExp(
 );
 const HTML_UNSAFE_URL_ATTR_REGEX =
   /\s+(href|src|xlink:href|formaction)\s*=\s*(?:"\s*(?:javascript:|data:text\/html|data:image\/svg\+xml)[^"]*"|'\s*(?:javascript:|data:text\/html|data:image\/svg\+xml)[^']*'|(?:javascript:|data:text\/html|data:image\/svg\+xml)[^\s"'=<>`]+)/gi;
+const SAFE_MARKDOWN_PROTOCOL_REGEX = /^(https?|ircs?|mailto|xmpp)$/i;
+const SAFE_RASTER_DATA_IMAGE_REGEX =
+  /^data:image\/(?:png|jpe?g|gif|webp|bmp|tiff?|avif);base64,[a-z0-9+/=\s]+$/i;
+
+function isMarkdownImageSrc(key?: string, node?: unknown): boolean {
+  const tagName =
+    node && typeof node === "object" && "tagName" in node
+      ? String((node as { tagName?: unknown }).tagName || "").toLowerCase()
+      : "";
+  return key === "src" && tagName === "img";
+}
+
+/**
+ * react-markdown's default URL policy intentionally strips all `data:`
+ * URLs. Knowledge-base previews should still render self-contained markdown
+ * screenshots, so allow only passive raster image data URLs on `<img src>`.
+ */
+export function markdownUrlTransform(
+  value: string,
+  key?: string,
+  node?: unknown,
+): string {
+  if (
+    isMarkdownImageSrc(key, node) &&
+    SAFE_RASTER_DATA_IMAGE_REGEX.test(value)
+  ) {
+    return value;
+  }
+
+  const colon = value.indexOf(":");
+  const questionMark = value.indexOf("?");
+  const numberSign = value.indexOf("#");
+  const slash = value.indexOf("/");
+
+  if (
+    colon === -1 ||
+    (slash !== -1 && colon > slash) ||
+    (questionMark !== -1 && colon > questionMark) ||
+    (numberSign !== -1 && colon > numberSign) ||
+    SAFE_MARKDOWN_PROTOCOL_REGEX.test(value.slice(0, colon))
+  ) {
+    return value;
+  }
+
+  return "";
+}
 
 function sanitizeAllowedHtmlTag(tag: string): string {
   return tag

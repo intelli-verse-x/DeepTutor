@@ -322,6 +322,59 @@ def test_list_files_preserves_kb_named_default(monkeypatch, tmp_path: Path) -> N
     assert response.json()["files"][0]["name"] == "default.txt"
 
 
+def test_file_preview_text_accepts_default_alias(monkeypatch, tmp_path: Path) -> None:
+    manager = _FakeKBManager(tmp_path / "knowledge_bases")
+    manager.config["knowledge_bases"]["actual-kb"] = {
+        "path": "actual-kb",
+        "status": "ready",
+    }
+    raw_dir = manager.base_dir / "actual-kb" / "raw"
+    raw_dir.mkdir(parents=True)
+    target = raw_dir / "slides.pptx"
+    target.write_bytes(b"PK\x03\x04")
+    calls: dict[str, object] = {}
+
+    def _fake_extract(path: Path, **kwargs) -> str:
+        calls["path"] = path
+        calls["kwargs"] = kwargs
+        return "--- Slide 1 ---\nTitle"
+
+    monkeypatch.setattr(knowledge_router_module, "get_kb_manager", lambda: manager)
+    monkeypatch.setattr(knowledge_router_module, "extract_text_from_path", _fake_extract)
+
+    with TestClient(_build_app()) as client:
+        response = client.get("/api/v1/knowledge/default/file-preview-text/slides.pptx")
+
+    assert response.status_code == 200
+    assert response.text == "--- Slide 1 ---\nTitle"
+    assert calls["path"] == target
+    assert calls["kwargs"]["max_chars"] == 200_000
+
+
+def test_file_preview_text_returns_422_for_extraction_errors(monkeypatch, tmp_path: Path) -> None:
+    manager = _FakeKBManager(tmp_path / "knowledge_bases")
+    manager.config["knowledge_bases"]["actual-kb"] = {
+        "path": "actual-kb",
+        "status": "ready",
+    }
+    raw_dir = manager.base_dir / "actual-kb" / "raw"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / "slides.pptx").write_bytes(b"PK\x03\x04")
+    extraction_error = knowledge_router_module.DocumentExtractionError
+
+    def _fake_extract(*_args, **_kwargs) -> str:
+        raise extraction_error("slides.pptx: no extractable text")
+
+    monkeypatch.setattr(knowledge_router_module, "get_kb_manager", lambda: manager)
+    monkeypatch.setattr(knowledge_router_module, "extract_text_from_path", _fake_extract)
+
+    with TestClient(_build_app()) as client:
+        response = client.get("/api/v1/knowledge/actual-kb/file-preview-text/slides.pptx")
+
+    assert response.status_code == 422
+    assert "no extractable text" in response.json()["detail"]
+
+
 def test_reindex_accepts_default_alias(monkeypatch, tmp_path: Path) -> None:
     manager = _FakeKBManager(tmp_path / "knowledge_bases")
     manager.config["knowledge_bases"]["actual-kb"] = {

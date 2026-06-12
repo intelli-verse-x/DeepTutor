@@ -21,6 +21,8 @@ Space is the library layer for reusable context. It is where you manage assets t
 
 Skills live under the user workspace and can be tagged, edited, previewed, or kept read-only if they are built in. A good skill is specific: it tells the agent when to use it, what inputs it expects, and what output shape is useful.
 
+You don't have to write every skill yourself: DeepTutor skills share their format with the wider Agent-Skills ecosystem, and `deeptutor skill install clawhub:<slug>` imports a community skill from [ClawHub](https://clawhub.ai/) through a security gate — hub verdict check, safe extraction, no binaries, no prompt self-injection. See [CLI commands](/docs/cli/commands/) for the full flow.
+
 ## Personas and Partners
 
 Personas are lightweight role definitions. Partners have a stronger `SOUL.md`, but personas are a good starting point: create or refine a persona in Space, then use it while creating a Partner.

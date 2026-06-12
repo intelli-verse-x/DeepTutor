@@ -36,6 +36,12 @@ const MarkdownPreview = dynamic(
 const TextPreview = dynamic(
   () => import("@/components/chat/preview/previewers/TextPreview"),
 );
+const DocxPreview = dynamic(
+  () => import("@/components/chat/preview/previewers/DocxPreview"),
+);
+const XlsxPreview = dynamic(
+  () => import("@/components/chat/preview/previewers/XlsxPreview"),
+);
 const OfficeTextPreview = dynamic(
   () => import("@/components/chat/preview/previewers/OfficeTextPreview"),
 );
@@ -82,6 +88,12 @@ export default function KbFilePreview({
     () => (source ? resolveSourceUrl(source, apiUrl) : null),
     [source],
   );
+  const extractedTextUrl = useMemo(() => {
+    if (!source?.extractedTextUrl) return null;
+    return source.extractedTextUrl.startsWith("http")
+      ? source.extractedTextUrl
+      : apiUrl(source.extractedTextUrl);
+  }, [source]);
   const kind = useMemo(
     () => (source ? previewKindFor(source) : null),
     [source],
@@ -230,10 +242,15 @@ export default function KbFilePreview({
           <OfficeTextPreview
             filename={source.filename}
             extractedText={source.extractedText}
+            extractedTextUrl={extractedTextUrl}
             url={previewUrl}
           />
         ) : kind === "pdf" ? (
           <PdfPreview url={previewUrl} filename={source.filename} />
+        ) : kind === "docx" ? (
+          <DocxPreview url={previewUrl} />
+        ) : kind === "xlsx" ? (
+          <XlsxPreview url={previewUrl} />
         ) : kind === "image" ? (
           <ImagePreview url={previewUrl} filename={source.filename} />
         ) : kind === "svg" ? (

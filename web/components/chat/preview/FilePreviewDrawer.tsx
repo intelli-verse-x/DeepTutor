@@ -261,6 +261,15 @@ const PreviewBody = memo(function PreviewBody({
   kind: ReturnType<typeof previewKindFor> | null;
 }) {
   const filename = source.filename;
+  const rawExtractedTextUrl = source.extractedTextUrl;
+  let extractedTextUrl: string | null = null;
+  if (rawExtractedTextUrl) {
+    extractedTextUrl =
+      rawExtractedTextUrl.startsWith("http") ||
+      rawExtractedTextUrl.startsWith("blob:")
+        ? rawExtractedTextUrl
+        : apiUrl(rawExtractedTextUrl);
+  }
 
   // Office docs lean on extracted_text and degrade gracefully via the
   // OfficeTextPreview, even when previewUrl is missing (legacy messages).
@@ -269,6 +278,7 @@ const PreviewBody = memo(function PreviewBody({
       <OfficeTextPreview
         filename={filename}
         extractedText={source.extractedText}
+        extractedTextUrl={extractedTextUrl}
         url={previewUrl}
       />
     );

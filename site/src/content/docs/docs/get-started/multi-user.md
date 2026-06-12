@@ -33,6 +33,7 @@ deeptutor start
 - **Full Settings page** at `/settings` — manage LLM / embedding / search providers, API keys, model catalogs, and runtime "Apply".
 - **User management** at `/admin/users` — create, promote, demote, and delete accounts. The public `/register` endpoint is automatically closed once the first admin exists; further accounts go through `POST /api/v1/auth/users` (admin-only).
 - **Grant editor** — for each non-admin user, pick the LLM models, knowledge bases, and skills they may use, restrict the system tools (web search, paper search, …) and MCP tools to a whitelist, and switch code execution off entirely. Tool whitelists follow the same semantics as partner configs: *Default* allows everything, *Custom* is an explicit whitelist. Grants carry **logical IDs only**; API keys never cross the grant boundary.
+- **Hub skill installs** — `POST /api/v1/multi-user/admin/skills/install` (admin-only) imports a skill from an external hub such as ClawHub into the admin catalog. Install ≠ assign: the skill stays invisible to other users until a grant assigns it, so the admin can vet it first. Every install is recorded in the audit trail.
 - **Audit trail** — every grant change and assigned-resource access is appended to `data/system/audit/usage.jsonl`.
 
 ## What ordinary users get

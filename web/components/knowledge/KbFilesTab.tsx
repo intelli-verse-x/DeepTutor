@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   knowledgeBaseFilePath,
+  knowledgeBaseFilePreviewTextPath,
   type KnowledgeBaseFile,
 } from "@/lib/knowledge-api";
 import type { KnowledgeBase } from "@/lib/knowledge-helpers";
@@ -46,6 +47,10 @@ export default function KbFilesTab({ kb, task }: KbFilesTabProps) {
       filename: selectedFile.name,
       mimeType: selectedFile.mime_type ?? undefined,
       url: knowledgeBaseFilePath(kb.name, selectedFile.name),
+      extractedTextUrl: knowledgeBaseFilePreviewTextPath(
+        kb.name,
+        selectedFile.name,
+      ),
       size: selectedFile.size,
       id: `${kb.name}/${selectedFile.name}`,
     };

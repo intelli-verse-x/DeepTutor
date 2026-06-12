@@ -14,6 +14,7 @@ import {
 import {
   citationAnchorIdFor,
   escapeUnknownHtmlTagsForDisplay,
+  markdownUrlTransform,
   normalizeMarkdownForDisplay,
 } from "@/lib/markdown-display";
 import type { MarkdownRendererProps } from "./MarkdownRenderer";
@@ -735,6 +736,7 @@ export default function RichMarkdownRenderer({
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
         components={components}
+        urlTransform={markdownUrlTransform}
       >
         {processedContent}
       </ReactMarkdown>

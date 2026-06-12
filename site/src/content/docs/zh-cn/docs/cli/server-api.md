@@ -126,6 +126,8 @@ GET    /api/v1/knowledge/default                      获取默认 KB
 PUT    /api/v1/knowledge/default/{kb_name}            设置默认 KB
 GET    /api/v1/knowledge/supported-file-types         支持的上传格式
 GET    /api/v1/knowledge/{kb_name}/files              列源文件
+GET    /api/v1/knowledge/{kb_name}/files/{filename}   取单个源文件（预览/下载）
+GET    /api/v1/knowledge/{kb_name}/file-preview-text/{filename}  提取的纯文本预览
 GET    /api/v1/knowledge/{kb_name}/progress           索引进度
 WS     /api/v1/knowledge/{kb_name}/progress/ws        进度流
 ```

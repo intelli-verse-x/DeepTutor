@@ -38,6 +38,8 @@ export interface FilePreviewSource {
   base64?: string;
   /** Plain-text rendering of office docs, populated by the backend. */
   extractedText?: string;
+  /** Optional endpoint that returns extracted plain text on demand. */
+  extractedTextUrl?: string;
   /** Original byte size, used for empty-state copy. */
   size?: number;
   /** Stable id; lets the drawer build a stable React key. */

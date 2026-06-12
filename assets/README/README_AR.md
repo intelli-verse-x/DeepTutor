@@ -1,8 +1,12 @@
 <div align="center">
 
-<img src="../../assets/logo.png" alt="DeepTutor" width="140" style="border-radius: 15px;">
+<p align="center"><img src="../../assets/figs/logo/logo.png" alt="شعار DeepTutor" height="56" style="vertical-align: middle;">&nbsp;<img src="../../assets/figs/logo/banner.png" alt="DeepTutor" height="48" style="vertical-align: middle;"></p>
 
-# DeepTutor: تعليم شخصي أصلي قائم على الوكلاء
+# DeepTutor: تدريس شخصي مبني على الوكلاء الذكيين
+
+<p align="center">
+  <a href="https://deeptutor.info" target="_blank"><img alt="الوثائق — deeptutor.info" src="https://img.shields.io/badge/Docs-deeptutor.info%20%E2%86%97-0A0A0A?style=for-the-badge&labelColor=F5F5F4" height="36"></a>
+</p>
 
 <a href="https://trendshift.io/repositories/17099" target="_blank"><img src="https://trendshift.io/api/badge/repositories/17099" alt="HKUDS%2FDeepTutor | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
@@ -30,213 +34,183 @@
 [![Feishu](https://img.shields.io/badge/Feishu-Group-00D4AA?style=flat-square&logo=feishu&logoColor=white)](../../Communication.md)
 [![WeChat](https://img.shields.io/badge/WeChat-Group-07C160?style=flat-square&logo=wechat&logoColor=white)](https://github.com/HKUDS/DeepTutor/issues/78)
 
-[الميزات](#key-features) · [البدء](#get-started) · [استكشاف](#explore-deeptutor) · [TutorBot](#tutorbot) · [CLI](#deeptutor-cli) · [متعدد المستخدمين](#multi-user) · [المجتمع](#community)
+[المميزات](#-المميزات-الرئيسية) · [البدء](#-البدء) · [الاستكشاف](#-استكشاف-deeptutor) · [واجهة سطر الأوامر](#%EF%B8%8F-واجهة-سطر-أوامر-deeptutor--الواجهة-الأصيلة-للوكلاء) · [متعدد المستخدمين](#-متعدد-المستخدمين--النشر-المشترك) · [المجتمع](#-المجتمع-والنظام-البيئي)
 
 </div>
 
 ---
 
-> 🤝 **نرحّب بجميع أنواع المساهمات!** راجع [دليل المساهمة](../../CONTRIBUTING.md) لاستراتيجية الفروع ومعايير البرمجة وكيفية البدء.
->
-> 🗺️ **خارطة الطريق** متتبَّعة بشكل مفتوح في [`HKUDS/DeepTutor#498`](https://github.com/HKUDS/DeepTutor/issues/498) — علّق هناك للتصويت على العناصر أو اقتراح عناصر جديدة.
+> 🤝 **نرحب بجميع أنواع المساهمات!** صوّت على عناصر خارطة الطريق أو اقترح عناصر جديدة في [`خارطة الطريق`](https://github.com/HKUDS/DeepTutor/issues/498)، وراجع [دليل المساهمة](../../CONTRIBUTING.md) لمعرفة استراتيجية الفروع ومعايير البرمجة وكيفية البدء.
 
 ### 📦 الإصدارات
 
-> **[2026.5.21]** [v1.4.0-beta](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0-beta) — منضدة Memory ثلاثية الطبقات (L1/L2/L3)، إعادة بناء كل قدرات الدردشة على محرك وكيل واحد، RAG حصراً على LlamaIndex، وواجهة موحدة لـ Settings + Capabilities.
+> **[2026.6.12]** [v1.4.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.3) — أصبح TutorBot **Partners** على خط أنابيب إنتاجي لتطبيقات المراسلة الفورية مع ردود بث مباشر و15 قناة، وانتقل Chat إلى حلقة وكيل واحدة، وعزل حقيقي لكل مستخدم في بيئات النشر متعددة المستخدمين، وإعادة بناء Visualize مع التحقق والإصلاح المحلي، فضلاً عن ترقيات في Co-writer ومشاهد الملفات وتحليل MinerU السحابي وواجهة سطر الأوامر. تم تحديث الوثائق بالكامل على [deeptutor.info](https://deeptutor.info/).
 
-> **[2026.5.10]** [v1.3.10](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.10) — استرداد CORS لـ Docker البعيد، `DISABLE_SSL_VERIFY` عبر مزودي SDK، اقتباسات أكثر أماناً لكتل الكود، وإضافة Matrix E2EE اختيارية.
+> **[2026.5.28]** [v1.4.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.2) — استقرار وتحسين على v1.4.1: إلغاء حجب Gemini 2.5+ في Visualize وChat، وإصلاح توجيه المصادقة ContextVar (رقم 485)، وتصليب بروتوكول التفكير والأدوات الأصيلة، وتجربة مستخدم لبث سلس على جميع أسطح المحادثة، وشريط جانبي قابل للطي للزيارات الأخيرة، ودعم مزود Lemonade المحلي.
 
-> **[2026.5.9]** [v1.3.9](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.9) — دعم Zulip و NVIDIA NIM لـ TutorBot، توجيه أكثر أماناً لنماذج التفكير، `deeptutor start`، تلميحات الشريط الجانبي، وتجانس مخزن الجلسات.
+> **[2026.5.27]** [v1.4.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.1) — تصحيح أمني واستقرار: قفل صندوق أمان أدوات TutorBot، وعزل موارد لكل مستخدم، وبديل صور متعدد الوسائط لمزودي الرؤية، وواجهة برمجة HTTP/SSE للتحدث إلى TutorBot، وإصلاح تراجع محادثة v1.4.0.
 
-> **[2026.5.8]** [v1.3.8](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.8) — نشر اختياري متعدد المستخدمين مع مساحات عمل معزولة لكل مستخدم، صلاحيات إدارية، مسارات مصادقة، ووصول وقت تشغيل ذو نطاق محدد.
+> **[2026.5.22]** [v1.4.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0) — إصدار عام من v1.4: الوضع التلقائي، وذاكرة ثلاثية الطبقات، والبحث العميق الوكيل / Solve / Question، وإعادة هيكلة LlamaIndex RAG، ودمج Visualize/Animator، فضلاً عن تطبيع جهد التفكير واحتياطي مخطط الأداة وبيئة التشغيل الآمنة للإعادة التلقائية.
 
 <details>
-<summary><b>الإصدارات السابقة (قبل أكثر من أسبوعين)</b></summary>
+<summary><b>الإصدارات السابقة (أكثر من أسبوعين)</b></summary>
 
-> **[2026.5.4]** [v1.3.7](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.7) — إصلاحات نماذج التفكير/المزودين، تاريخ فهرسة Knowledge مرئي، تفريغ وتحرير قوالب Co-Writer أكثر أماناً.
+> **[2026.5.21]** [v1.4.0-beta](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0-beta) — محطة عمل ذاكرة ثلاثية الطبقات (L1/L2/L3)، وإعادة بناء كل قدرة محادثة على محرك وكيل واحد، وRAG فقط على LlamaIndex، وسطح إعدادات وقدرات موحّد.
 
-> **[2026.5.3]** [v1.3.6](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.6) — اختيار النماذج المبني على الكاتالوج للدردشة و TutorBot، إعادة فهرسة RAG أكثر أماناً، إصلاحات حد الرموز لـ OpenAI Responses، والتحقق من محرر Skills.
+> **[2026.5.10]** [v1.3.10](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.10) — استرداد CORS عن بُعد عبر Docker، و`DISABLE_SSL_VERIFY` عبر مزودي SDK، واستشهادات كتلة رمز أكثر أماناً، وإضافة Matrix E2EE اختيارية.
 
-> **[2026.5.2]** [v1.3.5](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.5) — إعدادات إطلاق محلية أكثر سلاسة، استعلامات RAG أكثر أماناً، مصادقة embedding محلية أوضح، وتحسين الوضع الداكن في Settings.
+> **[2026.5.9]** [v1.3.9](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.9) — دعم TutorBot لـ Zulip وNVIDIA NIM، وتوجيه أكثر أماناً لنماذج التفكير، و`deeptutor start`، وتلميحات الشريط الجانبي، وتوحيد مخزن الجلسات.
 
-> **[2026.5.1]** [v1.3.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.4) — استمرار دردشة صفحة الكتاب وتدفقات إعادة البناء، مراجع من الدردشة إلى الكتاب، معالجة لغة/تفكير أقوى، وتقوية استخراج وثائق RAG.
+> **[2026.5.8]** [v1.3.8](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.8) — نشر اختياري متعدد المستخدمين مع مساحات عمل معزولة لكل مستخدم، ومنح إدارية، ومسارات مصادقة، ووصول وقت تشغيل محدد النطاق.
 
-> **[2026.4.30]** [v1.3.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.3) — دعم embeddings NVIDIA NIM و Gemini، سياق Space موحد (تاريخ الدردشة/المهارات/الذاكرة)، لقطات الجلسة، ومرونة إعادة فهرسة RAG.
+> **[2026.5.4]** [v1.3.7](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.7) — إصلاحات نموذج/مزود التفكير، وتاريخ مرئي لفهرس المعرفة، وتحرير أكثر أماناً لقوالب Co-Writer.
 
-> **[2026.4.29]** [v1.3.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.2) — عناوين URL شفافة لنقاط نهاية embedding، مرونة إعادة فهرسة RAG لمتجهات الإصرار غير الصالحة، تنظيف ذاكرة مخرجات نموذج التفكير، وإصلاح وقت تشغيل Deep Solve.
+> **[2026.5.3]** [v1.3.6](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.6) — اختيار النموذج القائم على الكتالوج للمحادثة وTutorBot، وإعادة فهرسة RAG أكثر أماناً، وإصلاحات حدود رمز OpenAI Responses، والتحقق من صحة محرر المهارات.
 
-> **[2026.4.28]** [v1.3.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.1) — الاستقرار: توجيه RAG والتحقق من embedding أكثر أماناً، إصرار Docker، إدخال آمن لـ IME، ومتانة Windows/GBK.
+> **[2026.5.2]** [v1.3.5](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.5) — إعدادات إطلاق محلي أكثر سلاسة، واستعلامات RAG أكثر أماناً، ومصادقة تضمين محلي أنظف، وتلميع الوضع الداكن في الإعدادات.
 
-> **[2026.4.27]** [v1.3.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.0) — فهارس KB موسومة بإصدارات مع تدفق إعادة الفهرسة، مساحة عمل Knowledge معاد بناؤها، اكتشاف تلقائي لـ embeddings مع محولات جديدة، ومركز Space.
+> **[2026.5.1]** [v1.3.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.4) — استمرارية محادثة صفحة الكتاب وإعادة البناء، ومراجع محادثة إلى كتاب، ومعالجة أقوى للغة والتفكير، وتصليب استخراج وثائق RAG.
 
-> **[2026.4.25]** [v1.2.5](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.5) — مرفقات دردشة دائمة مع درج معاينة الملفات، خطوط أنابيب القدرات الواعية للمرفقات، وتصدير Markdown لـ TutorBot.
+> **[2026.4.30]** [v1.3.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.3) — دعم تضمين NVIDIA NIM وGemini، وسياق Space موحّد لتاريخ المحادثة/المهارات/الذاكرة، ولقطات الجلسات، ومرونة إعادة الفهرسة في RAG.
 
-> **[2026.4.25]** [v1.2.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.4) — مرفقات نصية/كود/SVG، Setup Tour بأمر واحد، تصدير Markdown للدردشة، وواجهة إدارة KB المدمجة.
+> **[2026.4.29]** [v1.3.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.2) — عناوين URL شفافة لنقطة نهاية التضمين، ومرونة إعادة فهرسة RAG للمتجهات المثبتة غير الصالحة، وتنظيف الذاكرة لمخرجات نموذج التفكير، وإصلاح وقت تشغيل Deep Solve.
 
-> **[2026.4.24]** [v1.2.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.3) — مرفقات الوثائق (PDF/DOCX/XLSX/PPTX)، عرض كتل التفكير، محرر قوالب Soul، وحفظ Co-Writer إلى notebook.
+> **[2026.4.28]** [v1.3.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.1) — الاستقرار: توجيه RAG أكثر أماناً والتحقق من التضمين، واستمرارية Docker، وإدخال آمن من IME، ومتانة Windows/GBK.
 
-> **[2026.4.22]** [v1.2.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.2) — نظام Skills التي ينشئها المستخدم، إصلاح أداء إدخال الدردشة، بدء تلقائي لـ TutorBot، واجهة مكتبة الكتب، والتصور بملء الشاشة.
+> **[2026.4.27]** [v1.3.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.0) — فهارس KB ذات إصدارات مع سير عمل إعادة الفهرسة، ومساحة عمل المعرفة المُعادة بناؤها، واكتشاف تلقائي للتضمين مع محولات جديدة، ومحور Space.
 
-> **[2026.4.21]** [v1.2.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.1) — حدود الرموز لكل مرحلة، إعادة توليد الرد عبر جميع نقاط الدخول، وإصلاحات التوافق مع RAG و Gemma.
+> **[2026.4.25]** [v1.2.5](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.5) — مرفقات محادثة دائمة مع درج معاينة الملفات، وخطوط أنابيب قدرات تدرك المرفقات، وتصدير TutorBot بتنسيق Markdown.
 
-> **[2026.4.20]** [v1.2.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.0) — مُجمِّع «الكتاب الحي» Book Engine، Co-Writer متعدد الوثائق، تصورات HTML تفاعلية، و@-mention لـ Question Bank.
+> **[2026.4.25]** [v1.2.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.4) — مرفقات نص/رمز/SVG، وجولة إعداد بأمر واحد، وتصدير محادثة Markdown، وواجهة مستخدم مضغوطة لإدارة KB.
 
-> **[2026.4.18]** [v1.1.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.2) — علامة تبويب Channels مدفوعة بالمخطط، توحيد خط أنابيب RAG واحد، وتصدير prompts الدردشة.
+> **[2026.4.24]** [v1.2.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.3) — مرفقات المستندات (PDF/DOCX/XLSX/PPTX)، وعرض كتلة التفكير الاستنتاجي، ومحرر قالب Soul، وحفظ Co-Writer في دفتر الملاحظات.
 
-> **[2026.4.17]** [v1.1.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.1) — «أجب الآن» العالمي، مزامنة تمرير Co-Writer، لوحة إعدادات موحدة، وزر Stop للبث المباشر.
+> **[2026.4.22]** [v1.2.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.2) — نظام المهارات الذي يؤلفه المستخدم، وتحسين أداء إدخال المحادثة، وبدء TutorBot التلقائي، وواجهة مستخدم مكتبة الكتب، والشاشة الكاملة للتصور.
 
-> **[2026.4.15]** [v1.1.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.0) — إعادة هيكلة كتلة الرياضيات LaTeX، فحص تشخيصي لـ LLM، وإرشادات Docker + LLM محلي.
+> **[2026.4.21]** [v1.2.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.1) — حدود رمز لكل مرحلة، وإعادة توليد الاستجابة عبر جميع نقاط الدخول، وإصلاحات توافق RAG وGemma.
 
-> **[2026.4.14]** [v1.1.0-beta](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.0-beta) — جلسات قابلة للتسجيل، سمة Snow، نبضات WebSocket وإعادة اتصال تلقائية، وإعادة هيكلة سجل embedding.
+> **[2026.4.20]** [v1.2.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.2.0) — محرك الكتاب "الكتاب الحي"، وCo-Writer متعدد المستندات، وتصورات HTML تفاعلية، و@-mention في بنك الأسئلة.
 
-> **[2026.4.13]** [v1.0.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.3) — Question Notebook مع إشارات مرجعية وفئات، Mermaid في Visualize، اكتشاف عدم تطابق embedding، توافق Qwen/vLLM، دعم LM Studio و llama.cpp، وسمة Glass.
+> **[2026.4.18]** [v1.1.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.2) — تبويب القنوات المدفوع بالمخطط، وتوحيد خط أنابيب RAG، وخارجية موجهات المحادثة.
 
-> **[2026.4.11]** [v1.0.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.2) — توحيد البحث مع احتياطي SearXNG، إصلاح تبديل المزود، وإصلاحات تسرب الموارد في الواجهة الأمامية.
+> **[2026.4.17]** [v1.1.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.1) — "أجب الآن" العالمية، ومزامنة تمرير Co-Writer، ولوحة إعدادات موحّدة، وزر إيقاف البث.
 
-> **[2026.4.10]** [v1.0.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.1) — قدرة Visualize (Chart.js/SVG)، منع التكرار في quiz، ودعم نموذج o4-mini.
+> **[2026.4.15]** [v1.1.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.0) — تجديد شامل لرياضيات LaTeX الكتلية، ومسبار تشخيصي للنماذج اللغوية الكبيرة، وإرشادات Docker والنماذج اللغوية المحلية.
 
-> **[2026.4.10]** [v1.0.0-beta.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.4) — تتبع تقدم embedding مع إعادة المحاولة في حد المعدل، إصلاحات تبعيات عبر المنصات، وإصلاح التحقق من MIME.
+> **[2026.4.14]** [v1.1.0-beta](https://github.com/HKUDS/DeepTutor/releases/tag/v1.1.0-beta) — جلسات قابلة للإشارة المرجعية، وثيمة Snow، ونبضات قلب WebSocket وإعادة الاتصال التلقائي، وتجديد سجل التضمين.
 
-> **[2026.4.8]** [v1.0.0-beta.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.3) — SDK أصلي لـ OpenAI/Anthropic (إسقاط litellm)، دعم Windows Math Animator، تحليل JSON قوي، وi18n صيني كامل.
+> **[2026.4.13]** [v1.0.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.3) — دفتر ملاحظات الأسئلة مع الإشارات المرجعية والفئات، وMermaid في Visualize، وكشف عدم تطابق التضمين، وتوافق Qwen/vLLM، ودعم LM Studio وllama.cpp، وثيمة Glass.
 
-> **[2026.4.7]** [v1.0.0-beta.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.2) — إعادة تحميل الإعدادات الساخن، مخرجات MinerU المتداخلة، إصلاح WebSocket، والحد الأدنى Python 3.11+.
+> **[2026.4.11]** [v1.0.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.2) — توحيد البحث مع احتياطي SearXNG، وإصلاح تبديل المزود، وإصلاحات تسرب الموارد في الواجهة الأمامية.
 
-> **[2026.4.4]** [v1.0.0-beta.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.1) — إعادة كتابة معمارية أصلية للوكلاء (~200 ألف سطر): نموذج إضافات Tools + Capabilities، CLI و SDK، TutorBot، Co-Writer، التعلم الموجَّه، والذاكرة الدائمة.
+> **[2026.4.10]** [v1.0.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.1) — قدرة Visualize (Chart.js/SVG)، ومنع تكرار الاختبارات، ودعم نموذج o4-mini.
 
-> **[2026.1.23]** [v0.6.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.6.0) — استمرار الجلسات، التحميل التزايدي للوثائق، استيراد مرن لخط أنابيب RAG، وتوطين صيني كامل.
+> **[2026.4.10]** [v1.0.0-beta.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.4) — تتبع تقدم التضمين مع إعادة المحاولة عند حد المعدل، وإصلاحات التبعيات عبر المنصات، وإصلاح التحقق من MIME.
 
-> **[2026.1.18]** [v0.5.2](https://github.com/HKUDS/DeepTutor/releases/tag/v0.5.2) — دعم Docling لـ RAG-Anything، تحسين نظام التسجيل، وإصلاحات الأخطاء.
+> **[2026.4.8]** [v1.0.0-beta.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.3) — SDK أصيل لـ OpenAI/Anthropic (إسقاط litellm)، ودعم Math Animator على Windows، وتحليل JSON قوي، وi18n صيني كامل.
 
-> **[2026.1.15]** [v0.5.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.5.0) — تكوين خدمة موحد، اختيار خط أنابيب RAG لكل قاعدة معرفة، إصلاح توليد الأسئلة، وتخصيص الشريط الجانبي.
+> **[2026.4.7]** [v1.0.0-beta.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.2) — إعادة تحميل الإعدادات الساخنة، وإخراج MinerU المتداخل، وإصلاح WebSocket، والحد الأدنى Python 3.11+.
 
-> **[2026.1.9]** [v0.4.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.4.0) — دعم LLM و embedding متعدد المزودين، صفحة رئيسية جديدة، فصل وحدة RAG، وإعادة هيكلة متغيرات البيئة.
+> **[2026.4.4]** [v1.0.0-beta.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.0.0-beta.1) — إعادة كتابة معمارية أصيلة للوكيل (~200 ألف سطر): نموذج إضافات الأدوات والقدرات، وCLI وSDK، وTutorBot، وCo-Writer، والتعلم الموجّه، والذاكرة الدائمة.
 
-> **[2026.1.5]** [v0.3.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.3.0) — معمارية PromptManager موحدة، CI/CD على GitHub Actions، وصور Docker مبنية مسبقاً على GHCR.
+> **[2026.1.23]** [v0.6.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.6.0) — استمرارية الجلسة، ورفع المستندات التدريجي، واستيراد مرن لخط أنابيب RAG، وتوطين صيني كامل.
 
-> **[2026.1.2]** [v0.2.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.2.0) — نشر Docker، الترقية إلى Next.js 16 و React 19، تعزيز أمان WebSocket، وإصلاحات الثغرات الحرجة.
+> **[2026.1.18]** [v0.5.2](https://github.com/HKUDS/DeepTutor/releases/tag/v0.5.2) — دعم Docling لـ RAG-Anything، وتحسين نظام التسجيل، وإصلاح الأخطاء.
+
+> **[2026.1.15]** [v0.5.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.5.0) — تكوين موحّد للخدمة، واختيار خط أنابيب RAG لكل قاعدة معرفية، وتجديد توليد الأسئلة، وتخصيص الشريط الجانبي.
+
+> **[2026.1.9]** [v0.4.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.4.0) — دعم نماذج لغوية كبيرة وتضمين متعدد المزودين، وصفحة رئيسية جديدة، وفصل وحدة RAG، وإعادة هيكلة متغيرات البيئة.
+
+> **[2026.1.5]** [v0.3.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.3.0) — معمارية PromptManager الموحّدة، وCI/CD عبر GitHub Actions، وصور Docker مُبنية مسبقاً على GHCR.
+
+> **[2026.1.2]** [v0.2.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.2.0) — نشر Docker، وترقية Next.js 16 وReact 19، وتصليب أمان WebSocket، وإصلاح ثغرات حرجة.
 
 </details>
 
 ### 📰 الأخبار
 
-> **[2026.4.19]** 🎉 وصلنا إلى 20 ألف نجمة بعد 111 يوماً! شكراً على الدعم المذهل — نحن ملتزمون بالتكرار المستمر نحو تعليم شخصي وذكي حقاً للجميع.
+> **[2026.5.22]** 🌐 موقع وثائقنا الرسمي متاح الآن على [**deeptutor.info**](https://deeptutor.info/) — الأدلة والمراجع وجولات القدرات كلها في مكان واحد.
 
-> **[2026.4.10]** 📄 ورقتنا متاحة الآن على arXiv! اقرأ [النسخة الأولية](https://arxiv.org/abs/2604.26962) لمعرفة المزيد عن التصميم والأفكار وراء DeepTutor.
+> **[2026.4.19]** 🎉 وصلنا إلى 20 ألف نجمة بعد 111 يوماً! شكراً على الدعم الرائع — نلتزم بالتطوير المستمر نحو تدريس شخصي وذكي حقيقي للجميع.
 
-> **[2026.4.4]** لم نلتقِ منذ فترة! ✨ DeepTutor v1.0.0 هنا أخيراً — تطور أصلي قائم على الوكلاء يتميز بإعادة كتابة معمارية كاملة، TutorBot، وتبديل وضع مرن تحت رخصة Apache-2.0. يبدأ فصل جديد!
+> **[2026.4.10]** 📄 ورقتنا البحثية متاحة الآن على arXiv! اقرأ [النسخة الأولية](https://arxiv.org/abs/2604.26962) لتعرف المزيد عن التصميم والأفكار وراء DeepTutor.
 
-> **[2026.2.6]** 🚀 وصلنا إلى 10 آلاف نجمة في 39 يوماً فقط! شكراً جزيلاً لمجتمعنا الرائع على الدعم!
+> **[2026.4.4]** لم نرَ بعضنا منذ زمن! ✨ DeepTutor v1.0.0 هنا أخيراً — تطور أصيل للوكيل يتميز بإعادة كتابة معمارية من الصفر، وTutorBot، وتبديل وضع مرن تحت رخصة Apache-2.0. تبدأ فصل جديد، وتستمر قصتنا!
 
-> **[2026.1.1]** عام جديد سعيد! انضم إلى [Discord](https://discord.gg/eRsjPgMU4t) أو [WeChat](https://github.com/HKUDS/DeepTutor/issues/78) أو [Discussions](https://github.com/HKUDS/DeepTutor/discussions) — لنرسم معاً مستقبل DeepTutor!
+> **[2026.2.6]** 🚀 وصلنا إلى 10 آلاف نجمة في 39 يوماً فقط! شكر جزيل لمجتمعنا الرائع على هذا الدعم!
+
+> **[2026.1.1]** سنة سعيدة! انضم إلى [Discord](https://discord.gg/eRsjPgMU4t)، أو [WeChat](https://github.com/HKUDS/DeepTutor/issues/78)، أو [النقاشات](https://github.com/HKUDS/DeepTutor/discussions) — لنشكّل معاً مستقبل DeepTutor!
 
 > **[2025.12.29]** تم إطلاق DeepTutor رسمياً!
 
+## ✨ المميزات الرئيسية
 
-<a id="key-features"></a>
-## ✨ الميزات الرئيسية
+يتمحور DeepTutor حول بيئة تشغيل أصيلة للوكيل: يوجّه ChatOrchestrator المشترك كل دور إلى القدرات، ويكشف ToolRegistry عن أدوات من استخدام واحد عندما يحتاجها النموذج، ويتيح CapabilityRegistry لسير العمل الأعمق الاستيلاء على الدور عندما تحتاج المهمة إلى هيكلة.
 
-**أسطح العمل**
+<div align="center">
+<img src="../../assets/figs/system/system%20architecture.png" alt="معمارية نظام DeepTutor" width="900">
+</div>
 
-- Chat — Chat و Solve و Quiz و Research و Visualize تتشارك جلسة واحدة، قاعدة معرفة، وتاريخ اقتباس، حتى تتمكن من التصعيد في منتصف المحادثة دون فقدان السياق.
-- Co-Writer — مساحة عمل Markdown بعرض مقسم حيث يمكن إعادة كتابة أي تحديد أو توسيعه أو اختصاره، اختيارياً مع الاستناد إلى KB أو الويب. تُحفظ المسودات مباشرة في notebooks.
-- Book Engine — خط أنابيب متعدد الوكلاء يجمع موادك في «كتب حية» تفاعلية بـ 13 نوع كتلة: اختبارات، بطاقات تعليمية، خطوط زمنية، رسوم بيانية للمفاهيم، عارض GeoGebra مدمج، رسوم متحركة، والمزيد. الصفحات مبصمة بـ KB، حتى يمكن اكتشاف الانحراف.
+**مساحة عمل تعليمية واحدة**
 
-**مكتبتك**
+- **المحادثة كحلقة افتراضية** — يشترك التدريس غير الرسمي والأسئلة والأجوبة المرتكزة على المصادر وDeep Solve وDeep Question وDeep Research وVisualize والوضع التلقائي في نفس سياق الجلسة ومخزون المصادر.
+- **أسطح التعلم المترابطة** — مسودات Co-Writer وصفحات الكتاب وقواعد المعرفة وأصول Space والذاكرة هي مساحات عمل منفصلة، لكنها تُغذّي نفس وقت تشغيل الوكيل بدلاً من أن تصبح تطبيقات معزولة.
+- **الشركاء للرفقة الدائمة** — الرفقاء المتصلون بتطبيقات المراسلة الفورية يعملون الآن على نفس حلقة وكيل المحادثة للمنتج الرئيسي، مع مساحة عمل اصطناعية خاصة ومكتبة مخصصة.
 
-- Knowledge Bases — مجموعات موسومة بإصدارات وجاهزة لـ RAG، من البداية إلى النهاية على LlamaIndex. كل عملية (إعادة) فهرسة متتبَّعة، قابلة للمقارنة والإرجاع.
-- Space — مكتبة مراجعة شخصية تجمع تاريخ الدردشة، notebooks، بنك الأسئلة، وskills التي ينشئها المستخدم (`SKILL.md`) والتي تغير شخصية DeepTutor.
-- ذاكرة ثلاثية الطبقات — آثار L1 بإلحاق فقط، حقائق L2 منسقة حسب السطح مع اقتباسات، وتوليف L3 عبر الأسطح. منضدة قابلة للفحص ورسم بياني للذاكرة يتيحان لك تدقيق *لماذا* يعرف DeepTutor ما يعرفه.
+**الأدوات والذاكرة والتحكم**
 
-**القابلية للتوسيع والتحكم**
-
-- أدوات قابلة للتركيب — RAG، البحث على الويب، تنفيذ الكود، التفكير، العصف الذهني، البحث عن المقالات، تحليل GeoGebra، ومساعدو الدردشة (`ask_user`, `web_fetch`, `write_note`, `list_notebook`, `github_query`). تتصل خوادم MCP جنباً إلى جنب مع الأدوات المدمجة.
-- TutorBots شخصية — معلمون دائمون ومستقلون، لكل منهم مساحة عمله الخاصة، soul، skills، وقنوات (Telegram، Discord، Slack، Matrix، Zulip، …). مبنية على [nanobot](https://github.com/HKUDS/nanobot).
-- Settings موحدة — منضدة مسودة / Apply واحدة للمظهر، النماذج، embeddings، البحث، القدرات، الذاكرة، خوادم MCP، والأدوات، مع تتبع مشترك للتكلفة لكل استدعاء.
-- CLI أصلية للوكلاء — كل قدرة، KB، جلسة، و TutorBot على بعد أمر واحد؛ مخرجات غنية للبشر، JSON منظم للوكلاء. سلِّم [`SKILL.md`](../../SKILL.md) لأي LLM يستخدم الأدوات، وسيتمكن من قيادة DeepTutor بنفسه.
-- مصادقة اختيارية — معطلة افتراضياً؛ فعّلها للنشر متعدد المستخدمين مع bcrypt + JWT، لوحة إدارة، و sidecar اختياري لـ PocketBase / OAuth.
+- **أدوات قابلة للتركيب** — يمكن تثبيت RAG وقراءة المصادر وقراءة/كتابة الذاكرة ودفاتر الملاحظات وجلب URL والبحث في GitHub وإيقاف السؤال للمستخدم والتنفيذ في صندوق الأمان وأدوات اختيارية للعصف الذهني/الويب/الأوراق/العقل وفقاً للسياق والإعدادات.
+- **ذاكرة ثلاثية الطبقات** — آثار L1 وملخصات L2 لكل سطح وتوليف L3 عبر الأسطح تجعل التخصيص قابلاً للفحص بدلاً من إخفائه خلف صندوق أسود.
+- **إعدادات موحّدة وCLI** — كتالوجات النماذج والتضمينات والبحث والشبكة وخوادم MCP والأدوات والقدرات وإعدادات النشر قابلة للتحرير من واجهة مستخدم الويب والبرمجة من `deeptutor`.
 
 ---
 
-<a id="get-started"></a>
 ## 🚀 البدء
 
-يحتوي DeepTutor الآن على أربعة مسارات تثبيت متوازية. جميعها تستخدم نفس بنية تكوين وقت التشغيل:
+يأتي DeepTutor بأربعة مسارات تثبيت. وكلها تشترك في تخطيط مساحة عمل واحد: تعيش الإعدادات في `data/user/settings/` تحت الدليل الذي تُطلق منه التطبيق (أو تحت `DEEPTUTOR_HOME` / `deeptutor start --home` إذا حددت واحداً صراحةً). للتطبيق الكامل، التدفق الموصى به هو **اختر دليل مساحة عمل → تثبيت → `deeptutor init` → `deeptutor start`**.
 
-- توجد الإعدادات في `data/user/settings/` تحت مساحة عملك الحالية، أو تحت `DEEPTUTOR_HOME` / `deeptutor start --home` عندما تختار واحدة صراحةً.
-- يخزن `model_catalog.json` ملفات مزودي النماذج، عناوين URL الأساسية، مفاتيح API، النماذج النشطة، إعدادات embedding، وإعدادات البحث.
-- يخزن `system.json` منافذ الإطلاق، قاعدة API العامة، CORS، TLS، وخيارات المرفقات.
-- يخزن `auth.json` مفتاح التبديل الاختياري للمصادقة وتجزئة بيانات اعتماد الإقلاع.
-- يخزن `integrations.json` sidecars اختيارية مثل PocketBase.
-- لم يعد `.env` في جذر المشروع يستخدم كملف تكوين للتطبيق.
+> ✨ **v1.4.3 متاح الآن.** `pip install -U deeptutor` يحصل على أحدث إصدار مستقر. الإصدارات التجريبية (عند توفرها) تُفعَّل بـ `pip install --pre -U deeptutor`.
 
-للحصول على التطبيق المحلي الكامل، الترتيب الموصى به هو **اختر مساحة عمل ← ثبّت ← `deeptutor init` ← `deeptutor start`**.
+### الخيار 1 — التثبيت من PyPI
 
-### الخيار 1 — تثبيت DeepTutor
-
-استخدم هذا عندما تريد تطبيق الويب المحلي الكامل والـ CLI دون استنساخ المستودع.
+تطبيق ويب محلي كامل + CLI، لا يلزم الاستنساخ. يحتاج **Python 3.11+** وبيئة تشغيل **Node.js 20+** في PATH (يُشغَّل خادم Next.js المستقل المُحزَّم بواسطة `deeptutor start`).
 
 ```bash
-mkdir -p my-deeptutor
-cd my-deeptutor
+mkdir -p my-deeptutor && cd my-deeptutor
 pip install -U deeptutor
-deeptutor init
-deeptutor start
+deeptutor init     # يطلب المنافذ + مزود LLM + تضمين اختياري
+deeptutor start    # يشغّل الخلفية + الواجهة الأمامية؛ ابقِ الطرفية مفتوحة
 ```
 
-> 🧪 **تجرب v1.4.0 beta؟** يطبّع PyPI `1.4.0-beta` إلى `1.4.0b0`، لذا فإن `pip install -U deeptutor` سيبقى على أحدث إصدار مستقر. اشترك في الإصدار التجريبي بأي من:
->
-> ```bash
-> pip install --pre -U deeptutor      # أحدث إصدار تجريبي
-> pip install -U deeptutor==1.4.0b0   # تثبيت دقيق على v1.4.0-beta
-> ```
+يطلب `deeptutor init` منفذ الخلفية (افتراضي `8001`)، ومنفذ الواجهة الأمامية (افتراضي `3782`)، ومزود LLM / عنوان URL الأساسي / مفتاح API / النموذج، ومزود تضمين اختياري لقاعدة المعرفة / RAG.
 
-يكتب `deeptutor init` التكوين تحت `data/user/settings/` في الدليل الذي تشغّله منه. يطلب منك:
-
-- منفذ الخلفية، الافتراضي `8001`
-- منفذ الواجهة الأمامية، الافتراضي `3782`
-- ربط مزود LLM، عنوان URL الأساسي، مفتاح API، واسم النموذج
-- مزود embedding اختياري لـ Knowledge Base / RAG
-
-بعد `deeptutor start`، افتح عنوان URL للواجهة الأمامية المطبوع في الطرفية. مع المنافذ الافتراضية، هذا العنوان هو [http://127.0.0.1:3782](http://127.0.0.1:3782).
-
-أبقِ طرفية `deeptutor start` مفتوحة. اضغط `Ctrl+C` في تلك الطرفية لإيقاف كل من الخلفية والواجهة الأمامية.
-
-ملاحظات:
-
-- يبدأ `deeptutor start` خلفية FastAPI وواجهة Next.js المعبأة معاً.
-- لا يتطلب تطبيق الويب المعبأ `git clone` أو `npm install`، لكنه لا يزال يحتاج إلى وقت تشغيل Node.js 20+ محلي.
+بعد `deeptutor start`، افتح عنوان URL للواجهة الأمامية المطبوع في الطرفية — افتراضياً [http://127.0.0.1:3782](http://127.0.0.1:3782). اضغط `Ctrl+C` في تلك الطرفية لإيقاف الخلفية والواجهة الأمامية معاً. تخطي `deeptutor init` لا بأس به للتجربة السريعة؛ يُقلع التطبيق بالمنافذ الافتراضية وإعدادات نموذج فارغة، قم بتهيئتها لاحقاً في **الإعدادات ← النماذج**.
 
 ### الخيار 2 — التثبيت من المصدر
 
-استخدم هذا عندما تطوّر DeepTutor أو تريد التشغيل مباشرة من checkout.
-استخدم Python 3.11+ و Node.js 22 LTS للحصول على أقرب تطابق مع CI و Docker.
-
-**1. استنساخ المستودع**
+للتطوير مقابل نسخة مسحوبة. استخدم **Python 3.11+** و**Node.js 22 LTS** لمطابقة CI وDocker.
 
 ```bash
 git clone https://github.com/HKUDS/DeepTutor.git
 cd DeepTutor
-```
 
-**2. إنشاء بيئة Python**
-
-macOS / Linux مع `venv`:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
+# إنشاء venv (macOS/Linux). Windows PowerShell:
+#   py -3.11 -m venv .venv ; .\.venv\Scripts\Activate.ps1
+python3 -m venv .venv && source .venv/bin/activate
 python -m pip install --upgrade pip
+
+# تثبيت تبعيات الخلفية والواجهة الأمامية
+python -m pip install -e .
+( cd web && npm ci --legacy-peer-deps )
+
+deeptutor init
+deeptutor start
 ```
 
-Windows PowerShell مع `venv`:
+تشغّل تثبيتات المصدر Next.js في وضع التطوير مقابل دليل `web/` المحلي؛ كل شيء آخر (تخطيط التهيئة، المنافذ، الإيقاف بـ `Ctrl+C`) يطابق الخيار 1.
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-```
-
-Conda / Miniconda:
+<details>
+<summary><b>بيئة Conda</b> (بديلاً عن <code>venv</code>)</summary>
 
 ```bash
 conda create -n deeptutor python=3.11
@@ -244,48 +218,43 @@ conda activate deeptutor
 python -m pip install --upgrade pip
 ```
 
-**3. تثبيت الحزمة المحلية وتبعيات الواجهة الأمامية**
+</details>
+
+<details>
+<summary><b>إضافات التثبيت الاختيارية</b> — dev / partners / matrix / math-animator</summary>
 
 ```bash
-python -m pip install -e .
-cd web
-npm ci --legacy-peer-deps
-cd ..
+pip install -e ".[dev]"             # أدوات الاختبار/الفحص
+pip install -e ".[partners]"        # SDK قنوات شركاء IM + عميل MCP
+pip install -e ".[matrix]"          # قناة Matrix بدون E2EE/libolm
+pip install -e ".[matrix-e2e]"      # Matrix E2EE؛ يتطلب libolm
+pip install -e ".[math-animator]"   # إضافة Manim؛ تتطلب LaTeX/ffmpeg/مكتبات النظام
 ```
 
-**4. التكوين والبدء**
+</details>
 
-```bash
-deeptutor init
-deeptutor start
-```
+<details>
+<summary><b>تعديلات تبعيات الواجهة الأمامية وحل مشاكل خادم التطوير</b></summary>
 
-إذا أبلغ `deeptutor start` عن واجهة أمامية موجودة لا تستجيب، أزل ملفات القفل القديمة وابدأ مرة أخرى:
+**تغيير تبعيات الواجهة الأمامية:** شغّل `npm install --legacy-peer-deps` لتحديث `web/package-lock.json`، ثم ارفع كلاً من `web/package.json` و`web/package-lock.json`.
+
+**خادم تطوير متوقف:** إذا أبلغ `deeptutor start` عن واجهة أمامية موجودة لا تستجيب، أوقف الـ PID الذي يطبعه. إذا لم يكن هناك أي عملية Next.js تعمل فعلياً، فملفات القفل قديمة — احذفها وأعد المحاولة:
 
 ```bash
 rm -f web/.next/dev/lock web/.next/lock
 deeptutor start
 ```
 
-إضافات مفيدة للمطورين:
-
-```bash
-pip install -e ".[dev]"             # أدوات الاختبارات/lint
-pip install -e ".[partners]"        # SDKs قنوات Partners + عميل MCP
-pip install -e ".[matrix]"          # قناة Matrix بدون E2EE/libolm
-pip install -e ".[matrix-e2e]"      # Matrix E2EE؛ يتطلب libolm
-pip install -e ".[math-animator]"   # إضافة Manim؛ تتطلب LaTeX/ffmpeg/مكتبات النظام
-```
+</details>
 
 ### الخيار 3 — Docker
 
-استخدم هذا عندما تريد تطبيق الويب الكامل في حاوية واحدة. تُنشر الصور إلى GitHub Container Registry:
+حاوية واحدة لتطبيق الويب الكامل. الصور على GitHub Container Registry:
 
 - `ghcr.io/hkuds/deeptutor:latest` — إصدار مستقر
-- `ghcr.io/hkuds/deeptutor:pre` — إصدار تجريبي عند توفره
+- `ghcr.io/hkuds/deeptutor:pre` — إصدار تجريبي، عند توفره
 
 ```bash
-docker pull ghcr.io/hkuds/deeptutor:latest
 docker run --rm --name deeptutor \
   -p 127.0.0.1:3782:3782 \
   -p 127.0.0.1:8001:8001 \
@@ -293,476 +262,312 @@ docker run --rm --name deeptutor \
   ghcr.io/hkuds/deeptutor:latest
 ```
 
-ثم افتح [http://127.0.0.1:3782](http://127.0.0.1:3782). يتم تخزين التكوين، مفاتيح API، السجلات، ملفات مساحة العمل، الذاكرة، وقواعد المعرفة في الحجم `deeptutor-data` تحت `/app/data`.
+> ⚠️ **عيّن كلاً من `3782` و`8001`.** يخدم `3782` واجهة مستخدم الويب؛ `8001` هو خلفية FastAPI التي يستدعيها متصفحك مباشرةً — لا يوجد وكيل داخل الحاوية. تخطي تعيين `8001` والصفحة ستظل تُحمَّل، لكن **الإعدادات** ستُظهر "الخلفية غير متاحة" وستظل غير قابلة للاستخدام.
 
-#### الاتصال بـ Ollama أو خدمات المضيف الأخرى
+افتح [http://127.0.0.1:3782](http://127.0.0.1:3782). تُنشئ الحاوية `/app/data/user/settings/*.json` عند الإقلاع الأول؛ قم بتهيئة مزودي النماذج من صفحة إعدادات الويب. تبقى التهيئة ومفاتيح API والسجلات وملفات مساحة العمل والذاكرة وقواعد المعرفة في وحدة تخزين `deeptutor-data`.
 
-داخل حاوية Docker، يشير `localhost` إلى الحاوية نفسها، وليس جهازك المضيف. إذا كنت تشغّل Ollama أو LM Studio أو llama.cpp أو vLLM أو خدمة نموذج أخرى على المضيف، استخدم أحد هذه النهج.
+- **منافذ مضيف مختلفة:** غيّر الجانب الأيسر من كل تعيين `-p host:container` (مثلاً `-p 127.0.0.1:8088:3782`). إذا غيّرت المنافذ على جانب الحاوية في `/app/data/user/settings/system.json`، أعد التشغيل وحدّث الجانب الأيمن من كل تعيين ليطابق ذلك.
+- **وضع المنفصل:** أضف `-d`، ثم `docker logs -f deeptutor` للمتابعة، و`docker stop deeptutor` للإيقاف، و`docker rm deeptutor` قبل إعادة استخدام الاسم. تحتفظ وحدة تخزين `deeptutor-data` بإعداداتك ومساحة عملك عبر إعادات التشغيل.
 
-الخيار A — بوابة المضيف، موصى به لتشغيلات Docker العادية:
+**Docker عن بُعد / وكيل عكسي:** تعمل واجهة مستخدم الويب في المتصفح، لذا يحتاج المتصفح إلى عنوان URL للخلفية يمكنه الوصول إليه. للخوادم البعيدة، افتح **الإعدادات ← الشبكة** أو عدّل `data/user/settings/system.json`:
+
+```json
+{
+  "next_public_api_base_external": "https://deeptutor.example.com"
+}
+```
+
+يُقبَل `public_api_base` كاسم مستعار للتوافق ويُطبَّع إلى `next_public_api_base_external` عند الحفظ. يستخدم CORS **منشآت** الواجهة الأمامية، وليس عناوين URL لواجهة برمجة التطبيقات. مع تعطيل المصادقة، يسمح DeepTutor بمنشآت متصفح HTTP/HTTPS العادية افتراضياً. مع تفعيل المصادقة، أضف منشآت الواجهة الأمامية الدقيقة:
+
+```json
+{
+  "cors_origins": ["https://deeptutor.example.com"]
+}
+```
+
+<details>
+<summary><b>الاتصال بـ Ollama / LM Studio / llama.cpp / vLLM / Lemonade على المضيف</b></summary>
+
+داخل Docker، يشير `localhost` إلى الحاوية نفسها، وليس جهازك المضيف. للوصول إلى خدمة نموذج تعمل على المضيف، استخدم بوابة المضيف (موصى بها):
 
 ```bash
 docker run --rm --name deeptutor \
-  -p 127.0.0.1:3782:3782 \
-  -p 127.0.0.1:8001:8001 \
+  -p 127.0.0.1:3782:3782 -p 127.0.0.1:8001:8001 \
   --add-host=host.docker.internal:host-gateway \
   -v deeptutor-data:/app/data \
   ghcr.io/hkuds/deeptutor:latest
 ```
 
-ثم في **DeepTutor Settings → Models**، عيّن عنوان URL الأساسي للمزود إلى `host.docker.internal`:
+ثم في **الإعدادات ← النماذج**، وجّه عنوان URL الأساسي للمزود إلى `host.docker.internal`:
 
-- نقطة نهاية Ollama LLM: `http://host.docker.internal:11434/v1`
-- نقطة نهاية embedding Ollama: `http://host.docker.internal:11434/api/embed`
+- Ollama LLM: `http://host.docker.internal:11434/v1`
+- Ollama embedding: `http://host.docker.internal:11434/api/embed`
 - LM Studio: `http://host.docker.internal:1234/v1`
 - llama.cpp: `http://host.docker.internal:8080/v1`
+- Lemonade: `http://host.docker.internal:13305/api/v1`
 
-الخيار B — شبكة المضيف، Linux فقط:
+عادةً ما يحل Docker Desktop (macOS/Windows) `host.docker.internal` بدون `--add-host`. على Linux، يُعدّ هذا العلم الطريقة المحمولة لإنشاء هذا الاسم المضيف على Docker Engine الحديث.
 
-```bash
-docker run --network=host \
-  -v deeptutor-data:/app/data \
-  ghcr.io/hkuds/deeptutor:latest
-```
+**بديل Linux — شبكة المضيف:** أضف `--network=host` وأزل علامات `-p`. تشارك الحاوية شبكة المضيف مباشرةً، لذا افتح [http://127.0.0.1:3782](http://127.0.0.1:3782) (أو `frontend_port` في `system.json`)، ويمكن الوصول إلى خدمات المضيف بعناوين URL العادية لـ localhost مثل `http://127.0.0.1:11434/v1`. لاحظ أن شبكة المضيف تكشف منافذ الحاوية مباشرةً على المضيف وقد تتعارض مع الخدمات الموجودة.
 
-للتشغيل في الخلفية:
+</details>
 
-```bash
-docker run -d --name deeptutor \
-  -p 127.0.0.1:3782:3782 \
-  -p 127.0.0.1:8001:8001 \
-  -v deeptutor-data:/app/data \
-  ghcr.io/hkuds/deeptutor:latest
-docker logs -f deeptutor
-```
+### صندوق أمان تنفيذ الرمز (مهارات المكتب)
 
-### الخيار 4 — CLI فقط
+مهارات المكتب المدمجة — **docx / pdf / pptx / xlsx** — تعمل عن طريق جعل النموذج يكتب برنامج Python قصير (`python-docx`، `reportlab`، `openpyxl`، ...)، وتشغيله عبر أدوات `exec` / `code_execution`، وإرجاع عنوان URL للتنزيل. تُثبَّت هذه الأدوات عندما تكون خلفية صندوق الأمان نشطة، وهي كذلك **افتراضياً** في كل شكل نشر:
 
-استخدم هذا عندما لا تحتاج إلى واجهة الويب.
+- **محلي (الخيار 1 / 2) وDocker (الخيار 3، حاوية واحدة):** يُشغَّل صندوق أمان عمليات فرعية مقيّدة لرمز النموذج (على المضيف محلياً، أو داخل الحاوية تحت Docker — والحاوية هي حدود عزلها الخاصة).
+- **docker-compose:** يُوجَّه بدلاً من ذلك إلى **مرافق runner** محصَّن وأقل امتيازاً (`Dockerfile.runner`) عبر `DEEPTUTOR_SANDBOX_RUNNER_URL` — أقوى وضع، ويُفضَّل تلقائياً عند توفره.
+
+يتحكم إعداد `sandbox_allow_subprocess` في `data/user/settings/system.json` (افتراضي `true`) في صندوق أمان العمليات الفرعية. تشغيل الرمز المُولَّد بواسطة النموذج على مضيفك هو قرار ثقة حقيقي — اضبطه على `false` (أو صدّر `DEEPTUTOR_SANDBOX_ALLOW_SUBPROCESS=0`) لتعطيل التنفيذ على جانب المضيف، على حساب عدم قدرة مهارات المكتب على إنتاج الملفات بعد الآن.
+
+### الخيار 4 — واجهة سطر الأوامر فقط
+
+عندما لا تحتاج إلى واجهة مستخدم الويب. يُثبَّت حزمة CLI فقط من نسخة مسحوبة من المصدر، وليس من PyPI.
 
 ```bash
 git clone https://github.com/HKUDS/DeepTutor.git
 cd DeepTutor
 
-python3 -m venv .venv-cli
-source .venv-cli/bin/activate
+# إنشاء venv (macOS/Linux). Windows PowerShell:
+#   py -3.11 -m venv .venv-cli ; .\.venv-cli\Scripts\Activate.ps1
+python3 -m venv .venv-cli && source .venv-cli/bin/activate
 python -m pip install --upgrade pip
+
 python -m pip install -e ./packaging/deeptutor-cli
 deeptutor init --cli
 deeptutor chat
 ```
 
-Windows PowerShell:
+يشارك `deeptutor init --cli` نفس تخطيط `data/user/settings/` مع التطبيق الكامل لكنه يتخطى موجهات منفذ الخلفية/الواجهة الأمامية ويضبط التضمينات افتراضياً على **إيقاف** (اختر `نعم` إذا كنت تخطط لاستخدام `deeptutor kb …` أو أدوات RAG). لا يزال يكتب تخطيط وقت تشغيل كامل (`system.json`، `auth.json`، `integrations.json`، `model_catalog.json`، `main.yaml`، `agents.yaml`) ولا يزال يطلب مزود LLM النشط والنموذج.
 
-```powershell
-py -3.11 -m venv .venv-cli
-.\.venv-cli\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ./packaging/deeptutor-cli
-deeptutor init --cli
-deeptutor chat
-```
-
-يستخدم `deeptutor init --cli` نفس بنية `data/user/settings/` كما في التطبيق الكامل، ولكن يغيّر سلوك المعالج:
-
-- يتخطى مطالبات منافذ الخلفية/الواجهة الأمامية لأن الاستخدام مع CLI فقط لا يبدأ تطبيق الويب.
-- لا يزال يكتب ملفات `system.json` و `auth.json` و `integrations.json` و `model_catalog.json` و `main.yaml` و `agents.yaml` الافتراضية.
-- لا يزال يطلب مزود LLM والنموذج النشط.
-- يسأل عما إذا كان سيُكوّن embeddings، ولكن الإجابة الافتراضية هي `لا`؛ اختر `نعم` إذا كنت تخطط لاستخدام `deeptutor kb ...` أو أدوات RAG.
-
-أوامر CLI شائعة:
+<details>
+<summary><b>الأوامر الشائعة</b></summary>
 
 ```bash
-deeptutor chat
+deeptutor chat                                          # REPL تفاعلي
 deeptutor chat --capability deep_solve --tool rag --kb my-kb
-deeptutor run chat "اشرح تحويل فورييه"
-deeptutor run deep_solve "حُل x^2 = 4" --tool rag --kb my-kb
+deeptutor run chat "Explain Fourier transform"
+deeptutor run deep_solve "Solve x^2 = 4" --tool rag --kb my-kb
 deeptutor kb create my-kb --doc textbook.pdf
-deeptutor kb list
 deeptutor memory show
 deeptutor config show
 ```
 
-### مرجع التكوين
+</details>
+
+لا يشحن تثبيت `deeptutor-cli` المحلي بأصول الويب أو تبعيات الخادم. احتفظ بالنسخة المسحوبة من المصدر — يشير التثبيت القابل للتحرير إليها. لإضافة تطبيق الويب لاحقاً، ثبّت حزمة PyPI (الخيار 1) وشغّل `deeptutor init` + `deeptutor start` من نفس مساحة العمل.
+
+### مرجع التهيئة
+
+<details>
+<summary><b>ملفات التهيئة تحت <code>data/user/settings/</code></b> — مرجع JSON/YAML</summary>
+
+كل شيء تحت `data/user/settings/` هو JSON/YAML عادي. صفحة **الإعدادات** في المتصفح هي المحرر الموصى به.
 
 | الملف | الغرض |
 |:---|:---|
-| `data/user/settings/model_catalog.json` | ملفات مزودي LLM و embedding والبحث؛ مفاتيح API؛ النماذج النشطة |
-| `data/user/settings/system.json` | منافذ الخلفية/الواجهة الأمامية، قاعدة API العامة، CORS، التحقق من SSL، دليل المرفقات |
-| `data/user/settings/auth.json` | مفتاح تبديل المصادقة الاختياري، اسم المستخدم، تجزئة كلمة المرور، إعدادات الرمز/الكوكي |
-| `data/user/settings/integrations.json` | إعدادات تكامل PocketBase و sidecar الاختيارية |
-| `data/user/settings/interface.json` | تفضيلات لغة/سمة/الشريط الجانبي لواجهة المستخدم |
-| `data/user/settings/main.yaml` | افتراضيات سلوك وقت التشغيل وحقن المسارات |
-| `data/user/settings/agents.yaml` | إعدادات درجة الحرارة والرموز لقدرات/أدوات |
-
-<a id="explore-deeptutor"></a>
-## 📖 استكشاف DeepTutor
-
-<div align="center">
-<img src="../../assets/figs/deeptutor-architecture.png" alt="DeepTutor Architecture" width="800">
-</div>
-
-تعيد إعادة هيكلة v1.4.0-beta تنظيم DeepTutor حول **خمسة أسطح أساسية** — Chat و Co-Writer و Book و Knowledge و Space — بالإضافة إلى **Memory ثلاثية الطبقات** التي توجد تحتها جميعاً ومنضدة عمل **Settings** موحدة تعرض كل مفتاح ضبط. تتركب القدرات (Solve / Quiz / Research / Visualize) والأدوات (RAG، الويب، الكود، التفكير، العصف الذهني، البحث عن المقالات، `ask_user`, `web_fetch`, `write_note`, `list_notebook`, `github_query`) بحرية فوقها.
-
-### 💬 Chat — مساحة عمل ذكية موحدة
-
-<div align="center">
-<img src="../../assets/figs/dt-chat.png" alt="Chat Workspace" width="800">
-</div>
-
-خيط واحد، خمسة أوضاع، أي أداة. منتقي القدرات موجود في المؤلِّف؛ تنتقل معك نفس الجلسة، قاعدة المعرفة، المرفقات، والمراجع عبر الأوضاع — انتقل من سؤال عابر إلى حل متعدد الوكلاء، إلى اختبار، إلى تقرير بحثي كامل، دون فقدان السياق.
-
-| الوضع | ما يفعله | مبني على |
-|:---|:---|:---|
-| **Chat** | محادثة مرنة مع أي أداة؛ اختر من RAG، البحث على الويب، تنفيذ الكود، التفكير العميق، العصف الذهني، البحث عن المقالات، تحليل GeoGebra. | RAG مدعوم بـ LlamaIndex + سجل الأدوات |
-| **Solve** | خطة متعددة الخطوات → تحقيق → حل → تحقق، مع اقتباسات مصادر دقيقة. | محرك وكيل (`deep_solve`) |
-| **Quiz** | توليد أسئلة مُتحقق منها تلقائياً مستندة إلى KB الخاصة بك؛ ينشئ مؤلف دردشة متابعة لكل سؤال. | محرك وكيل (`deep_question`) |
-| **Research** | يفكك موضوعاً إلى مواضيع فرعية، ويرسل وكلاء متوازية عبر RAG / الويب / arXiv، وينتج تقريراً مع اقتباسات وتنقيحات تكرارية في وضع الإلحاق. | `pipeline.py` معاد بناؤه (~45% أصغر، الاقتباسات + التقارير التكرارية محفوظة) |
-| **Visualize** | يولد رسوم SVG، مخططات Chart.js، رسوم بيانية Mermaid، صفحات HTML تفاعلية، **أو** فيديوهات/قصص مصورة Manim — يختار المحلل `render_type` الصحيح. | خط أنابيب Visualize (Animator مدمج) |
-
-**أدوات دردشة جديدة** صدرت مع إعادة الهيكلة: `ask_user` (يطرح سؤالاً توضيحياً منظماً في منتصف الدور)، `web_fetch` (يسحب عنوان URL محدد إلى السياق)، `write_note` / `list_notebook` (يحفظ ويسرد سجلات notebook من سطح الدردشة)، و `github_query` (عمليات بحث في issue / PR / المستودع). تبقى الأدوات **منفصلة عن سير العمل** — كل وضع يسمح لك بتفعيل الأدوات أو تعطيلها لكل دور.
-
-تحمل الجلسة أيضاً **مخزون مصادر تراكمي** عبر الأدوار، بحيث تبقى الاقتباسات من ضربات RAG / الويب السابقة قابلة لإعادة الاستخدام لاحقاً في نفس المحادثة.
-
-### ✍️ Co-Writer — مساحة عمل كتابة AI متعددة الوثائق
-
-<div align="center">
-<img src="../../assets/figs/dt-cowriter.png" alt="Co-Writer" width="800">
-</div>
-
-Co-Writer هو منضدة عمل Markdown بعرض مقسم (المحرر الخام على اليسار، المعاينة الحية على اليمين) للملاحظات والتقارير والدروس التعليمية ومسودات بمساعدة AI. كل وثيقة تعيش في مساحة عملها الخاصة مع حفظ تلقائي، Markdown قابل للتنزيل، و**حفظ في Notebook** بنقرة واحدة.
-
-حدد أي نص واختر **إعادة كتابة** أو **توسيع** أو **اختصار** — كل إجراء يُنفذ كتعديل وكيل متتبَّع يمكنه اختيارياً السحب من قاعدة معرفة أو الويب.
-
-### 📖 Book Engine — «كتب حية» تفاعلية
-
-<div align="center">
-<img src="../../assets/figs/dt-book.png" alt="Book Engine" width="800">
-</div>
-
-أعطِ DeepTutor موضوعاً، وجّهه إلى قاعدة معرفتك، وسينتج كتاباً منظماً وتفاعلياً — ليس تصديراً ثابتاً، بل وثيقة حية يمكنك قراءتها، اختبار نفسك بها، ومناقشتها في السياق.
-
-خلف الكواليس، يتعامل خط أنابيب متعدد الوكلاء مع العمل الشاق: اقتراح مخطط، استرداد المصادر ذات الصلة من KB، تركيب شجرة فصول، تخطيط كل صفحة، وتجميع كل كتلة. تبقى أنت في السيطرة — راجع الاقتراح، أعد ترتيب الفصول، وتحدث بجانب أي صفحة.
-
-تتجمع الصفحات من 13 نوع كتلة — نص، استدعاء، اختبار، بطاقات تعليمية، كود، شكل، غوص عميق، رسوم متحركة، عرض تفاعلي (يشمل الآن **عارض GeoGebra**)، خط زمني، رسم بياني للمفاهيم، قسم، وملاحظة المستخدم.
-
-### 📚 Knowledge Bases — مكتبات وثائق جاهزة لـ RAG
-
-<div align="center">
-<img src="../../assets/figs/dt-kb.png" alt="Knowledge Bases" width="800">
-</div>
-
-مساحة عمل مخصصة لمجموعات الوثائق التي تشغّل RAG. كل قاعدة معرفة لها أربع علامات تبويب:
-
-- **Files** — تصفح المصادر المرفوعة، وعاين PDFs في الموقع، وشاهد الحجم/الحالة لكل ملف.
-- **Add documents** — أضف PDFs، ملفات Office (DOCX / XLSX / PPTX)، Markdown، نص عادي، ونطاق واسع من أنواع ملفات الكود/البيانات. تُوجَّه الوثائق تلقائياً إلى المستخرج المناسب.
-- **Index versions** — كل عملية (إعادة) فهرسة هي إصدار متتبَّع. ارجع إلى فهرس سابق، قارن نماذج embedding، أو افحص إحصاءات chunking دون فقدان البناء السابق.
-- **Settings** — اختر مزود/نموذج embedding، معلمات chunking، و reranker لـ KB.
-
-تُبنى الفهرسة على **LlamaIndex** من البداية إلى النهاية، مع إعادة فهرسة آمنة من الإعادة، اكتشاف عدم تطابق embedding، ومعالجة مرنة للمتجهات المستمرة الفاسدة.
-
-### 🌐 Space — مكتبة التعلم الشخصية الخاصة بك
-
-<div align="center">
-<img src="../../assets/figs/dt-space.png" alt="Space" width="800">
-</div>
-
-Space هو نظير **القراءة / المراجعة** للأسطح النشطة. حيث تكون Chat / Co-Writer / Book هي حيث *تنتج*، فإن Space هو حيث يعيش كل ما تنتجه، قابلاً للبحث وإعادة التشغيل.
-
-- **Chat History** — كل محادثة عبر كل وضع، مع إعادة تسمية العنوان، الحذف، والاستئناف.
-- **Notebooks** — احفظ مخرجات من Chat و Research و Co-Writer في notebooks مصنفة ومرمزة بالألوان.
-- **Question Bank** — كل سؤال اختبار مولد تلقائياً، قابل للتعليم بإشارة مرجعية و@-mention في الدردشة.
-- **Skills** — ملفات `SKILL.md` ينشئها المستخدم وتحدد شخصيات تعليم (الاسم، الوصف، المحفزات، الجسم). عندما يكون skill نشطاً، يتم حقنه في prompt نظام الدردشة.
-
-### 🧠 Memory — معمارية ثلاثية الطبقات
-
-<div align="center">
-<img src="../../assets/figs/dt-memory.png" alt="Memory Workbench" width="800">
-</div>
-
-ذاكرة DeepTutor الآن هي **خط أنابيب ثلاثي الطبقات** مع منضدة عمل قابلة للفحص في `/memory`.
-
-| الطبقة | الدور | التخزين |
-|:---|:---|:---|
-| **L1 · مرآة مساحة العمل** (LIVE) | أثر إلحاق فقط لكل تفاعل، حسب السطح، حسب اليوم. السجل بدون فقدان لما حدث فعلاً. | `trace/<surface>/<YYYY-MM-DD>.jsonl` |
-| **L2 · ملخصات حسب السطح** (CURATED) | حقائق خاصة بالسطح يستخرجها المُجمِّع. كل حقيقة تحمل اقتباسات حواشي تعود إلى آثار L1. | `L2/<surface>.md` |
-| **L3 · معرفة عبر الأسطح** (SYNTHESIS) | توليف عبر الأسطح: `profile` الخاص بك، الخط الزمني `recent`، `scope` المعرفة، و `preferences`. ادعاءات محدَّدة، كل واحدة مدعومة بدليل L2. | `L3/<recent\|profile\|scope\|preferences>.md` |
-
-سبعة أسطح تغذي خط الأنابيب: **chat, notebook, quiz, kb, book, tutorbot, cowriter**.
-
-<div align="center">
-<img src="../../assets/figs/dt-memgraph.png" alt="Memory Graph" width="800">
-</div>
-
-يصور **Memory Graph** (`/memory/graph`) جميع الطبقات الثلاث في وقت واحد: توليف L3 في المركز، حقائق L2 في الحلقة الوسطى، آثار L1 على الخارج، مجمَّعة حسب السطح.
-
-### ⚙️ Settings — مركز تحكم موحد
-
-<div align="center">
-<img src="../../assets/figs/dt-settings.png" alt="Settings" width="800">
-</div>
-
-تم توحيد سطح الإعدادات في v1.4 وتقسيمه حسب الاهتمام، بنموذج مسودة / **Apply** حتى تكون التغييرات ذرية ويمكن التراجع عنها قبل الحفظ:
-
-- **Appearance** — لغة الواجهة والسمة (Cream, Snow, Dark, Glass).
-- **Status** — فحص صحة حي عبر LLM، embedding، البحث، وخلفيات التخزين.
-- **LLM**، **Embedding**، **Search** — كاتالوج المزودين، عناوين URL الأساسية، مفاتيح API، واختيار النموذج النشط.
-- **Capabilities** — قابلة للضبط لكل قدرة لـ Chat و Solve و Quiz و Research و Visualize و Co-Writer. مدعومة بمظروف `emit_capability_result` موحد و `UsageTracker` مشترك يكشف عن التكلفة لكل استدعاء.
-- **Memory** — قم بتبديل تشغيلات المُجمِّع، قم بتكوين الإيقاع والميزانية، وانتقل إلى منضدة الذاكرة.
-- **MCP servers** — سجل خوادم Model Context Protocol خارجية؛ تظهر أدواتها جنباً إلى جنب مع الأدوات المدمجة.
-- **Tools** — افحص كل أداة مدمجة، معاملاتها، الحالة (مفعَّلة / قريباً)، وحالة نسخ i18n.
-
----
-
-<a id="tutorbot"></a>
-### 🦞 TutorBot — معلمو AI دائمون ومستقلون
-
-<div align="center">
-<img src="../../assets/figs/tutorbot-architecture.png" alt="TutorBot Architecture" width="800">
-</div>
-
-TutorBot ليس chatbot — إنه **وكيل دائم ومتعدد المثيلات** مبني على [nanobot](https://github.com/HKUDS/nanobot). يدير كل TutorBot حلقة الوكيل الخاصة به مع مساحة عمل، ذاكرة، وشخصية مستقلة.
-
-<div align="center">
-<img src="../../assets/figs/dt-tutorbot.png" alt="TutorBot Agents" width="800">
-</div>
-
-- **قوالب Soul** — حدد شخصية معلمك، نبرته، وفلسفته في التدريس من خلال ملفات Soul قابلة للتحرير.
-- **مساحة عمل مستقلة** — لكل بوت دليله الخاص بذاكرة، جلسات، skills، وتكوين منفصل.
-- **نبضات استباقية** — لا تستجيب البوتات فقط — بل تبادر. يتيح نظام Heartbeat المدمج فحوصات دراسية متكررة، تذكيرات بالمراجعة، ومهام مجدولة.
-- **الوصول الكامل للأدوات** — كل بوت يصل إلى مجموعة أدوات DeepTutor الكاملة: استرداد RAG، تنفيذ الكود، البحث على الويب، البحث عن الأوراق الأكاديمية، التفكير العميق، والعصف الذهني.
-- **تعلم Skills** — علّم بوتك قدرات جديدة بإضافة ملفات skills إلى مساحة عمله.
-- **حضور متعدد القنوات** — اربط البوتات بـ Telegram و Discord و Slack و Feishu و WeChat Work و DingTalk و Matrix و QQ و WhatsApp و البريد الإلكتروني، والمزيد.
-- **الفرق والوكلاء الفرعيون** — أنشئ وكلاء فرعيين في الخلفية أو نسّق فرق متعددة الوكلاء داخل بوت واحد.
-
-```bash
-deeptutor bot create math-tutor --persona "معلم رياضيات سقراطي يستخدم أسئلة استقصائية"
-deeptutor bot create writing-coach --persona "مرشد كتابة صبور ومتأنٍ في التفاصيل"
-deeptutor bot list                  # شاهد جميع معلميك النشطين
-```
-
----
-
-<a id="deeptutor-cli"></a>
-### ⌨️ DeepTutor CLI — واجهة أصلية للوكلاء
-
-<div align="center">
-<img src="../../assets/figs/cli-architecture.png" alt="DeepTutor CLI Architecture" width="800">
-</div>
-
-DeepTutor أصلي تماماً لـ CLI. كل قدرة، قاعدة معرفة، جلسة، ذاكرة، و TutorBot على بعد أمر واحد — دون الحاجة لمتصفح.
-
-**التنفيذ بأمر واحد**:
-
-```bash
-deeptutor run chat "اشرح تحويل فورييه" -t rag --kb textbook
-deeptutor run deep_solve "أثبت أن √2 غير منطقي" -t reason
-deeptutor run deep_question "الجبر الخطي" --config num_questions=5
-deeptutor run deep_research "آليات الانتباه في transformers"
-deeptutor run visualize "ارسم معمارية transformer"
-```
-
-**REPL تفاعلي**:
-
-```bash
-deeptutor chat --capability deep_solve --kb my-kb
-# داخل REPL: /cap, /tool, /kb, /history, /notebook, /config للتبديل في الحال
-```
-
-**دورة حياة قاعدة المعرفة**:
-
-```bash
-deeptutor kb create my-kb --doc textbook.pdf
-deeptutor kb add my-kb --docs-dir ./papers/
-deeptutor kb search my-kb "الانحدار التدرجي"
-deeptutor kb set-default my-kb
-```
-
-**وضع إخراج مزدوج**:
-
-```bash
-deeptutor run chat "لخص الفصل 3" -f rich    # إخراج ملوّن ومنسّق
-deeptutor run chat "لخص الفصل 3" -f json    # أحداث JSON مفصولة بأسطر
-```
-
-**استمرارية الجلسة**:
-
-```bash
-deeptutor session list
-deeptutor session open <id>
-```
-
-<details>
-<summary><b>مرجع كامل لأوامر CLI</b></summary>
-
-**المستوى الأعلى**
-
-| الأمر | الوصف |
-|:---|:---|
-| `deeptutor run <capability> <message>` | تشغيل أي قدرة في دور واحد (`chat`, `deep_solve`, `deep_question`, `deep_research`, `math_animator`, `visualize`) |
-| `deeptutor chat` | REPL تفاعلي مع `--capability`, `--tool`, `--kb`, `--language` اختيارية |
-| `deeptutor serve` | بدء خادم DeepTutor API |
-
-**`deeptutor bot`**
-
-| الأمر | الوصف |
-|:---|:---|
-| `deeptutor bot list` | سرد جميع مثيلات TutorBot |
-| `deeptutor bot create <id>` | إنشاء وبدء بوت جديد (`--name`, `--persona`, `--model`) |
-| `deeptutor bot start <id>` | بدء بوت |
-| `deeptutor bot stop <id>` | إيقاف بوت |
-
-**`deeptutor kb`**
-
-| الأمر | الوصف |
-|:---|:---|
-| `deeptutor kb list` | سرد جميع قواعد المعرفة |
-| `deeptutor kb info <name>` | عرض تفاصيل قاعدة المعرفة |
-| `deeptutor kb create <name>` | إنشاء من وثائق (`--doc`, `--docs-dir`) |
-| `deeptutor kb add <name>` | إضافة وثائق بشكل تزايدي |
-| `deeptutor kb search <name> <query>` | البحث في قاعدة معرفة |
-| `deeptutor kb set-default <name>` | تعيين كـ KB افتراضية |
-| `deeptutor kb delete <name>` | حذف قاعدة معرفة (`--force`) |
-
-**`deeptutor memory`**
-
-| الأمر | الوصف |
-|:---|:---|
-| `deeptutor memory show [file]` | عرض الذاكرة (`summary` أو `profile` أو `all`) |
-| `deeptutor memory clear [file]` | مسح الذاكرة (`--force`) |
-
-**`deeptutor session`**
-
-| الأمر | الوصف |
-|:---|:---|
-| `deeptutor session list` | سرد الجلسات (`--limit`) |
-| `deeptutor session show <id>` | عرض رسائل الجلسة |
-| `deeptutor session open <id>` | استئناف الجلسة في REPL |
-| `deeptutor session rename <id>` | إعادة تسمية جلسة (`--title`) |
-| `deeptutor session delete <id>` | حذف جلسة |
-
-**`deeptutor notebook`**
-
-| الأمر | الوصف |
-|:---|:---|
-| `deeptutor notebook list` | سرد notebooks |
-| `deeptutor notebook create <name>` | إنشاء notebook (`--description`) |
-| `deeptutor notebook show <id>` | عرض سجلات notebook |
-| `deeptutor notebook add-md <id> <path>` | استيراد markdown كسجل |
-| `deeptutor notebook replace-md <id> <rec> <path>` | استبدال سجل markdown |
-| `deeptutor notebook remove-record <id> <rec>` | إزالة سجل |
-
-**`deeptutor book`**
-
-| الأمر | الوصف |
-|:---|:---|
-| `deeptutor book list` | سرد جميع الكتب في مساحة العمل |
-| `deeptutor book health <book_id>` | فحص انحراف KB وصحة الكتاب |
-| `deeptutor book refresh-fingerprints <book_id>` | تحديث بصمات KB ومسح الصفحات القديمة |
-
-**`deeptutor config` / `plugin` / `provider`**
-
-| الأمر | الوصف |
-|:---|:---|
-| `deeptutor config show` | طباعة ملخص التكوين الحالي |
-| `deeptutor plugin list` | سرد الأدوات والقدرات المسجلة |
-| `deeptutor plugin info <name>` | عرض تفاصيل الأداة أو القدرة |
-| `deeptutor provider login <provider>` | مصادقة المزود |
+| `model_catalog.json` | ملفات تعريف مزودي النماذج اللغوية الكبيرة والتضمين والبحث؛ مفاتيح API؛ النماذج النشطة |
+| `system.json` | منافذ الخلفية/الواجهة الأمامية، وقاعدة API العامة، وCORS، والتحقق من SSL، ودليل المرفقات |
+| `auth.json` | تبديل مصادقة اختياري، واسم مستخدم، وتجزئة كلمة مرور، وإعدادات الرمز/الكوكي |
+| `integrations.json` | إعدادات تكامل PocketBase والمرافق الاختيارية |
+| `interface.json` | تفضيلات لغة واجهة المستخدم / الثيمة / الشريط الجانبي |
+| `main.yaml` | افتراضيات سلوك وقت التشغيل وحقن المسار |
+| `agents.yaml` | إعدادات درجة حرارة القدرة/الأداة والرمز |
+
+ملف `.env` في جذر المشروع **لا يُقرأ** كملف تهيئة للتطبيق. للإعداد الأدنى للنموذج، افتح **الإعدادات ← النماذج**، أضف ملف تعريف LLM (عنوان URL الأساسي / مفتاح API / اسم النموذج)، واحفظ. أضف ملف تعريف التضمين فقط إذا كنت تخطط لاستخدام ميزات قاعدة المعرفة / RAG.
 
 </details>
 
----
+## 📖 استكشاف DeepTutor
 
-<a id="multi-user"></a>
-### 👥 متعدد المستخدمين — نشر مشترك مع مساحات عمل لكل مستخدم
+تتبع جولة README أسطح المنتج بالترتيب الذي ستقابلها غالباً: المحادثة، الشريك، Co-Writer، الكتاب، المعرفة، Space، الذاكرة، والإعدادات. اللقطات أدناه مأخوذة من شجرة `assets/figs` المُعاد تنظيمها؛ الصور القديمة المؤرشفة لا تُستخدم هنا عمداً.
+
+### 💬 المحادثة — حلقة الوكيل التي تستخدمها فعلاً
 
 <div align="center">
-<img src="../../assets/figs/dt-multi-user.png" alt="Multi-User" width="800">
+<img src="../../assets/figs/webui/chat.png" alt="مساحة عمل محادثة DeepTutor" width="900">
 </div>
 
-فعّل المصادقة وسيتحول DeepTutor إلى نشر متعدد المستأجرين مع **مساحات عمل معزولة لكل مستخدم** و**موارد منسقة من المسؤول**. أول شخص يسجل يصبح المسؤول ويقوم بتكوين النماذج ومفاتيح API وقواعد المعرفة نيابة عن جميع الآخرين.
+المحادثة هي القدرة الافتراضية والمكان الذي يبدأ فيه معظم العمل. يمكن لخيط واحد أن يتحدث عادياً، ويستدعي الأدوات، ويرتكز على قواعد المعرفة المحددة، ويقرأ المرفقات، ويكتب سجلات دفتر الملاحظات، ويستمر بنفس مخزون المصادر عبر الأدوار.
 
-**بداية سريعة (5 خطوات):**
+<div align="center">
+<img src="../../assets/figs/system/chat-agent-loop.png" alt="حلقة وكيل محادثة DeepTutor" width="900">
+</div>
+
+الحلقة الحالية بسيطة عمداً: يفكر النموذج في جولات، ويستدعي الأدوات عند الحاجة، ويلاحظ نتائج الأدوات، وينتهي عندما يكون لديه دليل كافٍ. الأدوات القابلة للتبديل من قِبَل المستخدم هي `brainstorm` و`web_search` و`paper_search` و`reason`؛ الأدوات السياقية مثل `rag` و`read_source` و`read_memory` و`write_memory` و`read_skill` و`load_tools` و`exec` و`web_fetch` و`ask_user` و`list_notebook` و`write_note` و`github` تُثبَّت عندما يكون للدور السياق الصحيح.
+
+المحادثة هي أيضاً نقطة انطلاق للقدرات الأعمق: `deep_solve` للتفكير المعمق، و`deep_question` لتوليد الأسئلة، و`deep_research` للتقارير المستشهَد بها، و`visualize` و`math_animator` للمخرجات المرئية، و`auto` للتوجيه، و`mastery_path` لتدفقات خطط التعلم.
+
+### 🤝 الشريك — رفقاء دائمون على نفس الدماغ
+
+<div align="center">
+<img src="../../assets/figs/webui/partners.png" alt="مساحة عمل شركاء DeepTutor" width="900">
+</div>
+
+يحل الشركاء محل محرك TutorBot القديم بنموذج أنظف: كل رسالة ويب أو IM واردة تصبح دوراً عادياً لـ ChatOrchestrator داخل مساحة عمل محدودة بنطاق الشريك. لا يوجد دماغ بوت منفصل يجب الحفاظ على مزامنته.
+
+<div align="center">
+<img src="../../assets/figs/system/partners-architecture.png" alt="معمارية شركاء DeepTutor" width="900">
+</div>
+
+لكل شريك `SOUL.md` واختيار نموذج وقنوات وسياسة أدوات ومكتبة مخصصة. تُنسخ قواعد المعرفة والمهارات ودفاتر الملاحظات إلى `data/partners/<id>/workspace/`، لذا تعمل نفس أدوات RAG والمهارة ودفتر الملاحظات والذاكرة بدون حالات خاصة.
+
+<div align="center">
+<img src="../../assets/figs/webui/partners02.png" alt="عرض تفاصيل شريك DeepTutor" width="900">
+</div>
+
+طبقة القناة مدفوعة بالمخطط ويمكنها الاتصال بمنصات IM مثل Feishu وTelegram وSlack وDingTalk وQQ/Napcat وWeCom وWhatsApp وZulip وMatrix وMicrosoft Teams بناءً على الإضافات المثبتة والبيانات الاعتمادية المهيأة.
+
+### ✍️ Co-Writer — صياغة Markdown واعية بالتحديد
+
+Co-Writer هو مساحة عمل Markdown ذات عرض مقسَّم للتقارير والدروس التعليمية والملاحظات والقطع التعليمية الطويلة. تحفظ المستندات تلقائياً، وتُظهر معاينة مباشرة، ويمكن حفظها مرة أخرى في دفاتر الملاحظات عندما تصبح المسودة سياقاً قابلاً لإعادة الاستخدام.
+
+حدد النص واطلب من DeepTutor إعادة كتابته أو توسيعه أو تقصيره. يحتفظ وكيل التحرير بآثار استدعاءات الأدوات ويمكنه ترسيخ التعديل في قاعدة معرفة أو دليل ويب، لذا يتصرف Co-Writer أكثر كمحرر مع استرداد بدلاً من كونه مربع نص منفصل.
+
+### 📖 الكتاب — كتب حية من موادك
+
+<p align="center">
+<img src="../../assets/figs/webui/book01.png" alt="عرض قراءة كتاب DeepTutor" width="31%">
+&nbsp;
+<img src="../../assets/figs/webui/book02.png" alt="عرض كتلة تفاعلية في كتاب DeepTutor" width="31%">
+&nbsp;
+<img src="../../assets/figs/webui/book03.png" alt="عرض إنشاء كتاب DeepTutor" width="31%">
+</p>
+
+يحوّل الكتاب المصادر المحددة إلى مواد تعليمية تفاعلية. يمكن أن يبدأ الكتاب من قواعد المعرفة أو دفاتر الملاحظات أو بنوك الأسئلة أو تاريخ المحادثة؛ يقترح تدفق الإنشاء هيكلاً قبل توليد المحتوى، لذا يمكن للمستخدمين مراجعة الشكل بدلاً من قبول مخرجات عشوائية.
+
+يُجمِّع BookEngine الصفحات إلى كتل مكتوبة: النص والأقسام والتنبيهات والاختبارات وبطاقات الفلاش والجداول الزمنية والرمز والأشكال وHTML التفاعلية والرسوم المتحركة وأشكال المفاهيم والغوص العميق وملاحظات المستخدم. أوامر الصيانة مثل `deeptutor book health` و`deeptutor book refresh-fingerprints` تساعد في الكشف عن انجراف المعرفة المصدرية من الصفحات المُجمَّعة.
+
+### 📚 المعرفة — مكتبات RAG ذات إصدارات
+
+<div align="center">
+<img src="../../assets/figs/webui/knowledge.png" alt="مساحة عمل قاعدة المعرفة في DeepTutor" width="900">
+</div>
+
+قواعد المعرفة هي مجموعات المستندات وراء RAG. المكدس الحالي يعمل على LlamaIndex فقط، مع تخطيط تخزين مسطح `version-N` مُفهرَس بتوقيع التضمين. تحتفظ إعادة الفهرسة بالإصدارات السابقة وتتجنب الكتابة فوق الفهرس العامل أثناء معالجة المستندات الجديدة.
+
+تعرض مساحة عمل الويب الملفات والرفع وإصدارات الفهرس والإعدادات. يعكس CLI نفس دورة الحياة بـ `deeptutor kb list` و`info` و`create` و`add` و`search` و`set-default` و`delete`.
+
+### 🌐 Space — المهارات والشخصيات والسياق القابل لإعادة الاستخدام
+
+<div align="center">
+<img src="../../assets/figs/webui/space.png" alt="مساحة عمل Space في DeepTutor" width="900">
+</div>
+
+Space هو طبقة المكتبة للسياق القابل لإعادة الاستخدام. يجمع المهارات التي يؤلفها المستخدم والشخصيات ودفاتر الملاحظات وتاريخ المحادثة وأصول بنك الأسئلة حتى يمكن توجيه الوكيل بسياق متعمد بدلاً من الموجهات المخصصة.
+
+تُخزَّن المهارات كملفات `SKILL.md` تحت مساحة عمل المستخدم ويمكن تصنيفها أو تحريرها أو إبقاؤها للقراءة فقط عندما تكون مدمجة. تتبع الشخصيات نفس الفكرة للدور والصوت. يمكن تعيين هذه الأصول للشركاء والإشارة إليها في المحادثة وإعادة استخدامها عبر سير عمل التعلم.
+
+### 🧠 الذاكرة — تخصيص قابل للفحص
+
+<div align="center">
+<img src="../../assets/figs/webui/memory01.png" alt="محطة عمل الذاكرة في DeepTutor" width="900">
+</div>
+
+الذاكرة نظام ثلاثي الطبقات متجذّر في مساحة عمل المستخدم النشطة: `trace/<surface>/<date>.jsonl` لآثار أحداث L1، و`L2/<surface>.md` لحقائق كل سطح، و`L3/<recent|profile|scope|preferences>.md` للتوليف عبر الأسطح.
+
+<div align="center">
+<img src="../../assets/figs/webui/memory02.png" alt="رسم بياني لذاكرة DeepTutor" width="900">
+</div>
+
+أسطح الذاكرة المدعومة هي `chat` و`notebook` و`quiz` و`kb` و`book` و`tutorbot` و`cowriter`. يبقى اسم سطح `tutorbot` القديم في طبقة الذاكرة للتوافق حتى لو أصبح نموذج المرافق الموجّه للمنتج هو الشركاء الآن. تتيح لك محطة العمل الفحص والتحرير وتشغيل التوحيد واستخدام الرسم البياني لتتبع الادعاءات المُوليفة إلى حقائقها الداعمة والأحداث الخام.
+
+### ⚙️ الإعدادات — لوحة تحكم واحدة
+
+<div align="center">
+<img src="../../assets/figs/webui/settings.png" alt="مساحة عمل الإعدادات في DeepTutor" width="900">
+</div>
+
+الإعدادات هي لوحة التحكم التشغيلية. تشمل المظهر ومنافذ الشبكة وقاعدة API الخارجية وكتالوجات LLM والتضمين ومزودي البحث وتحليل MinerU وميزانيات القدرات ونبضات الذاكرة وخوادم MCP والأدوات المدمجة وقائمة الأدوات الاختيارية المفعّلة.
+
+تستخدم معظم الإعدادات تدفق صياغة-وتطبيق حتى يتمكن المستخدمون من اختبار المزودين قبل الالتزام بهم. ملفات `.env` في جذر المشروع تُتجاهل عمداً؛ يعيش تهيئة وقت التشغيل تحت `data/user/settings/*.json` إلا إذا وجّه `DEEPTUTOR_HOME` أو `deeptutor start --home` التطبيق في مكان آخر.
+
+---
+
+## ⌨️ واجهة سطر أوامر DeepTutor — الواجهة الأصيلة للوكلاء
+
+DeepTutor أصيلة لـ CLI: يمكن لنفس نقطة دخول `deeptutor` تهيئة مساحة عمل، وتشغيل تطبيق الويب، وتشغيل قدرة من استخدام واحد، وفتح REPL تفاعلي، وإدارة قواعد المعرفة، وفحص الجلسات، وصيانة الكتب، وتشغيل الشركاء.
 
 ```bash
-# 1. فعّل auth في data/user/settings/auth.json:
-#    {"enabled": true, "token_expire_hours": 24, "cookie_secure": false}
-
-# 2. أعد تشغيل حزمة الويب.
-deeptutor start
-
-# 3. افتح http://localhost:3782/register وأنشئ الحساب الأول.
-#    التسجيل الأول هو الوحيد العام؛ يصبح هذا المستخدم admin
-#    ويتم إغلاق نقطة النهاية /register تلقائياً بعد ذلك.
-
-# 4. كـ admin، انتقل إلى /admin/users → "Add user" لإنشاء حسابات الزملاء.
-
-# 5. لكل مستخدم، انقر على أيقونة شريط التمرير → عيّن ملفات LLM،
-#    قواعد المعرفة، و skills. احفظ.
+deeptutor run chat "Explain Fourier transform" --tool rag --kb textbook
+deeptutor run deep_solve "Solve x^2 = 4" --tool reason
+deeptutor chat --capability deep_research --kb papers
+deeptutor partner create math-tutor --soul "Socratic math tutor"
+deeptutor kb create calculus --doc textbook.pdf
 ```
 
-**ما يراه المسؤول:**
+<details>
+<summary><b>مرجع الأوامر</b></summary>
 
-- **صفحة Settings كاملة** في `/settings` — إدارة مزودي LLM / embedding / البحث، مفاتيح API، كاتالوجات النماذج، و "Apply" وقت التشغيل.
-- **إدارة المستخدمين** في `/admin/users` — إنشاء، ترقية، خفض، وحذف الحسابات.
-- **محرر المنح** — لكل مستخدم غير admin، اختر ملفات النماذج، قواعد المعرفة، و skills التي يمكنهم استخدامها.
-- **سجل التدقيق** — كل تغيير في المنح يُلحق بـ `multi-user/_system/audit/usage.jsonl`.
+| الأمر | الوصف |
+|:---|:---|
+| `deeptutor init` | إنشاء أو تحديث `data/user/settings` لمساحة العمل الحالية |
+| `deeptutor start [--home PATH]` | تشغيل الخلفية + الواجهة الأمامية معاً |
+| `deeptutor serve [--port PORT]` | تشغيل خلفية FastAPI فقط |
+| `deeptutor run <capability> <message>` | تشغيل دور قدرة واحدة (`chat`، `deep_solve`، `deep_question`، `deep_research`، `visualize`، `math_animator`، `auto`، `mastery_path`) |
+| `deeptutor chat` | REPL تفاعلي مع تحكمات القدرة والأداة وقاعدة المعرفة ودفتر الملاحظات والتاريخ |
+| `deeptutor partner list/create/start/stop` | إدارة الشركاء المتصلين بـ IM |
+| `deeptutor kb list/info/create/add/search/set-default/delete` | إدارة قواعد المعرفة LlamaIndex |
+| `deeptutor memory show/clear` | فحص مستندات الذاكرة L2/L3 أو مسح ذاكرة L1/الكل |
+| `deeptutor session list/show/open/rename/delete` | إدارة الجلسات المشتركة |
+| `deeptutor notebook list/create/show/add-md/replace-md/remove-record` | إدارة دفاتر الملاحظات من ملفات Markdown |
+| `deeptutor book list/health/refresh-fingerprints` | فحص الكتب وتحديث بصمات المصادر |
+| `deeptutor plugin list/info` | فحص الأدوات والقدرات المسجلة |
+| `deeptutor config show` | طباعة ملخص التهيئة |
+| `deeptutor provider login <provider>` | إدارة تسجيل دخول OAuth للمزود حيثما كان مدعوماً |
 
-**ما يحصل عليه المستخدمون العاديون:**
+</details>
 
-- **مساحة عمل معزولة** تحت `multi-user/<uid>/` — تاريخ الدردشة الخاص بهم (`chat_history.db`)، الذاكرة، notebooks، وقواعد المعرفة الشخصية.
-- **وصول للقراءة فقط** لقواعد المعرفة و skills التي عيّنها المسؤول.
-- **صفحة Settings منقحة** — السمة، اللغة، وملخص النماذج الممنوحة فقط.
-- **LLM ذو نطاق** — تمر أدوار الدردشة عبر النموذج المعيّن من المسؤول.
+توزيع CLI فقط موجود في `packaging/deeptutor-cli`؛ في هذه النسخة يجب تثبيته من المصدر بـ `python -m pip install -e ./packaging/deeptutor-cli`. حزمة `deeptutor-cli` العامة غير متاحة حالياً على PyPI، لذا يحتفظ قسم البدء الرئيسي بمسار التثبيت من المصدر.
 
-**بنية مساحة العمل:**
+---
 
+## 👥 متعدد المستخدمين — النشر المشترك
+
+<div align="center">
+<img src="../../assets/figs/webui/multi-user.png" alt="مساحة عمل مشرف متعدد المستخدمين في DeepTutor" width="900">
+</div>
+
+المصادقة اختيارية ومعطلة افتراضياً. عند التفعيل، يصبح DeepTutor نشراً مشتركاً مع مساحة عمل مشرف واحدة، ومساحات عمل لكل مستخدم، ومساحات عمل للشركاء، وحالة النظام تحت شجرة `data/` واحدة.
+
+```text
+data/
+├── user/                         # مساحة عمل المشرف والإعدادات
+├── users/<uid>/                  # نطاق مستخدم غير مشرف
+│   ├── user/chat_history.db
+│   ├── user/settings/interface.json
+│   ├── user/workspace/{chat,co-writer,book,memory,notebook,...}
+│   └── knowledge_bases/...
+├── partners/<id>/workspace/      # نطاق المستخدم الاصطناعي للشريك
+└── system/
+    ├── auth/users.json
+    ├── grants/<uid>.json
+    └── audit/usage.jsonl
 ```
-multi-user/
-├── _system/
-│   ├── auth/users.json          # بيانات اعتماد مجزأة، أدوار
-│   ├── auth/auth_secret         # سر توقيع JWT (مولّد تلقائياً)
-│   ├── grants/<uid>.json        # منح موارد لكل مستخدم (يديرها admin)
-│   └── audit/usage.jsonl        # سجل التدقيق
-└── <uid>/
-    ├── user/
-    │   ├── chat_history.db
-    │   ├── settings/interface.json
-    │   └── workspace/{chat,co-writer,book,...}
-    ├── memory/{SUMMARY.md,PROFILE.md}
-    └── knowledge_bases/...
-```
 
-**مرجع التكوين:**
+يصبح المستخدم المسجَّل الأول مشرفاً ويمكنه تهيئة كتالوجات النماذج وبيانات اعتماد المزود وقواعد المعرفة والمهارات ومنح المستخدمين. يحصل المستخدمون غير المشرفين على تاريخ محادثة معزول وذاكرة ودفاتر ملاحظات وقواعد معرفة شخصية وصفحة إعدادات منقوصة؛ تظهر الموارد المعيّنة من المشرف كخيارات محدودة النطاق للقراءة فقط بدلاً من كشف مفاتيح API أو الداخل التقني للمزود.
 
-| الإعداد | مطلوب | الوصف |
-|:---|:---|:---|
-| `data/user/settings/auth.json: enabled` | نعم | عيّن إلى `true` لتفعيل مصادقة متعددة المستخدمين. الافتراضي `false` (وضع المستخدم الواحد). |
-| `multi-user/_system/auth/auth_secret` | موصى به | سر توقيع JWT. يُولَّد تلقائياً عند أول إقلاع مصادق إذا كان مفقوداً. |
-| `data/user/settings/auth.json: token_expire_hours` | لا | عمر JWT؛ الافتراضي `24`. |
-| `data/user/settings/auth.json: username/password_hash` | لا | بيانات اعتماد إقلاع اختيارية لمستخدم واحد بدون رأس. |
-| `data/user/settings/system.json` | لا | يستنبط `deeptutor start` أعلام auth الواجهة الأمامية من إعدادات وقت التشغيل. |
+لتجربة محلية، اضبط `data/user/settings/auth.json` لتفعيل المصادقة، وأعد تشغيل `deeptutor start`، وسجّل أول مشرف على `/register`، ثم أنشئ مستخدمين من `/admin/users` وعيّن النماذج وقواعد المعرفة والمهارات وسياسة الأدوات وسياسة MCP ووصول تنفيذ الرمز من خلال المنح.
 
-> ⚠️ **وضع PocketBase (`integrations.pocketbase_url` معيّن) لمستخدم واحد فقط.** يجب أن تترك عمليات النشر متعددة المستخدمين `integrations.pocketbase_url` فارغة وتستخدم الخلفية الافتراضية JSON/SQLite.
+يبقى وضع PocketBase تكاملاً لمستخدم واحد في هذه الشجرة؛ يجب على بيئات النشر متعددة المستخدمين إبقاء `integrations.pocketbase_url` فارغاً واستخدام مخازن المصادقة والجلسات JSON/SQLite الافتراضية ما لم يُصمَّم مخزن مستخدم خارجي صراحةً لبيئة النشر.
 
-> ⚠️ **توصية عملية واحدة.** ترقية أول مستخدم إلى admin محمية بـ `threading.Lock` داخل العملية. يجب على عمليات النشر متعددة العمال توفير admin الأول دون اتصال أو دعم متجر المستخدمين بنظام خارجي.
-
-<a id="community"></a>
+---
 ## 🌐 المجتمع والنظام البيئي
 
-يقف DeepTutor على أكتاف مشاريع مفتوحة المصدر متميزة:
+يقوم DeepTutor على أكتاف مشاريع مفتوحة المصدر متميزة:
 
 | المشروع | الدور في DeepTutor |
 |:---|:---|
-| [**nanobot**](https://github.com/HKUDS/nanobot) | محرك وكيل خفيف الوزن يشغّل TutorBot |
-| [**LlamaIndex**](https://github.com/run-llama/llama_index) | خط أنابيب RAG والعمود الفقري لفهرسة الوثائق |
-| [**ManimCat**](https://github.com/Wing900/ManimCat) | توليد رسوم متحركة رياضية بقيادة AI لـ Math Animator |
+| [**nanobot**](https://github.com/HKUDS/nanobot) | محرك وكيل خفيف الوزن للغاية مكّن TutorBot الأصلي (يعمل الشركاء الآن على حلقة وكيل محادثة DeepTutor) |
+| [**LlamaIndex**](https://github.com/run-llama/llama_index) | العمود الفقري لخط أنابيب RAG وفهرسة المستندات |
+| [**ManimCat**](https://github.com/Wing900/ManimCat) | توليد رسوم متحركة رياضية مدفوع بالذكاء الاصطناعي لـ Math Animator |
 
-**من نظام HKUDS البيئي:**
+**من النظام البيئي لـ HKUDS:**
 
 | [⚡ LightRAG](https://github.com/HKUDS/LightRAG) | [🤖 AutoAgent](https://github.com/HKUDS/AutoAgent) | [🔬 AI-Researcher](https://github.com/HKUDS/AI-Researcher) | [🧬 nanobot](https://github.com/HKUDS/nanobot) |
 |:---:|:---:|:---:|:---:|
-| RAG بسيط وسريع | إطار وكلاء بدون كود | بحث آلي | وكيل AI خفيف الوزن |
+| RAG بسيط وسريع | إطار وكيل بدون رمز | بحث آلي | وكيل ذكاء اصطناعي خفيف الوزن للغاية |
 
 
 ## 🤝 المساهمة
@@ -772,12 +577,12 @@ multi-user/
 نأمل أن يصبح DeepTutor هدية للمجتمع. 🎁
 
 <a href="https://github.com/HKUDS/DeepTutor/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=HKUDS/DeepTutor&max=999" alt="Contributors" />
+  <img src="https://contrib.rocks/image?repo=HKUDS/DeepTutor&max=999" alt="المساهمون" />
 </a>
 
 </div>
 
-راجع [CONTRIBUTING.md](../../CONTRIBUTING.md) للحصول على إرشادات حول إعداد بيئة التطوير الخاصة بك، معايير الكود، وسير عمل pull request.
+راجع [CONTRIBUTING.md](../../CONTRIBUTING.md) للحصول على إرشادات حول إعداد بيئة التطوير ومعايير الرمز وسير عمل طلبات السحب.
 
 ## ⭐ تاريخ النجوم
 
@@ -787,7 +592,7 @@ multi-user/
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=HKUDS/DeepTutor&type=timeline&theme=dark&legend=top-left" />
     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=HKUDS/DeepTutor&type=timeline&legend=top-left" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=HKUDS/DeepTutor&type=timeline&legend=top-left" />
+    <img alt="مخطط تاريخ النجوم" src="https://api.star-history.com/svg?repos=HKUDS/DeepTutor&type=timeline&legend=top-left" />
   </picture>
 </a>
 
@@ -798,23 +603,23 @@ multi-user/
   <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=HKUDS/DeepTutor&theme=dark" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=HKUDS/DeepTutor" />
-   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=HKUDS/DeepTutor" />
+   <img alt="ترتيب تاريخ النجوم" src="https://api.star-history.com/badge?repo=HKUDS/DeepTutor" />
   </picture>
  </a>
 </p>
 
 <div align="center">
 
-**[Data Intelligence Lab @ HKU](https://github.com/HKUDS)**
+**[مختبر ذكاء البيانات @ جامعة هونغ كونغ](https://github.com/HKUDS)**
 
-[⭐ نجّمنا](https://github.com/HKUDS/DeepTutor/stargazers) · [🐛 أبلغ عن خطأ](https://github.com/HKUDS/DeepTutor/issues) · [💬 المناقشات](https://github.com/HKUDS/DeepTutor/discussions)
+[⭐ أعطنا نجمة](https://github.com/HKUDS/DeepTutor/stargazers) · [🐛 أبلغ عن خطأ](https://github.com/HKUDS/DeepTutor/issues) · [💬 النقاشات](https://github.com/HKUDS/DeepTutor/discussions)
 
 ---
 
-مرخص بموجب [Apache License 2.0](../../LICENSE).
+مرخّص بموجب [رخصة Apache 2.0](../../LICENSE).
 
 <p>
-  <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.DeepTutor&style=for-the-badge&color=00d4ff" alt="Views">
+  <img src="https://visitor-badge.laobi.icu/badge?page_id=HKUDS.DeepTutor&style=for-the-badge&color=00d4ff" alt="المشاهدات">
 </p>
 
 </div>

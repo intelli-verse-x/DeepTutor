@@ -21,6 +21,8 @@ Space 是可复用上下文的资源库层。你在这里管理会影响未来 C
 
 Skills 位于用户 workspace 下，可以加标签、编辑、预览；内置 skill 可以只读。一个好的 skill 应该具体说明何时使用、需要什么输入、输出应该长什么样。
 
+不是每个 skill 都得自己写：DeepTutor 的 skill 格式与更大的 Agent-Skills 生态互通，`deeptutor skill install clawhub:<slug>` 一条命令就能从 [ClawHub](https://clawhub.ai/) 导入社区 skill，且全程过安全门 —— hub 安全裁定、防御式解压、二进制进不来、不能自我注入 system prompt。完整流程见 [CLI 命令](/zh-cn/docs/cli/commands/)。
+
 ## Personas 和 Partners
 
 Personas 是较轻量的角色定义。Partners 有更强的 `SOUL.md`，但 persona 是很好的起点：先在 Space 里创建/打磨 persona，再在创建 Partner 时使用。

@@ -61,7 +61,6 @@ def test_internal_docs_links_point_to_existing_pages() -> None:
 
 def test_documented_deeptutor_subcommands_exist() -> None:
     top_level = {
-        "bot",
         "book",
         "chat",
         "config",
@@ -69,11 +68,13 @@ def test_documented_deeptutor_subcommands_exist() -> None:
         "kb",
         "memory",
         "notebook",
+        "partner",
         "plugin",
         "provider",
         "run",
         "serve",
         "session",
+        "skill",
         "start",
     }
     provider_subcommands = {"login"}

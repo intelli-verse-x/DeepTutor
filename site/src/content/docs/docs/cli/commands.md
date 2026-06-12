@@ -214,6 +214,22 @@ Modes: `hybrid` (default; semantic + keyword), `vector` (semantic only), `keywor
 
 Re-indexing isn't a CLI command — it's done from the **Web UI** (Knowledge → pick KB → **Index versions** tab → **Re-index now**). Useful after changing embedding models.
 
+## `deeptutor skill` — skill library & hubs
+
+```bash
+deeptutor skill list                              # Local skills, with hub provenance
+deeptutor skill search "git release notes"        # Semantic search on a hub (default: clawhub)
+deeptutor skill install clawhub:gh-release-notes  # Verify → fetch → register
+deeptutor skill install some-skill@1.2.0          # Hub prefix defaults to clawhub; @ pins a version
+deeptutor skill remove gh-release-notes
+```
+
+Hub references use `<hub>:<slug>[@version]`. Every install runs the same import gate: the hub's security verdict is checked first (flagged packages are refused unless you pass `--allow-unverified`), archives are extracted with zip-slip / zip-bomb guards, support files pass a text/script suffix whitelist so binaries never land in the workspace, and `always:` frontmatter is stripped so a downloaded package can't inject itself into every system prompt. Provenance (hub, version, verdict) is recorded in `.hub-lock.json` beside the skill.
+
+`install` flags: `--name` installs under a different local name, `--force` replaces an existing skill, `--allow-unverified` proceeds past a suspicious verdict.
+
+Registries beyond ClawHub are declared in `settings/skill_hubs.json` — `type: "clawhub"` points at any compatible HTTP API, `type: "command"` wraps a fetch CLI that drops the package into `{dest}`. In a multi-user deployment this CLI operates the admin workspace: an installed skill stays invisible to other users until a grant assigns it.
+
 ## `deeptutor session` — session inspection
 
 ### `session list`

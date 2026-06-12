@@ -33,6 +33,7 @@ deeptutor start
 - **完整的设置页面**，在 `/settings` —— 管理 LLM / embedding / 搜索 provider、API key、模型 catalog，以及运行时 "Apply"。
 - **用户管理**，在 `/admin/users` —— 创建、提升、降级、删除账号。一旦有了第一个 admin，公开的 `/register` 端点会自动关闭；后续账号走 `POST /api/v1/auth/users`（admin-only）。
 - **授权编辑器** —— 对每个非 admin 用户，挑选他们可用的 LLM 模型、知识库和 skill，把系统工具（联网搜索、论文搜索……）和 MCP 工具收窄成白名单，也可以彻底关掉代码执行。工具白名单与 partner 配置同语义：*Default* 全部放行，*Custom* 是显式白名单。授权只带**逻辑 ID**；API key 永远不会越过授权边界。
+- **Hub skill 安装** —— `POST /api/v1/multi-user/admin/skills/install`（admin-only）把 ClawHub 等外部 hub 的 skill 导入 admin catalog。安装 ≠ 分配：在 grant 分配之前，其他用户看不到这个 skill，admin 可以先自己验证。每次安装都进审计追踪。
 - **审计追踪** —— 每次授权变更和被授权资源的访问都会追加到 `data/system/audit/usage.jsonl`。
 
 ## 普通用户得到什么

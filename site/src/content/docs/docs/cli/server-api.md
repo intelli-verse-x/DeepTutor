@@ -126,6 +126,8 @@ GET    /api/v1/knowledge/default                      Get default KB
 PUT    /api/v1/knowledge/default/{kb_name}            Set default KB
 GET    /api/v1/knowledge/supported-file-types         Supported uploads
 GET    /api/v1/knowledge/{kb_name}/files              List source files
+GET    /api/v1/knowledge/{kb_name}/files/{filename}   Serve a source file (preview / download)
+GET    /api/v1/knowledge/{kb_name}/file-preview-text/{filename}  Extracted plain-text preview
 GET    /api/v1/knowledge/{kb_name}/progress           Indexing progress
 WS     /api/v1/knowledge/{kb_name}/progress/ws        Progress stream
 ```

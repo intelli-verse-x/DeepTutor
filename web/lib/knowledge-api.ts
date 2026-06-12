@@ -207,6 +207,17 @@ export function knowledgeBaseFilePath(
     .join("/")}`;
 }
 
+/** Build the `/api/v1/...` path for extracted plain-text preview of a raw KB file. */
+export function knowledgeBaseFilePreviewTextPath(
+  kbName: string,
+  filename: string,
+): string {
+  return `/api/v1/knowledge/${encodeURIComponent(kbName)}/file-preview-text/${filename
+    .split("/")
+    .map(encodeURIComponent)
+    .join("/")}`;
+}
+
 export interface KnowledgeTaskResponse {
   task_id?: string;
   message?: string;
