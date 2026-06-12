@@ -4,39 +4,51 @@ import "../../styles/global.css";
 const features = [
   {
     chapter: "I",
-    title: "聊天工作台",
-    body: "五种模式 —— Chat / Solve / Quiz / Research / Visualize —— 共享同一个 session、知识库和引用历史，对话中段切换不丢上下文。",
+    title: "Chat",
+    body: "默认 agent loop：工具、RAG、附件、Notebook 写入、Memory 和深层 capability 都在同一 session 里。",
     href: "/zh-cn/docs/explore/chat-workspace/",
   },
   {
     chapter: "II",
-    title: "Co-Writer",
-    body: "双栏 Markdown 工作台，AI 是一等公民协作者。选中、改写、扩展，全部基于你的知识库。",
-    href: "/zh-cn/docs/explore/co-writer/",
+    title: "Partners",
+    body: "拥有独立 soul、资源库、模型策略、工具和 IM 渠道的持久伙伴，复用同一个 chat loop。",
+    href: "/zh-cn/docs/explore/partners/",
   },
   {
     chapter: "III",
-    title: "Book Engine",
-    body: "多 agent 流水线把你的材料编成可交互的「活书」—— 13 种 block，含 GeoGebra viewer 和动画。",
-    href: "/zh-cn/docs/explore/book/",
+    title: "Co-Writer",
+    body: "支持选区 AI 编辑的 Markdown 工作台，编辑可基于知识库或 Web 上下文。",
+    href: "/zh-cn/docs/explore/co-writer/",
   },
   {
     chapter: "IV",
-    title: "知识库",
-    body: "端到端 LlamaIndex 的带版本管理 RAG 文档库。每一次（重新）索引都可追溯、可对比、可回滚。",
-    href: "/zh-cn/docs/explore/knowledge/",
+    title: "Book Engine",
+    body: "把知识库、Notebook、题目资产和 Chat history 编译成可交互 living books。",
+    href: "/zh-cn/docs/explore/book/",
   },
   {
     chapter: "V",
-    title: "Space",
-    body: "你的个人图书馆 —— chat history、notebook、question bank、自定义 skill。每个活跃界面的「阅读 / 回顾」对偶面。",
-    href: "/zh-cn/docs/explore/space/",
+    title: "知识库",
+    body: "基于 LlamaIndex 的版本化文档库，用于 RAG、Chat、Co-Writer、Book 和 Partners。",
+    href: "/zh-cn/docs/explore/knowledge/",
   },
   {
     chapter: "VI",
+    title: "Space",
+    body: "可复用上下文资产：skills、personas、notebooks、chat history 和题目材料。",
+    href: "/zh-cn/docs/explore/space/",
+  },
+  {
+    chapter: "VII",
     title: "记忆系统",
-    body: "Append-only 的 L1 trace、带引用的 L2 精炼事实、跨界面综合的 L3。Memory Graph 让你随时审计 DeepTutor 为什么知道某件事。",
+    body: "通过 L1 trace、L2 facts、L3 synthesis 和 Memory Graph 实现可审计个性化。",
     href: "/zh-cn/docs/explore/memory/",
+  },
+  {
+    chapter: "VIII",
+    title: "Settings",
+    body: "模型、Embedding、搜索、工具、MCP、Capabilities、网络和 Memory 的统一控制面。",
+    href: "/zh-cn/docs/explore/settings/",
   },
 ];
 
@@ -93,7 +105,7 @@ deeptutor init && deeptutor start`,
     label: "CLI",
     tag: "无头",
     cmd: "pip install -e ./packaging/deeptutor-cli",
-    blurb: "面向无界面服务器、agent harness、Claude Code / Codex 等场景的轻量安装。",
+    blurb: "面向无界面服务器、agent harness、Claude Code / Codex 等场景的轻量安装，可选 Partners extra。",
     code: `git clone https://github.com/HKUDS/DeepTutor.git
 cd DeepTutor
 
@@ -102,7 +114,7 @@ pip install -e ./packaging/deeptutor-cli
 
 deeptutor init --cli
 deeptutor chat`,
-    foot: "没有后端 / 前端端口。Embedding 默认关闭 —— 用 RAG 时再开启。",
+    foot: "没有 Web UI。Embedding 默认关闭；需要 RAG 或 Partner channels 时再开启对应 extra。",
     href: "/zh-cn/docs/get-started/cli-only/",
   },
 ];
@@ -117,7 +129,7 @@ deeptutor chat`,
     <title>DeepTutor —— Agent-native 的开源个性化学习伴侣</title>
     <meta
       name="description"
-      content="开源 AI 学习伴侣。五种模式，一个工作区。专属 TutorBot。知识驱动的学习。"
+      content="开源、agent-native 的个性化学习伴侣：Chat、Partners、Co-Writer、Book、Knowledge、Space、Memory、Settings 共享同一个本地工作区。"
     />
     <link rel="icon" type="image/png" href="/logo.png" />
     <script is:inline>
@@ -265,8 +277,8 @@ deeptutor chat`,
           </div>
           <img
             class="showcase-shot"
-            src="/screenshots/dt-home.png"
-            alt="DeepTutor 聊天工作台 —— 侧栏 Chat / TutorBot / Co-Writer / Book / 知识库 / Space / 记忆；主区域显示问候语和输入框。"
+            src="/screenshots/chat.png"
+            alt="DeepTutor 聊天工作台 —— 侧栏 Chat / Partners / Co-Writer / Book / 知识库 / Space / 记忆；主区域显示问候语和输入框。"
             loading="eager"
             decoding="async"
           />
@@ -276,10 +288,10 @@ deeptutor chat`,
       <section class="section">
         <header class="section-head">
           <span class="section-eyebrow">里面是什么</span>
-          <h2>六根支柱，<em>同一份</em>运行时上下文。</h2>
+          <h2>八个界面，<em>同一份</em>运行时上下文。</h2>
           <p>
-            每个界面都从同一份记忆、知识库、导师那里读写。
-            切换上下文不再意味着丢失当前位置。
+            Chat、Partners、Co-Writer、Book、Knowledge、Space、Memory、Settings
+            共享同一套 agent-native runtime。切换界面不再意味着丢失当前位置。
           </p>
         </header>
         <div class="feature-grid">
@@ -367,7 +379,7 @@ deeptutor chat`,
               <h4>文档</h4>
               <a href="/zh-cn/docs/get-started/">快速上手</a>
               <a href="/zh-cn/docs/explore/">探索 DeepTutor</a>
-              <a href="/zh-cn/docs/tutorbot/">TutorBot 渠道</a>
+              <a href="/zh-cn/docs/partners/">Partners 渠道</a>
               <a href="/zh-cn/docs/cli/">CLI</a>
             </div>
             <div class="footer-col">
@@ -409,6 +421,8 @@ deeptutor chat`,
             <a class="footer-pulse-tag" data-pulse="release-link" href="https://github.com/HKUDS/DeepTutor/releases" target="_blank" rel="noopener">
               <span data-pulse="release-tag">—</span>
             </a>
+            <span class="sep">·</span>
+            <span class="num"><span data-pulse="uniques">—</span> 独立访客</span>
             <span class="sep">·</span>
             <span class="num"><span data-pulse="requests">—</span> 次浏览</span>
           </div>
@@ -490,6 +504,7 @@ deeptutor chat`,
           let releaseOK = false;
 
           if (traffic.status === "fulfilled" && traffic.value && !traffic.value.error) {
+            setText("uniques", fmtNum(traffic.value.uniques));
             setText("requests", fmtNum(traffic.value.requests));
             setText("bytes", fmtBytes(traffic.value.bytes));
             trafficOK = true;
@@ -1747,15 +1762,18 @@ deeptutor chat`,
             }
           }
         } catch {}
-        fetch("https://api.github.com/repos/HKUDS/DeepTutor")
+        // Same-origin Worker proxy — direct api.github.com calls die on the
+        // 60/h per-IP anonymous rate limit (shared NAT) and on networks that
+        // block GitHub.
+        fetch("/api/stars")
           .then((r) => (r.ok ? r.json() : null))
           .then((data) => {
-            if (!data || typeof data.stargazers_count !== "number") return;
-            paint(data.stargazers_count);
+            if (!data || typeof data.stars !== "number") return;
+            paint(data.stars);
             try {
               localStorage.setItem(
                 cacheKey,
-                JSON.stringify({ n: data.stargazers_count, t: Date.now() }),
+                JSON.stringify({ n: data.stars, t: Date.now() }),
               );
             } catch {}
           })

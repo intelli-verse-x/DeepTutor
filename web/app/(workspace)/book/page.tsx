@@ -31,7 +31,6 @@ import {
   reduceBookEvent,
 } from "@/lib/book-progress";
 
-
 import BookChatPanel from "./components/BookChatPanel";
 import BookCreator from "./components/BookCreator";
 import BookHealthBanner from "./components/BookHealthBanner";
@@ -240,7 +239,6 @@ function BookPageInner() {
     await refreshBooks();
   };
 
-
   const handleRebuildBook = async () => {
     if (!detail) return;
     if (
@@ -352,7 +350,10 @@ function BookPageInner() {
       await bookApi.regenerateBlock(detail.book.id, selectedPage.id, block.id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      notify(`Regenerate block failed: ${msg}`, { tone: "error", durationMs: 8000 });
+      notify(`Regenerate block failed: ${msg}`, {
+        tone: "error",
+        durationMs: 8000,
+      });
       console.error("regenerateBlock failed:", err);
     } finally {
       await loadBookDetail(detail.book.id);

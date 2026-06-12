@@ -125,7 +125,7 @@ class BwrapBackend(SandboxBackend):
             "--dev",
             "/dev",
             "--tmpfs",
-            "/tmp",
+            "/tmp",  # nosec B108 — path inside the bwrap mount namespace, not the host
         ]
         for system_dir in self._RO_SYSTEM_DIRS:
             if Path(system_dir).exists():

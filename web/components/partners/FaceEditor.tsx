@@ -15,9 +15,30 @@ import PartnerAvatar, {
 } from "@/components/partners/PartnerAvatar";
 
 export const FACE_EMOJIS = [
-  "🦊", "🐳", "🦉", "🐱", "🐶", "🐼", "🐨", "🦁",
-  "🐯", "🐸", "🐙", "🦄", "🤖", "👾", "🌱", "🌸",
-  "🍀", "🌙", "✨", "🔥", "📚", "🎨", "🎧", "🧭",
+  "🦊",
+  "🐳",
+  "🦉",
+  "🐱",
+  "🐶",
+  "🐼",
+  "🐨",
+  "🦁",
+  "🐯",
+  "🐸",
+  "🐙",
+  "🦄",
+  "🤖",
+  "👾",
+  "🌱",
+  "🌸",
+  "🍀",
+  "🌙",
+  "✨",
+  "🔥",
+  "📚",
+  "🎨",
+  "🎧",
+  "🧭",
 ] as const;
 
 export interface FaceValue {
@@ -150,7 +171,10 @@ export default function FaceEditor({
             type="button"
             aria-label={preset}
             onClick={() =>
-              onChange({ ...value, color: value.color === preset ? "" : preset })
+              onChange({
+                ...value,
+                color: value.color === preset ? "" : preset,
+              })
             }
             className="flex h-6 w-6 items-center justify-center rounded-full transition-transform hover:scale-110"
             style={{ background: preset }}
@@ -177,7 +201,7 @@ export default function FaceEditor({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] font-medium text-[var(--foreground)] hover:border-[var(--ring)]"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[13px] font-medium text-[var(--foreground)] hover:border-[var(--ring)]"
         >
           <ImagePlus className="h-3.5 w-3.5" />
           {hasImage ? t("Replace photo") : t("Upload photo or SVG")}
@@ -186,7 +210,7 @@ export default function FaceEditor({
           <button
             type="button"
             onClick={() => onChange({ ...value, avatar: "" })}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
           >
             <X className="h-3.5 w-3.5" />
             {t("Remove")}
@@ -194,7 +218,7 @@ export default function FaceEditor({
         )}
       </div>
       {uploadError && (
-        <p className="text-[11.5px] text-[var(--destructive)]">{uploadError}</p>
+        <p className="text-[12px] text-[var(--destructive)]">{uploadError}</p>
       )}
     </div>
   );

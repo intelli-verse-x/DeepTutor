@@ -1,130 +1,95 @@
 ---
-title: 设置
-description: 统一控制中心 —— 外观、状态、LLM / Embedding / Search、Capabilities、记忆、MCP、工具。
+title: Settings 设置
+description: DeepTutor 的统一控制面：外观、状态、网络、模型目录、Embedding、搜索、MinerU、Capabilities、Memory、MCP 和工具。
 ---
 
-设置界面在 v1.4 里被统一并按关注点拆分，采用 **草稿 / Apply** 模型 —— 改动是原子的，存之前可以回退。
+Settings 是 DeepTutor 的运行控制面。多数配置采用 draft-and-apply 模型，可以先测试 provider，再正式保存。
 
-![Settings overview](/screenshots/dt-settings.png)
+![Settings 工作台](/screenshots/settings.png)
 
-## Tab 列表
+## 主要分区
 
-按左侧导航的顺序：
+| 分区 | 控制什么 |
+| --- | --- |
+| **Appearance** | 主题、语言、侧边栏偏好。 |
+| **Status** | Backend 和各模型服务当前实际生效状态。 |
+| **Network** | Backend/frontend ports、external API base、CORS origins。 |
+| **LLM** | 模型目录 profiles、base URL、API key、active models。 |
+| **Embedding** | Knowledge / RAG 使用的 embedding provider。 |
+| **Search** | Web/search provider 配置。 |
+| **MinerU PDF** | 本地或云端 PDF parsing backend。 |
+| **Capabilities** | Chat、Solve、Question、Research、Visualize、Co-Writer 等 pipeline 的预算和参数。 |
+| **Memory** | Consolidation 控制和 Memory workbench 入口。 |
+| **MCP servers**（仅 admin） | 外部 MCP tool 注册。 |
+| **Tools** | 内置工具、上下文工具、coming-soon 工具和用户可切换工具。 |
 
-| Tab | 控制什么 |
-|-----|----------|
-| **Appearance** | UI 语言和主题（Cream、Snow、Dark、Glass） |
-| **Status** | LLM、embedding、search、存储后端的实时健康探测 |
-| **LLM** | Provider 目录、base URL、API key、当前激活模型 |
-| **Embedding** | 形态同 LLM，但作用于 embedder |
-| **Search** | Web 搜索 provider（Tavily / Brave / Jina / Serper / SearXNG / DuckDuckGo / Perplexity） |
-| **Capabilities** | 各 capability 可调参数（chunking、LLM 预算、dedup、最大迭代） |
-| **Memory** | 开关 consolidator、配置节奏与预算 |
-| **MCP servers** | 注册外部 Model Context Protocol server |
-| **Tools** | 查看每个内置工具的参数、状态、i18n 状态文案 |
+## 分区详解
 
-页面顶部有一个 **Tour** 启动器，带新用户走一遍。
+### Appearance
 
-## Appearance
+主题、界面语言、侧边栏偏好。纯客户端展示配置，不涉及 provider 凭证。
 
-| 设置项 | 选项 |
-|--------|------|
-| 语言 | English、简体中文 |
-| 主题 | Cream *（默认）* / Snow / Dark / Glass |
-| 侧边栏密度 | Compact / Comfortable |
+### Status
 
-## Status
+只读面板，显示 backend 以及当前配置实际解析到的 LLM、embedding、search endpoints。Status 反映上次 **Apply** 之后的运行时取值——draft 修改在 Apply 前不会出现在这里。
 
-一份实时健康探测：
+### Network
 
-- LLM provider —— 连接 OK / 失败 / 未配置
-- Embedding provider —— 同上
-- Search provider —— 同上
-- 存储后端 —— 连接状态、延迟
-- 每个 provider 的上次健康检查时间
+Backend/frontend ports、反向代理部署时浏览器客户端使用的 external API base，以及 CORS origins。
 
-排查「模型不回我」类问题时，先看这里。
+### LLM
 
-## LLM / Embedding / Search
+![LLM 设置：provider profiles、连接字段和模型目录](/screenshots/settings-llm.png)
 
-三者共享相同的 **profile** 模型：
+语言模型 profiles。每个 profile 是一条 provider connection——provider 类型、base URL、API key、可选 extra headers——加上模型目录：每个模型登记 model ID 和 context window。Active model 用于 Chat 和大多数 agent reasoning。
 
-- 可以配 **多个 profile**（比如 `openai-gpt-4o`、`anthropic-sonnet-4`、`local-ollama`）
-- 在每项服务里从目录中选 **一个激活模型**
-- 单回合的临时覆盖发生在聊天 composer 的模型选择器里
+### Embedding
 
-用 **Test** 按钮测连接 —— 它会发一个小探测请求并报延迟。
+Embedding 模型 profiles，布局与 LLM 一致（provider connection + models），但登记的是 embedding 模型及其 dimensions。供检索和知识库 ingestion 使用。
 
-完整 provider 矩阵：[**Providers**](/zh-cn/docs/get-started/providers/)。
+### Search
 
-## Capabilities
+`web_search` 工具及任何需要访问开放网络的 agent step 所用的 web search providers。配置 provider、base URL、API key 后，可在 diagnostics 面板跑一次测试查询。
 
-针对 Chat、Solve、Quiz、Research、Visualize、Co-Writer 的每 capability 可调参数：
+### MinerU PDF
 
-| 设置项 | 含义 |
-|--------|------|
-| **Chunking** | 检索到的 KB 内容如何切分进上下文窗口 |
-| **LLM budget** | 单次 capability 运行的最大 token / 最大迭代 |
-| **Dedup policy** | 重复源如何处理 |
-| **Reference policy** | 何时插入引用 |
-| **Max iterations** | agentic loop 的硬性上限 |
+![MinerU PDF 设置：parsing backend 与本地安装检测](/screenshots/settings-mineru.png)
 
-底层是统一的 `emit_capability_result` 信封和共享的 `UsageTracker`，会暴露 **每次调用的成本**。
+从上传试卷生成题目时使用的 PDF parsing backend。可选本地 MinerU 安装或 mineru.net 云端 API。本地解析时，页面会检测 MinerU CLI、支持手动指定 CLI path，并管理约 1-2 GB 的模型权重下载（HuggingFace 或 ModelScope）。
 
-## Memory
+### Capabilities
 
-| 设置项 | 效果 |
-|--------|------|
-| **开关 consolidator** | 暂停 / 恢复 L1 → L2 → L3 流水线 |
-| **节奏** | 每个 consolidation pass 的运行频率 |
-| **预算** | 每个 consolidation pass 的 token 预算 |
-| **跳转到 workbench** | 直接打开 `/memory` |
+![Capabilities 设置：按 capability 的参数](/screenshots/settings-capabilities.png)
 
-完整三层架构看 [**记忆系统**](/zh-cn/docs/explore/memory/)。
+按 capability 的 LLM 参数和运行时旋钮：Chat、Solve、Question、Research、Visualize、Co-Writer 等 pipeline 的 temperature、token 预算和循环上限。Chat 还包括 max rounds 和独立的 exploring/responding token 预算。取值持久化到 `data/user/settings/agents.yaml`（LLM 参数）和 `main.yaml`（运行时旋钮）。
 
-## MCP servers
+### Memory
 
-**Model Context Protocol** 集成让你可以把外部 MCP server 挂成额外工具。在这里加 server 配置；它们的工具会和内置工具并列出现。
+调节 chunk-based memory consolidator：**Update** 和 **Audit** 在每个 L2 surface、每个 L3 slot 上的 LLM-round 预算，以及 **Dedup** 迭代次数和是否在 Update 后自动跑 dedup。
 
-示例：
+### MCP servers（仅 admin）
 
-```yaml
-servers:
-  filesystem:
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/frank/docs"]
-  github:
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-github"]
-    env:
-      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_TOKEN}
-```
+注册外部 MCP（Model Context Protocol）servers，把它们的工具暴露给 chat agent。先测连接再保存。多用户部署中此分区仅 admin 可见。
 
-## Tools
+### Tools
 
-逐个查看每个内置工具：
+![Tools 设置：用户可切换工具与内置工具](/screenshots/settings-tools.png)
 
-- 名称、描述、参数
-- 状态（启用 / 即将推出）
-- i18n 状态文案（工具的进度消息在英文 / 中文下分别长什么样）
-- 是否允许用户切换
+开关用户可切换工具。**Experience enhancement** 工具（`brainstorm`、`web_search`、`paper_search`、`reason`）由你自由切换；**built-in** 工具如 `rag` 和 code execution 是锁定的，chat agent 需要时自动挂载。
 
-五个工具支持用户全局开关：`brainstorm`、`web_search`、`paper_search`、`code_execution`、`reason`。基于上下文挂载的工具（`rag`、`read_memory`、`write_memory` 等）不能在这里切换 —— 它们会根据当前回合挂了什么自动出现。
+## 部署注意点
 
-## i18n
+- 项目根目录 `.env` 不作为应用配置读取。
+- 运行时配置在 `data/user/settings/*.json`，除非设置了 `DEEPTUTOR_HOME` 或 `deeptutor start --home`。
+- Docker 浏览器客户端必须同时能访问 frontend 和 backend。反向代理部署时，在 **Network** 配置 external API base。
+- 用户可切换工具是 `brainstorm`、`web_search`、`paper_search`、`reason`；其它工具按上下文或运行时能力自动挂载。
 
-每个 capability 都自带一份标准的 `capabilities/prompts/{en,zh}/<name>.yaml`，保证状态消息在英文和中文下都一致。
+## Provider 测试
 
-## CLI 镜像
+Apply 前先点 **Test**。测试通过只说明 profile 可以完成最小调用，并不代表该模型适合所有 capability。
 
-```bash
-deeptutor config show           # 打印当前配置（secret 已脱敏）
-deeptutor init                  # 重跑向导，重新逐项提示
-$EDITOR data/user/settings/model_catalog.json   # 直接编辑
-```
+## 相关页面
 
-## 另见
-
-- [**Providers**](/zh-cn/docs/get-started/providers/) —— 完整的 LLM / embedding / search provider 矩阵
-- [**记忆系统**](/zh-cn/docs/explore/memory/) —— consolidator 到底干了什么
-- [**多用户部署**](/zh-cn/docs/get-started/multi-user/) —— 与认证相关的设置
+- [Providers](/zh-cn/docs/get-started/providers/) —— 模型/搜索配置示例
+- [Docker](/zh-cn/docs/get-started/docker/) —— 端口和反向代理说明
+- [Memory](/zh-cn/docs/explore/memory/) —— 检查 memory 状态

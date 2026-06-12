@@ -13,7 +13,7 @@ from deeptutor.partners.bus.events import OutboundMessage
 from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.channels.base import BaseChannel
 from deeptutor.partners.config.paths import get_media_dir
-from deeptutor.partners.config.schema import Base, DeliveryOverrides
+from deeptutor.partners.config.schema import DeliveryOverrides
 
 WECOM_AVAILABLE = importlib.util.find_spec("wecom_aibot_sdk") is not None
 

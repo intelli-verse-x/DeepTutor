@@ -16,7 +16,10 @@ type DisplayStatus = "done" | "active" | "upcoming";
  * point loop (explain ↔ feynman_check) repeats internally; the roadmap only
  * presents the canonical sequence so the learner sees the whole path.
  */
-export default function StageRoadmap({ stages, currentStage }: StageRoadmapProps) {
+export default function StageRoadmap({
+  stages,
+  currentStage,
+}: StageRoadmapProps) {
   const { t } = useTranslation();
 
   const statusFor = (stage: string): DisplayStatus => {

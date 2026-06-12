@@ -267,7 +267,10 @@ function sanitizeSvg(raw: string): string {
           ids.has(v.slice(1))
         ) {
           v = `#${prefix}${v.slice(1)}`;
-        } else if (lname === "aria-labelledby" || lname === "aria-describedby") {
+        } else if (
+          lname === "aria-labelledby" ||
+          lname === "aria-describedby"
+        ) {
           v = v
             .split(/\s+/)
             .map((token) => (ids.has(token) ? prefix + token : token))

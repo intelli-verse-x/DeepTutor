@@ -31,8 +31,8 @@ deeptutor run deep_solve "求 sin(x²) 的导数" --tool reason --format json
 deeptutor kb create physics --doc chapter1.pdf
 deeptutor kb search physics "什么是角动量？"
 
-# 跑一个 TutorBot
-deeptutor bot create my-bot --persona "Socratic 数学导师"
+# 运行一个 Partner
+deeptutor partner create my-bot --persona "Socratic 数学导师"
 
 # 看三层记忆
 deeptutor memory show L3
@@ -47,7 +47,7 @@ deeptutor memory show L3
 - 核心学习流程都可以在终端里驱动；浏览器独占的编辑和管理面板通过 Web UI / API 暴露状态
 - `deeptutor run --format json` 每行一个 JSON 事件；数据检查类命令 `kb list`、`kb search`、`session show`、`notebook show` 等也都能输出 JSON
 - Session 跨 turn 持久化 —— 你可以在 Web、REPL、单次 `run` 之间切换并续上之前的上下文
-- 自动化进入点（turns / KB / session / notebook / memory / TutorBot / config / plugin / provider / book）都在 CLI 上
+- 自动化进入点（turns / KB / session / notebook / memory / Partners / config / plugin / provider / book）都在 CLI 上
 
 ## 顶层命令地图
 
@@ -62,7 +62,7 @@ deeptutor memory show L3
 | `deeptutor session` | session 查看 | `deeptutor session list / show <id>` |
 | `deeptutor notebook` | notebook 记录 | `deeptutor notebook create / add-md` |
 | `deeptutor memory` | 三层记忆存储 | `deeptutor memory show L3` |
-| `deeptutor bot` | TutorBot 生命周期 | `deeptutor bot create / start / stop`（`create` 会立刻启动） |
+| `deeptutor partner` | Partner 生命周期 | `deeptutor partner create / start / stop`（`create` 会写配置并启动） |
 | `deeptutor config` | 查看运行时配置 | `deeptutor config show` |
 | `deeptutor plugin` | capability / tool 注册表 | `deeptutor plugin list` |
 | `deeptutor provider` | provider 认证流程 | `deeptutor provider login openai-codex` |
@@ -113,5 +113,5 @@ deeptutor run deep_solve "求 [[4,1],[2,3]] 的特征值" \
 $ deeptutor --help
 $ deeptutor run --help
 $ deeptutor kb create --help
-$ deeptutor bot start --help
+$ deeptutor partner start --help
 ```

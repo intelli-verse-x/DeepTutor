@@ -95,7 +95,7 @@ const BRIDGE_SCRIPT =
   "<script data-dt-bridge>" +
   "(function(){" +
   'window.sendPrompt=function(t){try{parent.postMessage({type:"dt:visualize-prompt",text:String(t||"")},"*")}catch(e){}};' +
-  "function rh(){try{var b=document.body,h=Math.max(document.documentElement.scrollHeight,b?b.scrollHeight:0);parent.postMessage({type:\"dt:visualize-height\",height:h},\"*\")}catch(e){}}" +
+  'function rh(){try{var b=document.body,h=Math.max(document.documentElement.scrollHeight,b?b.scrollHeight:0);parent.postMessage({type:"dt:visualize-height",height:h},"*")}catch(e){}}' +
   'if(typeof ResizeObserver!=="undefined"){var ro=new ResizeObserver(rh);document.addEventListener("DOMContentLoaded",function(){ro.observe(document.documentElement);rh()})}' +
   'document.addEventListener("DOMContentLoaded",rh);window.addEventListener("load",rh);' +
   "})();" +

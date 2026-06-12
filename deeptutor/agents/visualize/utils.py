@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-import xml.etree.ElementTree as ET
+
+import defusedxml.ElementTree as ET
 
 _MERMAID_KEYWORDS = (
     "graph",

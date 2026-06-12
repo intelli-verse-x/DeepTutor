@@ -260,9 +260,7 @@ class NapcatChannel(BaseChannel):
             if group_id is None:
                 return
 
-            replying_to_bot = (
-                isinstance(reply_to_id, int) and reply_to_id in self._bot_outbound_ids
-            )
+            replying_to_bot = isinstance(reply_to_id, int) and reply_to_id in self._bot_outbound_ids
             if not self._should_reply_in_group(
                 group_id=group_id,
                 mentioned_self=mentioned_self,

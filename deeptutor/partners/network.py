@@ -9,9 +9,9 @@ Ported from nanobot's ``security/network.py``, trimmed to what channels use.
 
 from __future__ import annotations
 
+from contextlib import suppress
 import ipaddress
 import socket
-from contextlib import suppress
 from urllib.parse import urlparse
 
 _BLOCKED_NETWORKS = [

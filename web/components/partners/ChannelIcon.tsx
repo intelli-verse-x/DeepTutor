@@ -203,7 +203,13 @@ function NapCatIcon({ size, className }: { size: number; className: string }) {
 }
 
 /** DingTalk's wing mark — Ant Design Icons `dingtalk`. */
-function DingTalkIcon({ size, className }: { size: number; className: string }) {
+function DingTalkIcon({
+  size,
+  className,
+}: {
+  size: number;
+  className: string;
+}) {
   return (
     <svg
       viewBox="0 0 1024 1024"
@@ -229,9 +235,11 @@ export default function ChannelIcon({
 }) {
   const key = name.toLowerCase();
   if (key === "feishu") return <FeishuIcon size={size} className={className} />;
-  if (key === "dingtalk") return <DingTalkIcon size={size} className={className} />;
+  if (key === "dingtalk")
+    return <DingTalkIcon size={size} className={className} />;
   if (key === "wecom") return <WeComIcon size={size} className={className} />;
-  if (key === "msteams") return <MSTeamsIcon size={size} className={className} />;
+  if (key === "msteams")
+    return <MSTeamsIcon size={size} className={className} />;
   if (key === "napcat") return <NapCatIcon size={size} className={className} />;
   const brand = BRAND_PATHS[key];
   if (brand) {

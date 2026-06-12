@@ -39,7 +39,7 @@ export interface SoulTemplate {
 
 export interface SoulSources {
   library: SoulTemplate[];
-  personas: { name: string; description: string }[];
+  personas: { name: string; description: string; content?: string }[];
 }
 
 export interface ToolOption {
@@ -120,7 +120,9 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export async function listPartners(): Promise<PartnerInfo[]> {
-  return json(await apiFetch(apiUrl("/api/v1/partners"), { cache: "no-store" }));
+  return json(
+    await apiFetch(apiUrl("/api/v1/partners"), { cache: "no-store" }),
+  );
 }
 
 export async function getPartner(
@@ -129,7 +131,9 @@ export async function getPartner(
 ): Promise<PartnerInfo> {
   const query = options?.includeSecrets ? "?include_secrets=true" : "";
   return json(
-    await apiFetch(apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}${query}`)),
+    await apiFetch(
+      apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}${query}`),
+    ),
   );
 }
 
@@ -147,14 +151,19 @@ export async function createPartner(
 
 export async function updatePartner(
   partnerId: string,
-  payload: Partial<CreatePartnerPayload> & { channels?: Record<string, unknown> },
+  payload: Partial<CreatePartnerPayload> & {
+    channels?: Record<string, unknown>;
+  },
 ): Promise<PartnerInfo> {
   return json(
-    await apiFetch(apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}`), {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }),
+    await apiFetch(
+      apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}`),
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    ),
   );
 }
 
@@ -178,15 +187,20 @@ export async function stopPartner(partnerId: string): Promise<void> {
 
 export async function destroyPartner(partnerId: string): Promise<void> {
   await json(
-    await apiFetch(apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}`), {
-      method: "DELETE",
-    }),
+    await apiFetch(
+      apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}`),
+      {
+        method: "DELETE",
+      },
+    ),
   );
 }
 
 export async function getPartnerSoul(partnerId: string): Promise<string> {
   const data = await json<{ content: string }>(
-    await apiFetch(apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}/soul`)),
+    await apiFetch(
+      apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}/soul`),
+    ),
   );
   return data.content ?? "";
 }
@@ -196,11 +210,14 @@ export async function savePartnerSoul(
   content: string,
 ): Promise<void> {
   await json(
-    await apiFetch(apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}/soul`), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
-    }),
+    await apiFetch(
+      apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}/soul`),
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      },
+    ),
   );
 }
 
@@ -233,15 +250,23 @@ export async function getPartnerCommands(): Promise<PartnerCommandInfo[]> {
   return data.commands;
 }
 
-export async function getPartnerAssets(partnerId: string): Promise<PartnerAssets> {
+export async function getPartnerAssets(
+  partnerId: string,
+): Promise<PartnerAssets> {
   return json(
-    await apiFetch(apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}/assets`)),
+    await apiFetch(
+      apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}/assets`),
+    ),
   );
 }
 
 export async function addPartnerAssets(
   partnerId: string,
-  assets: { knowledge_bases?: string[]; skills?: string[]; notebooks?: string[] },
+  assets: {
+    knowledge_bases?: string[];
+    skills?: string[];
+    notebooks?: string[];
+  },
 ): Promise<{ assets: PartnerAssets } & ProvisioningReport> {
   return json(
     await apiFetch(
@@ -287,7 +312,13 @@ export interface ChannelsSchemaResponse {
 }
 
 export async function getChannelSchemas(): Promise<ChannelsSchemaResponse> {
-  return json(await apiFetch(apiUrl("/api/v1/partners/channels/schema")));
+  // no-store: availability reflects live server imports (e.g. a dependency
+  // installed minutes ago) — a cached copy here shows phantom-missing channels.
+  return json(
+    await apiFetch(apiUrl("/api/v1/partners/channels/schema"), {
+      cache: "no-store",
+    }),
+  );
 }
 
 export async function getPartnerHistory(
@@ -308,7 +339,9 @@ export async function getPartnerHistory(
   const query = params.toString() ? `?${params.toString()}` : "";
   return json(
     await apiFetch(
-      apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}/history${query}`),
+      apiUrl(
+        `/api/v1/partners/${encodeURIComponent(partnerId)}/history${query}`,
+      ),
     ),
   );
 }

@@ -33,11 +33,7 @@ export default function KnowledgeSelector({
 }) {
   const { t } = useTranslation();
   const [open, setOpenState] = useState(false);
-  const {
-    expanded,
-    linger,
-    triggerProps: lingerProps,
-  } = useLingerExpand(open);
+  const { expanded, linger, triggerProps: lingerProps } = useLingerExpand(open);
   const setOpen = (next: boolean) => {
     setOpenState(next);
     // Keep the label expanded for a beat after close so a just-made

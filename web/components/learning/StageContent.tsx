@@ -38,7 +38,8 @@ function tryParseJson(text: string): unknown {
 function toText(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   if (Array.isArray(value)) return value.map(toText).join(", ");
   return JSON.stringify(value);
 }
@@ -50,7 +51,8 @@ function normalizeOptions(raw: unknown): string[] {
       // Common shapes: {label, text} / {key, value} / {id, content}
       const label = opt.label ?? opt.key ?? opt.id;
       const body = opt.text ?? opt.value ?? opt.content ?? opt.option;
-      if (label != null && body != null) return `${toText(label)}. ${toText(body)}`;
+      if (label != null && body != null)
+        return `${toText(label)}. ${toText(body)}`;
       return toText(body ?? label ?? opt);
     }
     return toText(opt);
@@ -88,7 +90,10 @@ export function parseStageContent(content: string): StageSegment[] {
     // A quiz line is a self-contained JSON object carrying a question.
     if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
       const parsed = tryParseJson(trimmed);
-      if (isJsonObject(parsed) && ("question" in parsed || "question_id" in parsed)) {
+      if (
+        isJsonObject(parsed) &&
+        ("question" in parsed || "question_id" in parsed)
+      ) {
         flush();
         segments.push({ kind: "quiz", question: parseQuestionPayload(parsed) });
         continue;
@@ -128,11 +133,7 @@ function QuestionText({ question }: { question: QuizQuestion }) {
   const prompt = fields.question ?? fields.text ?? fields.prompt ?? fields.stem;
   if (prompt != null) {
     return (
-      <MarkdownRenderer
-        content={toText(prompt)}
-        enableMath
-        variant="compact"
-      />
+      <MarkdownRenderer content={toText(prompt)} enableMath variant="compact" />
     );
   }
   // Fallback: render any descriptive fields we didn't hide.
@@ -149,7 +150,13 @@ function QuestionText({ question }: { question: QuizQuestion }) {
   );
 }
 
-function QuizCard({ question, index }: { question: QuizQuestion; index: number }) {
+function QuizCard({
+  question,
+  index,
+}: {
+  question: QuizQuestion;
+  index: number;
+}) {
   const { t } = useTranslation();
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm">
@@ -180,11 +187,10 @@ export function StageContent({ content }: { content: string }) {
   const segments = parseStageContent(content);
   // Precompute the running quiz number per segment so render stays pure
   // (no mutable counter reassigned inside the JSX map).
-  const quizNumbers = segments.map(
-    (seg, i) =>
-      seg.kind === "quiz"
-        ? segments.slice(0, i).filter((s) => s.kind === "quiz").length
-        : -1,
+  const quizNumbers = segments.map((seg, i) =>
+    seg.kind === "quiz"
+      ? segments.slice(0, i).filter((s) => s.kind === "quiz").length
+      : -1,
   );
   return (
     <div className="space-y-4">

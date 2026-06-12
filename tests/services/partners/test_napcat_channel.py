@@ -147,9 +147,7 @@ class TestShouldReplyInGroup:
     def test_mention_policy_requires_mention(self):
         ch = _make_channel(group_policy="mention")
         assert (
-            ch._should_reply_in_group(
-                group_id=123, mentioned_self=False, replying_to_bot=False
-            )
+            ch._should_reply_in_group(group_id=123, mentioned_self=False, replying_to_bot=False)
             is False
         )
 
@@ -170,9 +168,7 @@ class TestShouldReplyInGroup:
     def test_open_policy_allows_all(self):
         ch = _make_channel(group_policy="open")
         assert (
-            ch._should_reply_in_group(
-                group_id=123, mentioned_self=False, replying_to_bot=False
-            )
+            ch._should_reply_in_group(group_id=123, mentioned_self=False, replying_to_bot=False)
             is True
         )
 
@@ -180,9 +176,7 @@ class TestShouldReplyInGroup:
         ch = _make_channel(group_policy=0.5)
         with patch("random.random", return_value=0.3):
             assert (
-                ch._should_reply_in_group(
-                    group_id=123, mentioned_self=False, replying_to_bot=False
-                )
+                ch._should_reply_in_group(group_id=123, mentioned_self=False, replying_to_bot=False)
                 is True
             )
 
@@ -190,9 +184,7 @@ class TestShouldReplyInGroup:
         ch = _make_channel(group_policy=0.5)
         with patch("random.random", return_value=0.7):
             assert (
-                ch._should_reply_in_group(
-                    group_id=123, mentioned_self=False, replying_to_bot=False
-                )
+                ch._should_reply_in_group(group_id=123, mentioned_self=False, replying_to_bot=False)
                 is False
             )
 
@@ -200,9 +192,7 @@ class TestShouldReplyInGroup:
         ch = _make_channel(group_policy=0.0)
         with patch("random.random", return_value=0.0):
             assert (
-                ch._should_reply_in_group(
-                    group_id=123, mentioned_self=False, replying_to_bot=False
-                )
+                ch._should_reply_in_group(group_id=123, mentioned_self=False, replying_to_bot=False)
                 is False
             )
 
@@ -210,9 +200,7 @@ class TestShouldReplyInGroup:
         ch = _make_channel(group_policy=1.0)
         with patch("random.random", return_value=0.999):
             assert (
-                ch._should_reply_in_group(
-                    group_id=123, mentioned_self=False, replying_to_bot=False
-                )
+                ch._should_reply_in_group(group_id=123, mentioned_self=False, replying_to_bot=False)
                 is True
             )
 
@@ -224,43 +212,29 @@ class TestShouldReplyInGroup:
         )
 
     def test_override_open_beats_global_mention(self):
-        ch = _make_channel(
-            group_policy="mention", group_policy_overrides={"123": "open"}
-        )
+        ch = _make_channel(group_policy="mention", group_policy_overrides={"123": "open"})
         assert (
-            ch._should_reply_in_group(
-                group_id=123, mentioned_self=False, replying_to_bot=False
-            )
+            ch._should_reply_in_group(group_id=123, mentioned_self=False, replying_to_bot=False)
             is True
         )
 
     def test_unlisted_group_falls_back_to_global(self):
-        ch = _make_channel(
-            group_policy="mention", group_policy_overrides={"123": "open"}
-        )
+        ch = _make_channel(group_policy="mention", group_policy_overrides={"123": "open"})
         assert (
-            ch._should_reply_in_group(
-                group_id=456, mentioned_self=False, replying_to_bot=False
-            )
+            ch._should_reply_in_group(group_id=456, mentioned_self=False, replying_to_bot=False)
             is False
         )
 
     def test_override_probability(self):
-        ch = _make_channel(
-            group_policy="mention", group_policy_overrides={"123": 0.5}
-        )
+        ch = _make_channel(group_policy="mention", group_policy_overrides={"123": 0.5})
         with patch("random.random", return_value=0.3):
             assert (
-                ch._should_reply_in_group(
-                    group_id=123, mentioned_self=False, replying_to_bot=False
-                )
+                ch._should_reply_in_group(group_id=123, mentioned_self=False, replying_to_bot=False)
                 is True
             )
         with patch("random.random", return_value=0.9):
             assert (
-                ch._should_reply_in_group(
-                    group_id=123, mentioned_self=False, replying_to_bot=False
-                )
+                ch._should_reply_in_group(group_id=123, mentioned_self=False, replying_to_bot=False)
                 is False
             )
 
@@ -507,9 +481,7 @@ class TestOnNotice:
     @pytest.mark.asyncio
     async def test_welcome_disabled_ignores_notice(self):
         ch = _make_channel(welcome_new_members=False)
-        await ch._on_notice(
-            {"notice_type": "group_increase", "group_id": 123456, "user_id": 55}
-        )
+        await ch._on_notice({"notice_type": "group_increase", "group_id": 123456, "user_id": 55})
         ch.bus.publish_inbound.assert_not_awaited()
 
     @pytest.mark.asyncio

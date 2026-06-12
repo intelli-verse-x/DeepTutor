@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -130,9 +131,7 @@ class TestConfigAndSoul:
         # Clearing works; junk and oversized payloads are rejected.
         assert client.patch("/api/v1/partners/ada", json={"avatar": ""}).status_code == 200
         assert client.get("/api/v1/partners/ada").json()["avatar"] == ""
-        res = client.patch(
-            "/api/v1/partners/ada", json={"avatar": "https://evil.example/x.png"}
-        )
+        res = client.patch("/api/v1/partners/ada", json={"avatar": "https://evil.example/x.png"})
         assert res.status_code == 422
         res = client.patch(
             "/api/v1/partners/ada",
@@ -218,3 +217,29 @@ class TestHistory:
         res = client.get("/api/v1/partners/ada/history")
         assert res.status_code == 200
         assert res.json()[0]["content"] == "hi"
+
+
+class TestChatAttachments:
+    def test_materialize_partner_attachment_writes_partner_media(self, isolated_root):
+        from deeptutor.api.routers.partners import (
+            ChatAttachmentRequest,
+            _materialize_partner_attachments,
+        )
+
+        paths = _materialize_partner_attachments(
+            "ada",
+            [
+                ChatAttachmentRequest(
+                    type="file",
+                    filename="notes.txt",
+                    base64=base64.b64encode(b"hello").decode("ascii"),
+                    mime_type="text/plain",
+                )
+            ],
+        )
+
+        assert len(paths) == 1
+        path = Path(paths[0])
+        assert path.read_bytes() == b"hello"
+        assert path.name.endswith("_notes.txt")
+        assert path.parent == isolated_root / "partners" / "ada" / "media" / "web"

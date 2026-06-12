@@ -16,7 +16,7 @@ from pydantic import Field
 from deeptutor.partners.bus.events import OutboundMessage
 from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.channels.base import BaseChannel
-from deeptutor.partners.config.schema import Base, DeliveryOverrides
+from deeptutor.partners.config.schema import DeliveryOverrides
 
 try:
     from dingtalk_stream import (

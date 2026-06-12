@@ -25,15 +25,25 @@ deeptutor start    # 同时启动后端 + 前端；保持终端开着
 
 > 跳过 `deeptutor init` 也行，应用会以默认端口和空配置启动，进 **设置 → LLM** 再配也可以。
 
-## 试用 v1.4.0 beta
+## 试用预发布版本
 
-PyPI 把 `1.4.0-beta` 规范化为 `1.4.0b0`，所以普通 `pip install -U deeptutor` 不会跳到 beta：
+普通 `pip install -U deeptutor` 只会停在稳定版 —— PyPI 默认跳过预发布版本（如 `1.X.0b0` 这类 beta），除非显式选择：
 
 ```bash
 pip install --pre -U deeptutor
-# 或精确锁定：
-pip install -U deeptutor==1.4.0b0
+# 或精确锁定某个版本：
+pip install -U "deeptutor==<version>"
 ```
+
+## 可选 extras
+
+PyPI wheel 本身已包含完整 Web 应用 + CLI。附加能力按 extras 安装 —— 例如全部内置 Partner channel SDK（WeCom、QQ、Slack、飞书、Telegram、钉钉等）：
+
+```bash
+pip install -U "deeptutor[partners]"
+```
+
+完整 extras 总表（`matrix`、`matrix-e2e`、`math-animator`、`dev`、`all`）见 [**从源码安装**](/zh-cn/docs/get-started/from-source/#可选的安装-extras) —— 同样的 extra 名对 PyPI 包同样有效。
 
 ## 文件存在哪里
 

@@ -316,23 +316,23 @@ Manual consolidation isn't a CLI command — fire it from the **Memory Workbench
 curl -X POST http://localhost:8001/api/v1/memory/runs/start
 ```
 
-## `deeptutor bot` — TutorBot lifecycle
+## `deeptutor partner` — Partner lifecycle
 
 ```bash
-deeptutor bot list
+deeptutor partner list
 
-deeptutor bot create my-bot \
+deeptutor partner create math-tutor \
   --name "Math Mentor" \
-  --persona "Socratic tutor specializing in algebra and calculus" \
+  --soul "Socratic tutor specializing in algebra and calculus" \
   --model gpt-4o
 
-# `create` starts the bot immediately. Use start later if it was stopped.
-deeptutor bot stop my-bot
+deeptutor partner stop math-tutor
+deeptutor partner start math-tutor
 ```
 
-Subcommands: `list`, `create`, `start`, `stop`. `create` writes the bot config and starts it in one step. Delete a bot by removing its workspace directory at `data/tutorbot/<bot_id>/` while it's stopped.
+Subcommands: `list`, `create`, `start`, `stop`. `create` writes partner config and attempts to start the partner. The Web UI is the recommended place to configure channel schemas, assets, tools, and secrets; the CLI is best for listing, creating, starting, and stopping.
 
-Channel configs (Telegram, Slack, etc.) live in the bot's YAML under `data/tutorbot/<bot_id>/`. See [**Explore TutorBot**](/docs/tutorbot/) for per-channel setup.
+Partners run inside `data/partners/<partner_id>/workspace/`. See [**Partners & Channels**](/docs/partners/) for channel setup.
 
 ## `deeptutor config show`
 

@@ -304,12 +304,12 @@ def list_assets(partner_id: str) -> dict[str, list[dict[str, Any]]]:
     if index_path.exists():
         try:
             data = json.loads(index_path.read_text(encoding="utf-8"))
-            for entry in data.get("notebooks", []) or []:
+            for nb_entry in data.get("notebooks", []) or []:
                 notebooks.append(
                     {
-                        "id": str(entry.get("id", "")),
-                        "name": str(entry.get("name", "")),
-                        "record_count": entry.get("record_count", 0),
+                        "id": str(nb_entry.get("id", "")),
+                        "name": str(nb_entry.get("name", "")),
+                        "record_count": nb_entry.get("record_count", 0),
                     }
                 )
         except (OSError, json.JSONDecodeError):

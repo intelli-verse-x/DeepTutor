@@ -103,7 +103,10 @@ function clampViewerWidth(px: number): number {
   // column ~30% of the viewport so the panel can't swallow the conversation.
   const ceiling =
     typeof window !== "undefined"
-      ? Math.max(VIEWER_WIDTH_MIN, Math.min(VIEWER_WIDTH_MAX, window.innerWidth * 0.7))
+      ? Math.max(
+          VIEWER_WIDTH_MIN,
+          Math.min(VIEWER_WIDTH_MAX, window.innerWidth * 0.7),
+        )
       : VIEWER_WIDTH_MAX;
   return Math.round(Math.max(VIEWER_WIDTH_MIN, Math.min(px, ceiling)));
 }
@@ -112,7 +115,9 @@ function readStoredViewerWidth(): number {
   if (typeof window === "undefined") return VIEWER_WIDTH_DEFAULT;
   const raw = window.localStorage.getItem(VIEWER_WIDTH_KEY);
   const parsed = raw ? Number(raw) : NaN;
-  return Number.isFinite(parsed) ? clampViewerWidth(parsed) : VIEWER_WIDTH_DEFAULT;
+  return Number.isFinite(parsed)
+    ? clampViewerWidth(parsed)
+    : VIEWER_WIDTH_DEFAULT;
 }
 
 /* ------------------------------------------------------------------ */
@@ -422,7 +427,11 @@ function SessionViewerPanelInner(
         if (activeTabId === id) {
           // Fall back to the previous tab, or to the Activity home when none
           // remain — the panel stays open since the home is always useful.
-          setActiveTabId(next.length === 0 ? null : (next[Math.max(0, idx - 1)] ?? next[0]).id);
+          setActiveTabId(
+            next.length === 0
+              ? null
+              : (next[Math.max(0, idx - 1)] ?? next[0]).id,
+          );
         }
         return next;
       });

@@ -22,8 +22,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
+import mimetypes
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 import uuid
 
@@ -43,6 +46,7 @@ logger = logging.getLogger(__name__)
 EventCallback = Callable[[StreamEvent], Awaitable[None]]
 
 _MAX_IMAGE_BYTES = 8 * 1024 * 1024
+_MAX_MEDIA_BYTES = 10 * 1024 * 1024
 _TOOL_HINT_MAX_CHARS = 120
 
 
@@ -161,6 +165,7 @@ class PartnerRunner:
                 msg.content,
                 channel=msg.channel,
                 sender_id=msg.sender_id,
+                attachments=list((msg.metadata or {}).get("_attachment_records") or []),
             )
             if final:
                 self.store.append(session_key, "assistant", final, channel=msg.channel)
@@ -226,12 +231,8 @@ class PartnerRunner:
 
         context = self._build_context(msg)
         turn_id = str(context.metadata.get("turn_id") or "")
-        send_progress = self._channel_delivery_flag(
-            msg.channel, "send_progress", default=True
-        )
-        send_tool_hints = self._channel_delivery_flag(
-            msg.channel, "send_tool_hints", default=True
-        )
+        send_progress = self._channel_delivery_flag(msg.channel, "send_progress", default=True)
+        send_tool_hints = self._channel_delivery_flag(msg.channel, "send_tool_hints", default=True)
         is_im = msg.channel != "web"
         # Streaming requires send_progress: narration rounds stream live as
         # they happen, so with progress muted we keep buffered delivery.
@@ -324,7 +325,12 @@ class PartnerRunner:
         session_key = msg.session_key
         turn_id = f"partner-{self.partner_id}-{uuid.uuid4().hex[:12]}"
         history = self.store.conversation_history(session_key)
-        attachments = self._attachments_from_media(msg.media)
+        attachments, attachment_records = self._attachments_from_media(msg.media)
+        source_manifest, source_index = self._source_manifest_from_records(
+            session_key,
+            fresh_records=attachment_records,
+        )
+        msg.metadata["_attachment_records"] = attachment_records
 
         # Partner-scope context blocks (soul / skills / KBs) are assembled
         # inside the partner scope so the same service locators the chat
@@ -362,6 +368,8 @@ class PartnerRunner:
                 channel_meta[key_text] = str(value)
         if channel_meta:
             metadata["channel_metadata"] = channel_meta
+        if source_index:
+            metadata["source_index"] = source_index
         cron_job_id = str((msg.metadata or {}).get("_cron_job_id") or "").strip()
         if cron_job_id:
             metadata["cron_job_id"] = cron_job_id
@@ -380,6 +388,7 @@ class PartnerRunner:
             language=self._language(),
             persona_context=read_soul(self.partner_id).strip(),
             skills_manifest=skills_manifest,
+            source_manifest=source_manifest,
             metadata=metadata,
         )
 
@@ -433,9 +442,7 @@ class PartnerRunner:
         lang = str(getattr(self.config, "language", "") or "").strip().lower()
         return "zh" if lang.startswith("zh") else "en"
 
-    def _channel_delivery_flag(
-        self, channel_name: str, name: str, *, default: bool
-    ) -> bool:
+    def _channel_delivery_flag(self, channel_name: str, name: str, *, default: bool) -> bool:
         channels = getattr(self.config, "channels", None) or {}
         if not isinstance(channels, dict):
             return default
@@ -448,30 +455,167 @@ class PartnerRunner:
             value = section.get(camel)
         return value if isinstance(value, bool) else default
 
-    def _attachments_from_media(self, media: list[str]) -> list[Attachment]:
+    @staticmethod
+    def _attachment_id_for_path(path: Path) -> str:
+        try:
+            seed = str(path.resolve())
+        except OSError:
+            seed = str(path)
+        return hashlib.sha1(seed.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+
+    def _attachments_from_media(self, media: list[str]) -> tuple[list[Attachment], list[dict]]:
         attachments: list[Attachment] = []
+        records: list[dict[str, Any]] = []
+        document_records: list[dict[str, Any]] = []
         for raw_path in media or []:
             try:
-                from pathlib import Path
-
                 path = Path(raw_path)
-                if not path.is_file() or path.stat().st_size > _MAX_IMAGE_BYTES:
+                if not path.is_file():
+                    continue
+                size = path.stat().st_size
+                if size > _MAX_MEDIA_BYTES:
                     continue
                 data = path.read_bytes()
+                attachment_id = self._attachment_id_for_path(path)
+                mime_type = mimetypes.guess_type(path.name)[0] or ""
                 mime = detect_image_mime(data)
-                if not mime:
-                    continue
-                attachments.append(
-                    Attachment(
-                        type="image",
-                        base64=base64.b64encode(data).decode("ascii"),
-                        filename=path.name,
-                        mime_type=mime,
+                if mime and size <= _MAX_IMAGE_BYTES:
+                    encoded = base64.b64encode(data).decode("ascii")
+                    attachments.append(
+                        Attachment(
+                            type="image",
+                            base64=encoded,
+                            filename=path.name,
+                            mime_type=mime,
+                            id=attachment_id,
+                        )
                     )
+                    records.append(
+                        {
+                            "id": attachment_id,
+                            "type": "image",
+                            "filename": path.name,
+                            "mime_type": mime,
+                            "path": str(path),
+                            "size": size,
+                        }
+                    )
+                    continue
+
+                document_records.append(
+                    {
+                        "id": attachment_id,
+                        "type": "pdf" if path.suffix.lower() == ".pdf" else "file",
+                        "filename": path.name,
+                        "mime_type": mime_type,
+                        "base64": base64.b64encode(data).decode("ascii"),
+                        "path": str(path),
+                        "size": size,
+                    }
                 )
             except OSError:
                 logger.warning("Skipping unreadable media file: %s", raw_path, exc_info=True)
-        return attachments
+
+        if document_records:
+            try:
+                from deeptutor.utils.document_extractor import extract_documents_from_records
+
+                _document_texts, updated_records = extract_documents_from_records(document_records)
+            except Exception:
+                logger.warning(
+                    "Failed to extract partner media documents for %s",
+                    self.partner_id,
+                    exc_info=True,
+                )
+                updated_records = [
+                    {**record, "base64": "", "extracted_chars": 0} for record in document_records
+                ]
+
+            for record in updated_records:
+                cleaned = {k: v for k, v in record.items() if k != "base64"}
+                records.append(cleaned)
+                if str(cleaned.get("extracted_text", "") or "").strip():
+                    attachments.append(
+                        Attachment(
+                            type=str(cleaned.get("type") or "file"),
+                            filename=str(cleaned.get("filename") or ""),
+                            mime_type=str(cleaned.get("mime_type") or ""),
+                            id=str(cleaned.get("id") or ""),
+                            extracted_text=str(cleaned.get("extracted_text") or ""),
+                        )
+                    )
+
+        return attachments, records
+
+    def _source_manifest_from_records(
+        self,
+        session_key: str,
+        *,
+        fresh_records: list[dict[str, Any]],
+    ) -> tuple[str, dict[str, str]]:
+        try:
+            from deeptutor.services.session.source_inventory import (
+                SourceEntry,
+                SourceInventory,
+                render_manifest,
+            )
+        except Exception:
+            logger.warning("Failed to import source inventory helpers", exc_info=True)
+            return "", {}
+
+        inv = SourceInventory()
+        turn_ordinal = 1
+        historical_messages = self.store.messages(session_key, limit=200)
+        for message in historical_messages:
+            if message.get("role") == "user":
+                turn_ordinal += 1
+                for record in message.get("attachments") or []:
+                    self._add_attachment_source(
+                        inv,
+                        record,
+                        fresh=False,
+                        first_seen_turn=turn_ordinal - 1,
+                        source_entry_cls=SourceEntry,
+                    )
+
+        for record in fresh_records:
+            self._add_attachment_source(
+                inv,
+                record,
+                fresh=True,
+                first_seen_turn=turn_ordinal,
+                source_entry_cls=SourceEntry,
+            )
+        return render_manifest(inv)
+
+    @staticmethod
+    def _add_attachment_source(
+        inv: Any,
+        record: dict[str, Any],
+        *,
+        fresh: bool,
+        first_seen_turn: int,
+        source_entry_cls: Any,
+    ) -> None:
+        if str(record.get("type", "")).lower() == "image":
+            return
+        mime = str(record.get("mime_type", "") or "").lower()
+        if mime.startswith("image/"):
+            return
+        text = str(record.get("extracted_text", "") or "")
+        attachment_id = str(record.get("id", "") or "").strip()
+        if not text.strip() or not attachment_id:
+            return
+        inv.add(
+            source_entry_cls(
+                sid=f"at-{attachment_id}",
+                kind="attachment",
+                name=str(record.get("filename") or "Untitled file"),
+                full_text=text,
+                fresh=fresh,
+                first_seen_turn=first_seen_turn,
+            )
+        )
 
     async def _publish_hint(self, msg: InboundMessage, text: str, *, tool_hint: bool) -> None:
         await self.bus.publish_outbound(

@@ -19,7 +19,7 @@ from deeptutor.partners.bus.events import OutboundMessage
 from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.channels.base import BaseChannel
 from deeptutor.partners.config.paths import get_media_dir
-from deeptutor.partners.config.schema import Base, DeliveryOverrides, StreamingSupport
+from deeptutor.partners.config.schema import DeliveryOverrides, StreamingSupport
 
 FEISHU_AVAILABLE = importlib.util.find_spec("lark_oapi") is not None
 

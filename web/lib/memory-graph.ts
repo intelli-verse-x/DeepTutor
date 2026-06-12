@@ -751,7 +751,7 @@ export const SURFACE_LABEL: Record<Surface, string> = {
   quiz: "Quiz",
   kb: "Knowledge base",
   book: "Book",
-  tutorbot: "TutorBot",
+  tutorbot: "Partner",
   cowriter: "Co-writer",
 };
 

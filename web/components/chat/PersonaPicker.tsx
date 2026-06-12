@@ -212,9 +212,7 @@ export default function PersonaPicker({
               onClick={handleApply}
               className="btn-primary rounded-xl bg-[var(--primary)] px-4 py-2.5 text-[13px] font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
             >
-              {selected
-                ? t("Use Persona")
-                : t("Continue without persona")}
+              {selected ? t("Use Persona") : t("Continue without persona")}
             </button>
           </div>
         </div>

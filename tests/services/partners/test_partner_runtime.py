@@ -152,9 +152,7 @@ class TestTurnExecution:
         self, partners_root, fake_orchestrator
     ):
         fake_orchestrator.script = _narration_round("c1", "exploring…") + _finish("done")
-        config = PartnerConfig(
-            name="Ada", channels={"telegram": {"send_progress": False}}
-        )
+        config = PartnerConfig(name="Ada", channels={"telegram": {"send_progress": False}})
         runner = _runner(partners_root, config)
 
         await runner.process_message(_msg())
@@ -321,6 +319,50 @@ class TestContextAssembly:
             "content": "first reply",
         } in context.conversation_history
 
+    @pytest.mark.asyncio
+    async def test_image_media_becomes_context_attachment_and_session_record(
+        self, partners_root, fake_orchestrator
+    ):
+        image_path = partners_root / "image.png"
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        image_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+        fake_orchestrator.script = _finish("saw it")
+        runner = _runner(partners_root)
+        msg = _msg("what is in this image?")
+        msg.media = [str(image_path)]
+
+        await runner.process_message(msg)
+
+        context = fake_orchestrator.seen_contexts[-1]
+        assert len(context.attachments) == 1
+        assert context.attachments[0].type == "image"
+        assert context.attachments[0].filename == "image.png"
+        records = runner.store.messages("telegram:42")
+        assert records[0]["attachments"][0]["type"] == "image"
+        assert records[0]["attachments"][0]["filename"] == "image.png"
+
+    @pytest.mark.asyncio
+    async def test_document_media_becomes_attached_source(self, partners_root, fake_orchestrator):
+        doc_path = partners_root / "notes.txt"
+        doc_path.parent.mkdir(parents=True, exist_ok=True)
+        doc_path.write_text("Gradient descent uses a learning rate.", encoding="utf-8")
+        fake_orchestrator.script = _finish("noted")
+        runner = _runner(partners_root)
+        msg = _msg("summarize this")
+        msg.media = [str(doc_path)]
+
+        await runner.process_message(msg)
+
+        context = fake_orchestrator.seen_contexts[-1]
+        assert "notes.txt" in context.source_manifest
+        source_index = context.metadata["source_index"]
+        assert len(source_index) == 1
+        assert "Gradient descent" in next(iter(source_index.values()))
+        records = runner.store.messages("telegram:42")
+        attachment = records[0]["attachments"][0]
+        assert attachment["filename"] == "notes.txt"
+        assert "Gradient descent" in attachment["extracted_text"]
+
 
 class TestPartnerCommands:
     @pytest.mark.asyncio
@@ -343,9 +385,7 @@ class TestPartnerCommands:
         assert archived[0]["session_key"].startswith("_archived_")
 
     @pytest.mark.asyncio
-    async def test_archived_session_does_not_feed_next_turn(
-        self, partners_root, fake_orchestrator
-    ):
+    async def test_archived_session_does_not_feed_next_turn(self, partners_root, fake_orchestrator):
         runner = _runner(partners_root)
         fake_orchestrator.script = _finish("old reply")
         await runner.process_message(_msg("old question"))
@@ -358,9 +398,7 @@ class TestPartnerCommands:
         assert context.conversation_history == []
 
     @pytest.mark.asyncio
-    async def test_telegram_bot_command_suffix_is_supported(
-        self, partners_root, fake_orchestrator
-    ):
+    async def test_telegram_bot_command_suffix_is_supported(self, partners_root, fake_orchestrator):
         fake_orchestrator.script = _finish("first reply")
         runner = _runner(partners_root)
         await runner.process_message(_msg("first question"))

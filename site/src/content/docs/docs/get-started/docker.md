@@ -20,7 +20,7 @@ docker run --rm --name deeptutor \
 
 > ⚠️ **Map both `3782` and `8001`.** Port `3782` serves the Web UI; port `8001` is the FastAPI backend that your browser calls directly — there is no in-container proxy. Skip the `8001` mapping and the page still loads, but **Settings** shows "Backend unreachable" and stays unusable.
 
-Open <http://127.0.0.1:3782>. The container creates `/app/data/user/settings/*.json` on first boot; configure model providers from the Web Settings page. Config, API keys, logs, workspace files, memory, and knowledge bases all persist in the `deeptutor-data` volume.
+Open <http://127.0.0.1:3782>. The container creates `/app/data/user/settings/*.json` on first boot; configure model providers from the Web Settings page. Config, API keys, logs, workspace files, memory, knowledge bases, and Partner workspaces (`data/partners/<id>/`) all persist in the `deeptutor-data` volume.
 
 ## Detached mode
 

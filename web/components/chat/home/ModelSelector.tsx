@@ -129,11 +129,7 @@ export default function ModelSelector({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const {
-    expanded,
-    linger,
-    triggerProps: lingerProps,
-  } = useLingerExpand(open);
+  const { expanded, linger, triggerProps: lingerProps } = useLingerExpand(open);
 
   const selectedSelection = allowSystemDefault
     ? value
@@ -171,7 +167,9 @@ export default function ModelSelector({
       : allowSystemDefault && !selectedSelection
         ? defaultLabel
         : // Official model ID, consistent with the dropdown rows.
-          selectedOption?.model || selectedOption?.model_name || t("Select model");
+          selectedOption?.model ||
+          selectedOption?.model_name ||
+          t("Select model");
   const menuPlacementClass =
     placement === "bottom" ? "top-full mt-1.5" : "bottom-full mb-1.5";
 

@@ -16,7 +16,7 @@ from deeptutor.partners.bus.events import OutboundMessage
 from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.channels.base import BaseChannel
 from deeptutor.partners.config.paths import get_media_dir
-from deeptutor.partners.config.schema import Base, DeliveryOverrides, StreamingSupport
+from deeptutor.partners.config.schema import DeliveryOverrides, StreamingSupport
 from deeptutor.partners.helpers import split_message
 
 DISCORD_API_BASE = "https://discord.com/api/v10"

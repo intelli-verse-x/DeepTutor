@@ -94,9 +94,7 @@ class PartnerCommandHandler:
             return self._history(msg, args)
         if command == "/tool":
             return self._tool(args)
-        return PartnerCommandResult(
-            f"Unknown command: {parts[0]}\n\n{build_partner_help_text()}"
-        )
+        return PartnerCommandResult(f"Unknown command: {parts[0]}\n\n{build_partner_help_text()}")
 
     def _new(self, msg: InboundMessage) -> PartnerCommandResult:
         archived = self.store.archive(msg.session_key)
@@ -110,10 +108,10 @@ class PartnerCommandHandler:
     def _status(self, msg: InboundMessage) -> PartnerCommandResult:
         selection = getattr(self.config, "llm_selection", None) or {}
         model = (
-            selection.get("model_id")
-            if isinstance(selection, dict)
-            else None
-        ) or getattr(self.config, "model", None) or "default"
+            (selection.get("model_id") if isinstance(selection, dict) else None)
+            or getattr(self.config, "model", None)
+            or "default"
+        )
         tools = self._current_tools()
         messages = self.store.messages(msg.session_key, limit=10_000)
         lines = [
@@ -139,9 +137,7 @@ class PartnerCommandHandler:
         visible = [line for line in visible if line]
         if not visible:
             return PartnerCommandResult("No conversation history yet.")
-        return PartnerCommandResult(
-            f"Last {len(visible)} message(s):\n" + "\n".join(visible)
-        )
+        return PartnerCommandResult(f"Last {len(visible)} message(s):\n" + "\n".join(visible))
 
     def _tool(self, args: list[str]) -> PartnerCommandResult:
         available = default_optional_tools()

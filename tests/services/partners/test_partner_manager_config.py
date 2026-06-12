@@ -164,3 +164,41 @@ class TestLegacyTutorBotMigration:
         assert read_soul("old-bot") == "# Edited after migration"
         # Legacy tree untouched.
         assert (legacy / "config.yaml").exists()
+
+
+class TestSoulLibraryRefresh:
+    """Untouched old-seed library entries upgrade in place; user souls survive."""
+
+    _TUTORBOT_ENTRY = {
+        "id": "default-tutorbot",
+        "name": "Default TutorBot",
+        "content": "# Soul\n\nI am TutorBot, a personal learning companion.\n\n"
+        "## Personality\n\n- Helpful and friendly\n- Clear, encouraging, and patient\n"
+        "- Adapts explanations to the user's level\n\n"
+        "## Values\n\n- Accuracy over speed\n- User privacy and safety\n- Transparency in actions",
+    }
+
+    def test_tutorbot_era_library_is_upgraded(self, partners_root):
+        mgr = _mgr()
+        mgr._save_souls([dict(self._TUTORBOT_ENTRY)])
+        souls = mgr.list_souls()
+        assert [s["id"] for s in souls] == ["companion"]
+        assert "tutorbot" not in yaml.dump(souls).lower()
+
+    def test_user_souls_pass_through_verbatim(self, partners_root):
+        mgr = _mgr()
+        mine = {"id": "my-bot", "name": "Mine", "content": "I miss TutorBot"}
+        edited_seed = {"id": "math-tutor", "name": "Math Tutor", "content": "# My own text"}
+        mgr._save_souls([dict(self._TUTORBOT_ENTRY), mine, edited_seed])
+        souls = mgr.list_souls()
+        assert souls == [
+            {"id": "companion", "name": "Learning Companion", "content": souls[0]["content"]},
+            mine,
+            edited_seed,
+        ]
+
+    def test_refresh_is_idempotent(self, partners_root):
+        mgr = _mgr()
+        mgr._save_souls([dict(self._TUTORBOT_ENTRY)])
+        first = mgr.list_souls()
+        assert mgr.list_souls() == first

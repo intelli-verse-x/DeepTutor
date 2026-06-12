@@ -133,7 +133,12 @@ function formatFileSize(bytes?: number): string {
  * reads like a document name; the extension already shows in the subtitle. */
 function humanizeFilename(filename: string): string {
   const stem = filename.replace(/\.[A-Za-z0-9]{1,8}$/, "");
-  return stem.replace(/[_-]+/g, " ").replace(/\s{2,}/g, " ").trim() || filename;
+  return (
+    stem
+      .replace(/[_-]+/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim() || filename
+  );
 }
 
 /**
@@ -143,9 +148,7 @@ function humanizeFilename(filename: string): string {
  * completes and the persisted attachments arrive via session reload. This
  * also keeps files visible for turns that get cancelled or die mid-flight.
  */
-function extractStreamedArtifacts(
-  events?: StreamEvent[],
-): MessageAttachment[] {
+function extractStreamedArtifacts(events?: StreamEvent[]): MessageAttachment[] {
   const out: MessageAttachment[] = [];
   for (const ev of events ?? []) {
     if (ev.type !== "tool_result") continue;
@@ -889,7 +892,6 @@ const UserMessage = memo(function UserMessage({
 });
 
 UserMessage.displayName = "UserMessage";
-
 
 export const ChatMessageList = memo(function ChatMessageList({
   messages,

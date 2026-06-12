@@ -12,7 +12,10 @@ Scope:
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 import html
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import json
 import os
@@ -20,9 +23,6 @@ import re
 import tempfile
 import threading
 import time
-from contextlib import contextmanager, suppress
-from dataclasses import dataclass
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -265,7 +265,9 @@ class MSTeamsChannel(BaseChannel):
             )
 
         token = await self._get_access_token()
-        base_url = f"{ref.service_url.rstrip('/')}/v3/conversations/{ref.conversation_id}/activities"
+        base_url = (
+            f"{ref.service_url.rstrip('/')}/v3/conversations/{ref.conversation_id}/activities"
+        )
         use_thread_reply = self.config.reply_in_thread and bool(ref.activity_id)
         headers = {
             "Authorization": f"Bearer {token}",

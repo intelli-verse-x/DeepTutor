@@ -51,9 +51,13 @@ function ModuleNode({
   }, [isCurrent]);
 
   const total = module.knowledge_points.length;
-  const averageMastery = total > 0
-    ? module.knowledge_points.reduce((sum, kp) => sum + (masteryLevels[kp.id] ?? 0), 0) / total
-    : 0;
+  const averageMastery =
+    total > 0
+      ? module.knowledge_points.reduce(
+          (sum, kp) => sum + (masteryLevels[kp.id] ?? 0),
+          0,
+        ) / total
+      : 0;
   const masteryPercent = Math.round(averageMastery * 100);
 
   return (

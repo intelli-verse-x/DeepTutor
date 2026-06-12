@@ -4,7 +4,10 @@ import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { collectNarrationCallIds, shouldAppendEventContent } from "@/lib/stream";
+import {
+  collectNarrationCallIds,
+  shouldAppendEventContent,
+} from "@/lib/stream";
 import type { StreamEvent } from "@/lib/unified-ws";
 
 /**

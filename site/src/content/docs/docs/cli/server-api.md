@@ -193,22 +193,36 @@ POST /api/v1/system/test/search
 
 Provider profiles are edited through the catalog endpoints; there are not separate `/settings/llm` or `/settings/embedding` routes in the current API.
 
-## TutorBot Manager
+## Partners Manager
 
 ```text
-GET    /api/v1/tutorbot
-POST   /api/v1/tutorbot
-GET    /api/v1/tutorbot/recent
-GET    /api/v1/tutorbot/channels/schema
-GET    /api/v1/tutorbot/{bot_id}
-PATCH  /api/v1/tutorbot/{bot_id}
-DELETE /api/v1/tutorbot/{bot_id}
-DELETE /api/v1/tutorbot/{bot_id}/destroy
-GET    /api/v1/tutorbot/{bot_id}/files
-PUT    /api/v1/tutorbot/{bot_id}/files/{filename}
-GET    /api/v1/tutorbot/{bot_id}/history
-WS     /api/v1/tutorbot/{bot_id}/ws
+GET    /api/v1/partners
+POST   /api/v1/partners
+GET    /api/v1/partners/recent
+GET    /api/v1/partners/channels/schema
+GET    /api/v1/partners/tool-options
+GET    /api/v1/partners/souls
+POST   /api/v1/partners/souls
+GET    /api/v1/partners/soul-sources
+GET    /api/v1/partners/{partner_id}
+PATCH  /api/v1/partners/{partner_id}
+POST   /api/v1/partners/{partner_id}/start
+POST   /api/v1/partners/{partner_id}/stop
+DELETE /api/v1/partners/{partner_id}
+POST   /api/v1/partners/{partner_id}/channels/reload
+GET    /api/v1/partners/{partner_id}/soul
+PUT    /api/v1/partners/{partner_id}/soul
+GET    /api/v1/partners/{partner_id}/assets
+POST   /api/v1/partners/{partner_id}/assets
+DELETE /api/v1/partners/{partner_id}/assets/{asset_type}/{name}
+GET    /api/v1/partners/{partner_id}/history
+GET    /api/v1/partners/{partner_id}/sessions
+POST   /api/v1/partners/{partner_id}/chat
+POST   /api/v1/partners/{partner_id}/chat/execute-stream
+WS     /api/v1/partners/{partner_id}/ws
 ```
+
+Partners are admin-gated because their workspace and channel credentials are deployment-scoped. Secrets are masked by default; edit forms request `include_secrets=true` only when necessary.
 
 ## Book Engine
 

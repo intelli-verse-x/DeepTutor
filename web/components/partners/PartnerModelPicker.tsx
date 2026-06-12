@@ -7,7 +7,11 @@
 
 import { Check, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { llmSelectionKey, sameLLMSelection, type LLMOption } from "@/lib/llm-options";
+import {
+  llmSelectionKey,
+  sameLLMSelection,
+  type LLMOption,
+} from "@/lib/llm-options";
 import type { LLMSelection } from "@/lib/unified-ws";
 
 function formatContext(tokens?: number): string {
@@ -41,17 +45,17 @@ function Row({
       }`}
     >
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-[var(--foreground)]">
+        <span className="block truncate text-[13.5px] font-medium text-[var(--foreground)]">
           {title}
         </span>
         {subtitle && (
-          <span className="block truncate text-[11px] text-[var(--muted-foreground)]">
+          <span className="block truncate text-[11.5px] text-[var(--muted-foreground)]">
             {subtitle}
           </span>
         )}
       </span>
       {trailing && (
-        <span className="shrink-0 text-[11px] text-[var(--muted-foreground)]">
+        <span className="shrink-0 text-[11.5px] text-[var(--muted-foreground)]">
           {trailing}
         </span>
       )}
@@ -87,7 +91,7 @@ export default function PartnerModelPicker({
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 py-2 text-[12px] text-[var(--muted-foreground)]">
+      <div className="flex items-center gap-2 py-2 text-[13px] text-[var(--muted-foreground)]">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         {t("Loading models…")}
       </div>
@@ -95,8 +99,10 @@ export default function PartnerModelPicker({
   }
   if (error) {
     return (
-      <p className="text-[12px] text-[var(--muted-foreground)]">
-        {t("Could not load the model catalog — the partner will use the system default.")}
+      <p className="text-[13px] text-[var(--muted-foreground)]">
+        {t(
+          "Could not load the model catalog — the partner will use the system default.",
+        )}
       </p>
     );
   }
@@ -112,7 +118,9 @@ export default function PartnerModelPicker({
     <div className="max-h-[340px] space-y-1.5 overflow-y-auto pr-1">
       <Row
         title={t("System default")}
-        subtitle={defaultDetail ?? t("Follows whatever the system default model is.")}
+        subtitle={
+          defaultDetail ?? t("Follows whatever the system default model is.")
+        }
         selected={value === null}
         onClick={() => onChange(null)}
       />
@@ -123,11 +131,16 @@ export default function PartnerModelPicker({
           subtitle={`${option.provider_label || option.provider} · ${option.profile_name}`}
           trailing={formatContext(option.context_window)}
           selected={value !== null && sameLLMSelection(option, value)}
-          onClick={() => onChange({ profile_id: option.profile_id, model_id: option.model_id })}
+          onClick={() =>
+            onChange({
+              profile_id: option.profile_id,
+              model_id: option.model_id,
+            })
+          }
         />
       ))}
       {options.length === 0 && (
-        <p className="py-1 text-[12px] text-[var(--muted-foreground)]">
+        <p className="py-1 text-[13px] text-[var(--muted-foreground)]">
           {t("No models configured yet — add providers in Settings → LLM.")}
         </p>
       )}

@@ -139,7 +139,12 @@ function reducer(state: MasteryState, action: Action): MasteryState {
       if (!state.currentStage) return state;
       const stages = state.stages.map((s) =>
         s.stage === state.currentStage
-          ? { ...s, content: s.content ? `${s.content}\n${action.content}` : action.content }
+          ? {
+              ...s,
+              content: s.content
+                ? `${s.content}\n${action.content}`
+                : action.content,
+            }
           : s,
       );
       return { ...state, stages };
@@ -160,7 +165,9 @@ function reducer(state: MasteryState, action: Action): MasteryState {
     case "DONE": {
       const reachedTerminal =
         state.completed ||
-        state.stages.some((s) => s.stage === "completed" && s.status === "completed");
+        state.stages.some(
+          (s) => s.stage === "completed" && s.status === "completed",
+        );
       return {
         ...state,
         busy: false,
@@ -173,7 +180,9 @@ function reducer(state: MasteryState, action: Action): MasteryState {
     case "ERROR": {
       const stages = state.currentStage
         ? state.stages.map((s) =>
-            s.stage === state.currentStage ? { ...s, status: "error" as const } : s,
+            s.stage === state.currentStage
+              ? { ...s, status: "error" as const }
+              : s,
           )
         : state.stages;
       return {
@@ -329,7 +338,10 @@ export function useMasteryTurn({
           if (moduleSwitchRef.current && evt.content?.includes("cancelled")) {
             return;
           }
-          dispatch({ type: "ERROR", message: evt.content || "An error occurred" });
+          dispatch({
+            type: "ERROR",
+            message: evt.content || "An error occurred",
+          });
           break;
         }
         default:
@@ -368,7 +380,9 @@ export function useMasteryTurn({
       dispatch({ type: "OPEN" });
       // Resume an in-flight turn if one exists; otherwise the response
       // (active_turn_info) starts a fresh turn.
-      ws.send(JSON.stringify({ type: "check_active_turn", session_id: sessionId }));
+      ws.send(
+        JSON.stringify({ type: "check_active_turn", session_id: sessionId }),
+      );
     };
 
     ws.onmessage = (event) => {
@@ -387,13 +401,13 @@ export function useMasteryTurn({
     ws.onclose = () => {
       if (intentionalCloseRef.current) return;
       if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-        const delay = Math.min(
-          1000 * 2 ** reconnectAttemptsRef.current,
-          10000,
-        );
+        const delay = Math.min(1000 * 2 ** reconnectAttemptsRef.current, 10000);
         reconnectAttemptsRef.current += 1;
         dispatch({ type: "CONNECTING" });
-        reconnectTimerRef.current = setTimeout(() => connectRef.current(), delay);
+        reconnectTimerRef.current = setTimeout(
+          () => connectRef.current(),
+          delay,
+        );
       } else {
         dispatch({ type: "ERROR", message: "Connection lost" });
       }
@@ -447,7 +461,11 @@ export function useMasteryTurn({
   const changeModule = useCallback(
     (moduleId: string) => {
       moduleSwitchRef.current = true;
-      send({ type: "change_module", session_id: sessionId, module_id: moduleId });
+      send({
+        type: "change_module",
+        session_id: sessionId,
+        module_id: moduleId,
+      });
     },
     [send, sessionId],
   );

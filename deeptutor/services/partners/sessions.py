@@ -51,8 +51,9 @@ class PartnerSessionStore:
         channel: str = "",
         sender_id: str = "",
         metadata: dict[str, Any] | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> None:
-        record = {
+        record: dict[str, Any] = {
             "role": role,
             "content": content,
             "timestamp": datetime.now().isoformat(),
@@ -63,6 +64,8 @@ class PartnerSessionStore:
             record["sender_id"] = sender_id
         if metadata:
             record["metadata"] = metadata
+        if attachments:
+            record["attachments"] = attachments
         line = json.dumps(record, ensure_ascii=False)
         with self._write_lock:
             with open(self._path(session_key), "a", encoding="utf-8") as f:

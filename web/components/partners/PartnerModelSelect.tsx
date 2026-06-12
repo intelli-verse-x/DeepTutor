@@ -10,7 +10,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { llmSelectionKey, sameLLMSelection, type LLMOption } from "@/lib/llm-options";
+import {
+  llmSelectionKey,
+  sameLLMSelection,
+  type LLMOption,
+} from "@/lib/llm-options";
 import type { LLMSelection } from "@/lib/unified-ws";
 
 function formatContext(tokens?: number): string {
@@ -56,7 +60,7 @@ export default function PartnerModelSelect({
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-3.5 py-2.5 text-[12.5px] text-[var(--muted-foreground)]">
+      <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-3.5 py-2.5 text-[13.5px] text-[var(--muted-foreground)]">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         {t("Loading models…")}
       </div>
@@ -64,8 +68,10 @@ export default function PartnerModelSelect({
   }
   if (error) {
     return (
-      <p className="text-[12px] text-[var(--muted-foreground)]">
-        {t("Could not load the model catalog — the partner will use the system default.")}
+      <p className="text-[13px] text-[var(--muted-foreground)]">
+        {t(
+          "Could not load the model catalog — the partner will use the system default.",
+        )}
       </p>
     );
   }
@@ -78,7 +84,9 @@ export default function PartnerModelSelect({
     : undefined;
 
   const currentTitle = value
-    ? (current ? current.model_name || current.model : value.model_id)
+    ? current
+      ? current.model_name || current.model
+      : value.model_id
     : noneLabel;
   const currentSubtitle = value
     ? current
@@ -106,11 +114,11 @@ export default function PartnerModelSelect({
         }`}
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium text-[var(--foreground)]">
+          <span className="block truncate text-[13.5px] font-medium text-[var(--foreground)]">
             {currentTitle}
           </span>
           {currentSubtitle && (
-            <span className="block truncate text-[11px] text-[var(--muted-foreground)]">
+            <span className="block truncate text-[11.5px] text-[var(--muted-foreground)]">
               {currentSubtitle}
             </span>
           )}
@@ -138,12 +146,15 @@ export default function PartnerModelSelect({
               trailing={formatContext(option.context_window)}
               selected={value !== null && sameLLMSelection(option, value)}
               onClick={() =>
-                select({ profile_id: option.profile_id, model_id: option.model_id })
+                select({
+                  profile_id: option.profile_id,
+                  model_id: option.model_id,
+                })
               }
             />
           ))}
           {options.length === 0 && (
-            <p className="px-3 py-2 text-[12px] text-[var(--muted-foreground)]">
+            <p className="px-3 py-2 text-[13px] text-[var(--muted-foreground)]">
               {t("No models configured yet — add providers in Settings → LLM.")}
             </p>
           )}
@@ -175,17 +186,23 @@ function DropdownRow({
       }`}
     >
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] text-[var(--foreground)]">{title}</span>
+        <span className="block truncate text-[13.5px] text-[var(--foreground)]">
+          {title}
+        </span>
         {subtitle && (
-          <span className="block truncate text-[11px] text-[var(--muted-foreground)]">
+          <span className="block truncate text-[11.5px] text-[var(--muted-foreground)]">
             {subtitle}
           </span>
         )}
       </span>
       {trailing && (
-        <span className="shrink-0 text-[11px] text-[var(--muted-foreground)]">{trailing}</span>
+        <span className="shrink-0 text-[11.5px] text-[var(--muted-foreground)]">
+          {trailing}
+        </span>
       )}
-      {selected && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />}
+      {selected && (
+        <Check className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
+      )}
     </button>
   );
 }

@@ -1,149 +1,95 @@
 ---
 title: Settings
-description: The unified control center - Appearance, Status, Network, LLM / Embedding / Search, Capabilities, Memory, MCP, Tools.
+description: The unified control plane for appearance, status, network, model catalogs, embeddings, search, MinerU, capabilities, memory, MCP, and tools.
 ---
 
-The settings surface was unified in v1.4 and split by concern, with a **draft / Apply** model so changes are atomic and can be reverted before save.
+Settings is the operational control plane for DeepTutor. Most sections use a draft-and-apply model so you can test provider changes before committing them.
 
-![Settings overview](/screenshots/dt-settings.png)
+![Settings workspace](/screenshots/settings.png)
 
-## Tabs
+## Sections
 
-In the order they appear in the left navigation:
+| Section | What it controls |
+| --- | --- |
+| **Appearance** | Theme, language, sidebar preferences. |
+| **Status** | Live state of the backend and the model services your configuration resolves to. |
+| **Network** | Backend/frontend ports, external API base, CORS origins. |
+| **LLM** | Model catalog profiles, base URLs, API keys, active models. |
+| **Embedding** | Embedding providers for Knowledge and RAG. |
+| **Search** | Web/search provider configuration. |
+| **MinerU PDF** | Local or cloud PDF parsing backend. |
+| **Capabilities** | Budgets and knobs for Chat, Solve, Question, Research, Visualize, Co-Writer, and related pipelines. |
+| **Memory** | Consolidation controls and links to the Memory workbench. |
+| **MCP servers** (admin only) | External MCP tool registration. |
+| **Tools** | Built-in, contextual, coming-soon, and optional user-toggleable tools. |
 
-| Tab | What it controls |
-|-----|------------------|
-| **Appearance** | UI language and theme (Cream, Snow, Dark, Glass) |
-| **Status** | Live health probe across LLM, embedding, search, and storage backends |
-| **Network** | Backend/frontend ports, browser API base, CORS origins, and deployment hints |
-| **LLM** | Provider catalog, base URLs, API keys, active model selection |
-| **Embedding** | Same shape as LLM, but for the embedder |
-| **Search** | Web search provider (Tavily / Brave / Jina / Serper / SearXNG / DuckDuckGo / Perplexity) |
-| **Capabilities** | Per-capability tunables (chunking, LLM budget, dedup, max iterations) |
-| **Memory** | Toggle consolidator runs, configure cadence and budget |
-| **MCP servers** | Register external Model Context Protocol servers |
-| **Tools** | Inspect every built-in tool, parameters, status, i18n status copy |
+## Section guide
 
-A **Tour** launcher walks new users through the page.
+### Appearance
 
-## Appearance
+Theme, display language, and sidebar preferences. Purely client-facing; no provider credentials live here.
 
-| Setting | Options |
-|---------|---------|
-| Language | English, 简体中文 |
-| Theme | Cream *(default)* / Snow / Dark / Glass |
-| Sidebar density | Compact / Comfortable |
+### Status
 
-## Status
+A read-only dashboard of the backend plus the LLM, embedding, and search endpoints your configuration currently resolves to. Status reflects runtime values after the last **Apply** — draft changes do not show up here until applied.
 
-A live health probe:
+### Network
 
-- LLM provider — connection OK / failing / not configured
-- Embedding provider — same
-- Search provider — same
-- Storage backends — connection state, latency
-- Last health-check time per provider
+Backend/frontend ports, the external API base that browser clients use behind a reverse proxy, and CORS origins.
 
-Use this to **debug "the model isn't responding"** issues fast.
+### LLM
 
-## Network
+![LLM settings with provider profiles, connection fields, and model catalog](/screenshots/settings-llm.png)
 
-Network settings are startup settings stored in
-`data/user/settings/system.json`. Use this page for Docker, LAN, and
-reverse-proxy deployments:
+Language model profiles. Each profile is a provider connection — provider type, base URL, API key, optional extra headers — plus a model catalog entry per model with its model ID and context window. The active model is used for Chat and most agent reasoning.
 
-- **Backend / frontend ports** control what DeepTutor starts on. Docker port
-  mappings must match the container-side ports.
-- **Public API base** maps to `next_public_api_base_external`. It is the URL the
-  browser uses for HTTP and WebSocket API calls.
-- **CORS origins** are frontend page origins allowed to call the backend. They
-  are only required for authenticated cross-origin deployments.
-- `public_api_base` is accepted as a compatibility alias and normalized on save.
+### Embedding
 
-With auth disabled, DeepTutor permits normal HTTP/HTTPS browser origins by
-default. With auth enabled, set exact frontend origins and use
-`auth.json: cookie_secure=true` for HTTPS cross-site cookies.
+Embedding model profiles, mirroring the LLM layout (provider connection + models) but registering embedding models with their dimensions. Used by retrieval and knowledge-base ingestion.
 
-## LLM / Embedding / Search
+### Search
 
-All three share the same **profile** model:
+Web search providers used by the `web_search` tool and any agent step that hits the open web. Configure provider, base URL, and API key, then run a test query from the diagnostics panel.
 
-- You can configure **multiple profiles** (e.g., `openai-gpt-4o`, `anthropic-sonnet-4`, `local-ollama`)
-- Pick **one active model** per service from the catalog
-- Per-turn overrides happen in the chat composer's model selector
+### MinerU PDF
 
-Test connection with the **Test** button — it issues a small probe call and reports latency.
+![MinerU PDF settings with parsing backend and local install detection](/screenshots/settings-mineru.png)
 
-Full provider matrix: [**Providers**](/docs/get-started/providers/).
+The PDF parsing backend used when generating questions from an uploaded exam paper. Choose between a local MinerU install and the hosted mineru.net cloud API. For local parsing, the page detects the MinerU CLI, accepts an explicit CLI path, and manages the ~1-2 GB model-weights download (HuggingFace or ModelScope).
 
-## Capabilities
+### Capabilities
 
-Per-capability tunables for Chat, Solve, Quiz, Research, Visualize, and Co-Writer:
+![Capabilities settings with per-capability parameters](/screenshots/settings-capabilities.png)
 
-| Setting | What |
-|---------|------|
-| **Chunking** | How retrieved KB content is chunked into the context window |
-| **LLM budget** | Max tokens / max iterations per capability run |
-| **Dedup policy** | How duplicate sources are handled |
-| **Reference policy** | When to insert citations |
-| **Max iterations** | Hard guard on agentic loops |
+Per-capability LLM parameters and runtime knobs: temperature, token budgets, and loop limits for Chat, Solve, Question, Research, Visualize, Co-Writer, and related pipelines. For Chat this includes max rounds and separate exploring/responding token budgets. Values persist to `data/user/settings/agents.yaml` (LLM params) and `main.yaml` (runtime knobs).
 
-Backed by a unified `emit_capability_result` envelope and a shared `UsageTracker` that surfaces **per-call cost**.
+### Memory
 
-## Memory
+Tunes the chunk-based memory consolidator: LLM-round budgets per L2 surface and L3 slot for **Update** and **Audit** runs, plus **Dedup** iterations and whether dedup runs automatically after an update.
 
-| Setting | Effect |
-|---------|--------|
-| **Toggle consolidator** | Pause / resume the L1 → L2 → L3 pipeline |
-| **Cadence** | How often each consolidation pass runs |
-| **Budget** | Token budget per consolidation pass |
-| **Jump to workbench** | Opens `/memory` directly |
+### MCP servers (admin only)
 
-See [**Memory**](/docs/explore/memory/) for the full three-layer architecture.
+Register external MCP (Model Context Protocol) servers to expose their tools to the chat agent. Test the connection first, then save. In multi-user deployments this section is restricted to admins.
 
-## MCP servers
+### Tools
 
-The **Model Context Protocol** integration lets you plug in external MCP servers as additional tools. Add server configs here; their tools surface alongside built-ins.
+![Tools settings with user-toggleable and built-in tools](/screenshots/settings-tools.png)
 
-Example:
+Switches user-toggleable tools on or off. **Experience enhancement** tools (`brainstorm`, `web_search`, `paper_search`, `reason`) are yours to toggle; **built-in** tools such as `rag` and code execution are locked and mount automatically when the chat agent needs them.
 
-```yaml
-servers:
-  filesystem:
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/frank/docs"]
-  github:
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-github"]
-    env:
-      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_TOKEN}
-```
+## Important deployment notes
 
-## Tools
+- Project-root `.env` is intentionally ignored as application config.
+- Runtime settings live under `data/user/settings/*.json` unless you set `DEEPTUTOR_HOME` or `deeptutor start --home`.
+- Docker browser clients must reach both the frontend and backend. If you reverse proxy, configure the external API base in **Network**.
+- Optional user-toggleable tools are `brainstorm`, `web_search`, `paper_search`, and `reason`; other tools are mounted by context or runtime availability.
 
-Inspect every built-in tool:
+## Provider testing
 
-- Name, description, parameters
-- Status (enabled / coming-soon)
-- i18n status copy (how the tool's progress messages appear in English / 中文)
-- Whether it's user-toggleable
-
-Five tools are user-toggleable globally: `brainstorm`, `web_search`, `paper_search`, `code_execution`, `reason`. Context-mounted tools (`rag`, `read_memory`, `write_memory`, etc.) can't be toggled here — they appear automatically based on what's attached to the turn.
-
-## i18n
-
-Every capability ships a canonical `capabilities/prompts/{en,zh}/<name>.yaml` so status messages stay consistent in both English and 中文.
-
-## CLI mirror
-
-```bash
-deeptutor config show           # Print current configuration (secrets masked)
-deeptutor init                  # Re-run wizard, re-prompt every value
-$EDITOR data/user/settings/model_catalog.json   # direct edit
-```
+Use **Test** buttons before Apply. A green provider test proves only that the profile can make a minimal call; it does not prove your selected model is ideal for every capability.
 
 ## See also
 
-- [**Providers**](/docs/get-started/providers/) — full LLM / embedding / search provider matrix
-- [**Memory**](/docs/explore/memory/) — what the consolidator actually does
-- [**Multi-User Deployment**](/docs/get-started/multi-user/) — auth-related settings
+- [Providers](/docs/get-started/providers/) — model/search setup recipes
+- [Docker](/docs/get-started/docker/) — port and reverse-proxy notes
+- [Memory](/docs/explore/memory/) — inspect memory state

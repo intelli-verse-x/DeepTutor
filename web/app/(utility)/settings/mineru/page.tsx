@@ -115,11 +115,15 @@ export default function MinerUSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [download, setDownload] = useState<DownloadStatus | null>(null);
-  const [downloadType, setDownloadType] = useState<MinerUDownloadType>("pipeline");
+  const [downloadType, setDownloadType] =
+    useState<MinerUDownloadType>("pipeline");
   const [startingDownload, setStartingDownload] = useState(false);
   const downloadCursor = useRef(0);
 
@@ -147,7 +151,8 @@ export default function MinerUSettingsPage() {
         setTokenDraft("");
         setTokenTouched(false);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : String(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -244,10 +249,14 @@ export default function MinerUSettingsPage() {
       }
       setTestResult({
         ok: Boolean(data.ok),
-        message: data.message || (data.ok ? t("OK") : t("Connection test failed.")),
+        message:
+          data.message || (data.ok ? t("OK") : t("Connection test failed.")),
       });
     } catch (err) {
-      setTestResult({ ok: false, message: err instanceof Error ? err.message : String(err) });
+      setTestResult({
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      });
     } finally {
       setTesting(false);
     }
@@ -404,7 +413,9 @@ export default function MinerUSettingsPage() {
               description={
                 isCloud
                   ? t("Documents are uploaded to mineru.net for parsing.")
-                  : t("Parsing runs on this machine using the local MinerU install.")
+                  : t(
+                      "Parsing runs on this machine using the local MinerU install.",
+                    )
               }
               control={
                 <div className="inline-flex rounded-lg border border-[var(--border)] p-0.5">
@@ -480,7 +491,9 @@ export default function MinerUSettingsPage() {
             >
               <SettingRow
                 title={t("Download source")}
-                description={t("ModelScope is usually faster in mainland China.")}
+                description={t(
+                  "ModelScope is usually faster in mainland China.",
+                )}
                 control={
                   <select
                     className={`${nativeSelectClass} w-44`}
@@ -599,11 +612,15 @@ export default function MinerUSettingsPage() {
             <>
               <SettingSection
                 title={t("Cloud API")}
-                description={t("Get an API token from mineru.net → API management.")}
+                description={t(
+                  "Get an API token from mineru.net → API management.",
+                )}
               >
                 <SettingRow
                   title={t("API base URL")}
-                  description={t("Override only if you use a self-hosted MinerU endpoint.")}
+                  description={t(
+                    "Override only if you use a self-hosted MinerU endpoint.",
+                  )}
                   control={
                     <input
                       className={`${inputClass} w-[320px] max-w-[48vw]`}
@@ -617,7 +634,9 @@ export default function MinerUSettingsPage() {
                   title={t("API token")}
                   description={
                     tokenSet
-                      ? t("A token is saved. Type to replace it; leave blank to keep it.")
+                      ? t(
+                          "A token is saved. Type to replace it; leave blank to keep it.",
+                        )
                       : t("No token saved yet.")
                   }
                   control={
@@ -635,24 +654,32 @@ export default function MinerUSettingsPage() {
                 />
                 <SettingRow
                   title={t("Test connection")}
-                  description={t("Verifies the token against the MinerU API (no quota used).")}
+                  description={t(
+                    "Verifies the token against the MinerU API (no quota used).",
+                  )}
                   control={renderTestControl(t("Test"))}
                 />
               </SettingSection>
 
               <SettingSection
                 title={t("Parsing options")}
-                description={t("Forwarded to the MinerU API for each document.")}
+                description={t(
+                  "Forwarded to the MinerU API for each document.",
+                )}
               >
                 <SettingRow
                   title={t("Model version")}
-                  description={t("pipeline is faster; vlm is the vision-language model.")}
+                  description={t(
+                    "pipeline is faster; vlm is the vision-language model.",
+                  )}
                   control={
                     <select
                       className={`${nativeSelectClass} w-40`}
                       value={draft.model_version}
                       onChange={(e) =>
-                        patch({ model_version: e.target.value as MinerUModelVersion })
+                        patch({
+                          model_version: e.target.value as MinerUModelVersion,
+                        })
                       }
                     >
                       {MODEL_VERSIONS.map((v) => (
@@ -665,7 +692,9 @@ export default function MinerUSettingsPage() {
                 />
                 <SettingRow
                   title={t("Language")}
-                  description={t('Document language hint. Use "auto" to let MinerU detect it.')}
+                  description={t(
+                    'Document language hint. Use "auto" to let MinerU detect it.',
+                  )}
                   control={
                     <input
                       className={`${inputClass} w-40`}
@@ -695,9 +724,14 @@ export default function MinerUSettingsPage() {
                 />
                 <SettingRow
                   title={t("Force OCR")}
-                  description={t("Treat the PDF as scanned images. Slower; only for non-text PDFs.")}
+                  description={t(
+                    "Treat the PDF as scanned images. Slower; only for non-text PDFs.",
+                  )}
                   control={
-                    <Toggle checked={draft.is_ocr} onChange={(v) => patch({ is_ocr: v })} />
+                    <Toggle
+                      checked={draft.is_ocr}
+                      onChange={(v) => patch({ is_ocr: v })}
+                    />
                   }
                 />
               </SettingSection>
@@ -707,7 +741,9 @@ export default function MinerUSettingsPage() {
           <div className="flex items-center justify-between gap-3">
             <p className="text-[12px] text-[var(--muted-foreground)]">
               {message ||
-                t("MinerU settings are written to data/user/settings/mineru.json.")}
+                t(
+                  "MinerU settings are written to data/user/settings/mineru.json.",
+                )}
             </p>
             <button
               onClick={save}

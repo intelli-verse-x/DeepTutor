@@ -236,7 +236,7 @@ deeptutor run deep_research "..." \
 
 1. **When to Use** —— 哪些用户请求应该触发 DeepTutor
 2. **Prerequisites** —— Python 3.11+、安装方式、`deeptutor init`
-3. **Commands** —— Chat & Capabilities、Knowledge Bases、TutorBot、Memory、Sessions、Notebooks、System
+3. **Commands** —— Chat & Capabilities、Knowledge Bases、Partners、Memory、Sessions、Notebooks、System
 4. **REPL Slash Commands** —— `deeptutor chat` 内部可用的命令
 5. **Typical Workflows** —— 一组 agent 可以照着复刻的端到端 recipe
 

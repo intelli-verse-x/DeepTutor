@@ -193,22 +193,36 @@ POST /api/v1/system/test/search
 
 Provider profile 通过 catalog endpoint 编辑；当前 API 里没有单独的 `/settings/llm` 或 `/settings/embedding` 路由。
 
-## TutorBot Manager
+## Partners Manager
 
 ```text
-GET    /api/v1/tutorbot
-POST   /api/v1/tutorbot
-GET    /api/v1/tutorbot/recent
-GET    /api/v1/tutorbot/channels/schema
-GET    /api/v1/tutorbot/{bot_id}
-PATCH  /api/v1/tutorbot/{bot_id}
-DELETE /api/v1/tutorbot/{bot_id}
-DELETE /api/v1/tutorbot/{bot_id}/destroy
-GET    /api/v1/tutorbot/{bot_id}/files
-PUT    /api/v1/tutorbot/{bot_id}/files/{filename}
-GET    /api/v1/tutorbot/{bot_id}/history
-WS     /api/v1/tutorbot/{bot_id}/ws
+GET    /api/v1/partners
+POST   /api/v1/partners
+GET    /api/v1/partners/recent
+GET    /api/v1/partners/channels/schema
+GET    /api/v1/partners/tool-options
+GET    /api/v1/partners/souls
+POST   /api/v1/partners/souls
+GET    /api/v1/partners/soul-sources
+GET    /api/v1/partners/{partner_id}
+PATCH  /api/v1/partners/{partner_id}
+POST   /api/v1/partners/{partner_id}/start
+POST   /api/v1/partners/{partner_id}/stop
+DELETE /api/v1/partners/{partner_id}
+POST   /api/v1/partners/{partner_id}/channels/reload
+GET    /api/v1/partners/{partner_id}/soul
+PUT    /api/v1/partners/{partner_id}/soul
+GET    /api/v1/partners/{partner_id}/assets
+POST   /api/v1/partners/{partner_id}/assets
+DELETE /api/v1/partners/{partner_id}/assets/{asset_type}/{name}
+GET    /api/v1/partners/{partner_id}/history
+GET    /api/v1/partners/{partner_id}/sessions
+POST   /api/v1/partners/{partner_id}/chat
+POST   /api/v1/partners/{partner_id}/chat/execute-stream
+WS     /api/v1/partners/{partner_id}/ws
 ```
+
+Partners API 由 admin 权限保护，因为 partner workspace 和 channel credentials 属于部署级资源。Secret 默认会被 mask；编辑表单只有在需要时才请求 `include_secrets=true`。
 
 ## Book Engine
 

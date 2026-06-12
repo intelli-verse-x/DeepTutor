@@ -44,16 +44,18 @@
 
 ### 📦 Releases
 
+> **[2026.6.12]** [v1.4.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.3) — TutorBot becomes **Partners** on a production-grade IM pipeline with live streaming replies and 15 channels, Chat moves to a single agent loop, real per-user isolation for multi-user deployments, Visualize rebuilt with local validate+repair, plus upgrades across Co-writer, file viewer, MinerU cloud parsing, and the CLI. Docs fully refreshed at [deeptutor.info](https://deeptutor.info/).
+
 > **[2026.5.28]** [v1.4.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.2) — Stability + polish on v1.4.1: Gemini 2.5+ unblocked across Visualize and Chat, ContextVar auth-routing fix (#485), reasoning + native-tools label protocol hardened, smooth-streaming UX on every chat surface, new collapsible Recents sidebar, and Lemonade local-provider support.
 
 > **[2026.5.27]** [v1.4.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.1) — Security + stability patch: TutorBot tool sandbox locked down, per-user resource isolation, multimodal image fallback for vision-capable providers, an HTTP/SSE API for talking to a TutorBot, and a v1.4.0 chat regression fix.
 
 > **[2026.5.22]** [v1.4.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0) — GA cut of v1.4: Auto Mode, three-layer Memory, agentic Deep Research / Solve / Question, LlamaIndex RAG refactor, Visualize/Animator merge, plus reasoning-effort normalization, tool-schema fallback, and restart-safe turn runtime.
 
-> **[2026.5.21]** [v1.4.0-beta](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0-beta) — Three-layer Memory workbench (L1/L2/L3), every chat capability rebuilt on a single agentic engine, LlamaIndex-only RAG, and a unified Settings + Capabilities surface.
-
 <details>
 <summary><b>Past releases (more than 2 weeks ago)</b></summary>
+
+> **[2026.5.21]** [v1.4.0-beta](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0-beta) — Three-layer Memory workbench (L1/L2/L3), every chat capability rebuilt on a single agentic engine, LlamaIndex-only RAG, and a unified Settings + Capabilities surface.
 
 > **[2026.5.10]** [v1.3.10](https://github.com/HKUDS/DeepTutor/releases/tag/v1.3.10) — Remote Docker CORS recovery, `DISABLE_SSL_VERIFY` across SDK providers, safer code-block citations, and optional Matrix E2EE add-on.
 
@@ -167,7 +169,7 @@ DeepTutor is organized around an agent-native runtime: a shared ChatOrchestrator
 
 DeepTutor ships four installation paths. They all share one workspace layout: settings live in `data/user/settings/` under the directory you launch from (or under `DEEPTUTOR_HOME` / `deeptutor start --home` if you set one explicitly). For the full app, the recommended flow is **pick a workspace directory → install → `deeptutor init` → `deeptutor start`**.
 
-> ✨ **v1.4.2 is live.** `pip install -U deeptutor` picks up the latest stable. Pre-releases (when available) opt in with `pip install --pre -U deeptutor`.
+> ✨ **v1.4.3 is live.** `pip install -U deeptutor` picks up the latest stable. Pre-releases (when available) opt in with `pip install --pre -U deeptutor`.
 
 ### Option 1 — Install From PyPI
 

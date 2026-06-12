@@ -7,6 +7,7 @@
     "start": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "deploy": "astro build && wrangler deploy",
     "build:pages": "astro build && cp -R functions dist/functions",
     "deploy:pages": "npm run build:pages && npx wrangler pages deploy dist",
     "astro": "astro"
@@ -17,6 +18,7 @@
     "sharp": "^0.34.5"
   },
   "devDependencies": {
-    "i18n-iso-countries": "^7.14.0"
+    "i18n-iso-countries": "^7.14.0",
+    "wrangler": "^4.100.0"
   }
 }

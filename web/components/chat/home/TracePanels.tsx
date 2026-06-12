@@ -153,7 +153,8 @@ function describeToolCall(
   t: (key: string, opts?: Record<string, unknown>) => string,
 ): ToolDescriptor {
   const a = args ?? {};
-  const str = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  const str = (value: unknown) =>
+    typeof value === "string" ? value.trim() : "";
   const host = (url: string) => {
     if (!url) return "";
     try {
@@ -267,9 +268,19 @@ function describeToolCall(
         mono: false,
       };
     case "read_memory":
-      return { Icon: MemoryMark, verb: t("Recalling memory"), chip: null, mono: false };
+      return {
+        Icon: MemoryMark,
+        verb: t("Recalling memory"),
+        chip: null,
+        mono: false,
+      };
     case "write_memory":
-      return { Icon: MemoryMark, verb: t("Saving memory"), chip: null, mono: false };
+      return {
+        Icon: MemoryMark,
+        verb: t("Saving memory"),
+        chip: null,
+        mono: false,
+      };
     case "reason":
       return {
         Icon: ReasoningMark,
@@ -306,11 +317,21 @@ function describeToolCall(
         mono: false,
       };
     case "visualize":
-      return { Icon: FrameMark, verb: t("Visualizing"), chip: null, mono: false };
+      return {
+        Icon: FrameMark,
+        verb: t("Visualizing"),
+        chip: null,
+        mono: false,
+      };
     case "math_animator":
       return { Icon: FrameMark, verb: t("Animating"), chip: null, mono: false };
     default:
-      return { Icon: ToolMark, verb: titleCase(toolName), chip: null, mono: false };
+      return {
+        Icon: ToolMark,
+        verb: titleCase(toolName),
+        chip: null,
+        mono: false,
+      };
   }
 }
 
@@ -791,7 +812,8 @@ function LiveFoldRow({
 function pickKindIcon(kind: string, phase: string): GlyphComponent {
   if (kind === "rag_retrieval") return KnowledgeMark;
   if (kind === "tool_planning" || phase === "acting") return CommandMark;
-  if (kind === "agent_loop_round" || phase === "exploring") return ReasoningMark;
+  if (kind === "agent_loop_round" || phase === "exploring")
+    return ReasoningMark;
   if (kind === "llm_final_response") return ReasoningMark;
   if (kind === "llm_observation") return ReasoningMark;
   if (kind === "llm_generation" || phase === "writing") return RespondingMark;
@@ -1190,9 +1212,7 @@ function TraceRowItem({
     resolvedIcon = KnowledgeMark;
     headline = header;
     const query = clip(
-      String(
-        callEvents.map((e) => getTraceMeta(e).query).find(Boolean) || "",
-      ),
+      String(callEvents.map((e) => getTraceMeta(e).query).find(Boolean) || ""),
     );
     chip = query ? { text: query, mono: false } : null;
   } else if (isChatRound) {
@@ -2062,10 +2082,12 @@ export function StreamingStatus({
   if (mode === "tool_using") modeLabel = t("Tool Calling…");
   else if (mode === "planning") modeLabel = t("{{name}} Planning…", { name });
   else if (mode === "drafting") modeLabel = t("{{name}} Drafting…", { name });
-  else if (mode === "responding") modeLabel = t("{{name}} Responding…", { name });
+  else if (mode === "responding")
+    modeLabel = t("{{name}} Responding…", { name });
   else if (mode === "exploring") modeLabel = t("{{name}} Exploring…", { name });
   else if (mode === "quizzing") modeLabel = t("{{name}} Quizzing…", { name });
-  else if (mode === "reflecting") modeLabel = t("{{name}} Reflecting…", { name });
+  else if (mode === "reflecting")
+    modeLabel = t("{{name}} Reflecting…", { name });
   else if (mode === "responded") modeLabel = t("DeepTutor responded.");
 
   const label =

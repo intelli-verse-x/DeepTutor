@@ -44,7 +44,7 @@ export function proxy(req: NextRequest) {
   // Check expiry from payload (base64url-decoded JSON)
   try {
     const payload = JSON.parse(
-      Buffer.from(parts[1], "base64url").toString("utf-8")
+      Buffer.from(parts[1], "base64url").toString("utf-8"),
     );
     if (payload.exp && Date.now() >= payload.exp * 1000) {
       const loginUrl = req.nextUrl.clone();

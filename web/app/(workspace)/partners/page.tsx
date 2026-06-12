@@ -52,7 +52,9 @@ export default function PartnersPage() {
             {t("Partners")}
           </h1>
           <p className="mt-1 text-[12.5px] text-[var(--muted-foreground)]">
-            {t("Companions with their own soul, library, and channels — reachable from your IM apps.")}
+            {t(
+              "Companions with their own soul, library, and channels — reachable from your IM apps.",
+            )}
           </p>
         </div>
         <Link
@@ -70,12 +72,17 @@ export default function PartnersPage() {
         </div>
       ) : partners.length === 0 ? (
         <div className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--border)] text-center">
-          <HeartHandshake className="mb-3 h-8 w-8 text-[var(--muted-foreground)]" strokeWidth={1.5} />
+          <HeartHandshake
+            className="mb-3 h-8 w-8 text-[var(--muted-foreground)]"
+            strokeWidth={1.5}
+          />
           <p className="text-[14px] font-medium text-[var(--foreground)]">
             {t("No partners yet")}
           </p>
           <p className="mt-1.5 max-w-sm text-[12.5px] leading-relaxed text-[var(--muted-foreground)]">
-            {t("Create a partner, give it a soul and a slice of your library, then talk to it here or from Feishu, Telegram, Slack and more.")}
+            {t(
+              "Create a partner, give it a soul and a slice of your library, then talk to it here or from Feishu, Telegram, Slack and more.",
+            )}
           </p>
           <Link
             href="/partners/new"
@@ -111,7 +118,9 @@ export default function PartnersPage() {
                     <span
                       title={partner.running ? t("Running") : t("Stopped")}
                       className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                        partner.running ? "bg-emerald-500" : "bg-[var(--border)]"
+                        partner.running
+                          ? "bg-emerald-500"
+                          : "bg-[var(--border)]"
                       }`}
                     />
                   </div>

@@ -93,7 +93,10 @@ export function stripTrailingAtMention(value: string): string {
  * text before the cursor is "/" plus any prefix of "persona" — `/x` or a
  * trailing space closes the popup.
  */
-export function shouldOpenSlashPopup(value: string, cursorPos: number): boolean {
+export function shouldOpenSlashPopup(
+  value: string,
+  cursorPos: number,
+): boolean {
   const prefix = value.slice(0, cursorPos);
   const match = /^\/([a-z]*)$/i.exec(prefix);
   if (!match) return false;
@@ -180,7 +183,9 @@ export const ComposerInput = memo(
         setInputBoth(value);
         onInputChange(value);
         setShowAtPopup(shouldOpenAtPopup(value, cursorPos));
-        setShowSlashPopup(slashEnabled && shouldOpenSlashPopup(value, cursorPos));
+        setShowSlashPopup(
+          slashEnabled && shouldOpenSlashPopup(value, cursorPos),
+        );
       },
       [setInputBoth, onInputChange, slashEnabled],
     );

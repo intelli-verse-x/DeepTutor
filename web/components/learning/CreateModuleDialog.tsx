@@ -55,7 +55,9 @@ export default function CreateModuleDialog({
 
   // ── Manual ──
   const [moduleName, setModuleName] = useState("");
-  const [kpRows, setKpRows] = useState<KpRow[]>([{ name: "", type: "concept" }]);
+  const [kpRows, setKpRows] = useState<KpRow[]>([
+    { name: "", type: "concept" },
+  ]);
 
   // ── Book ──
   const [books, setBooks] = useState<Book[]>([]);
@@ -69,7 +71,9 @@ export default function CreateModuleDialog({
   // ── Notebook ──
   const [notebooks, setNotebooks] = useState<NotebookSummary[]>([]);
   const [selectedNotebook, setSelectedNotebook] = useState("");
-  const [notebookRecords, setNotebookRecords] = useState<NotebookRecordItem[]>([]);
+  const [notebookRecords, setNotebookRecords] = useState<NotebookRecordItem[]>(
+    [],
+  );
   const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(
     new Set(),
   );
@@ -323,12 +327,18 @@ export default function CreateModuleDialog({
                       }}
                       className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs text-[var(--foreground)] focus:outline-none"
                     >
-                      <option value="memory">{t("knowledgeType.memory")}</option>
-                      <option value="concept">{t("knowledgeType.concept")}</option>
+                      <option value="memory">
+                        {t("knowledgeType.memory")}
+                      </option>
+                      <option value="concept">
+                        {t("knowledgeType.concept")}
+                      </option>
                       <option value="procedure">
                         {t("knowledgeType.procedure")}
                       </option>
-                      <option value="design">{t("knowledgeType.design")}</option>
+                      <option value="design">
+                        {t("knowledgeType.design")}
+                      </option>
                     </select>
                     {kpRows.length > 1 && (
                       <button
@@ -382,8 +392,8 @@ export default function CreateModuleDialog({
                           {book.title || book.id}
                         </div>
                         <div className="text-xs opacity-70">
-                          {book.chapter_count ?? 0} {t("masteryPath.chapters")} ·{" "}
-                          {book.status}
+                          {book.chapter_count ?? 0} {t("masteryPath.chapters")}{" "}
+                          · {book.status}
                         </div>
                       </button>
                     ))}
@@ -475,7 +485,8 @@ export default function CreateModuleDialog({
                         <div>
                           <p className="mb-2 text-xs font-medium text-[var(--muted-foreground)]">
                             {t("masteryPath.selectRecords")} (
-                            {selectedRecordIds.size} {t("masteryPath.selected")})
+                            {selectedRecordIds.size} {t("masteryPath.selected")}
+                            )
                           </p>
                           <div className="max-h-40 space-y-1 overflow-y-auto">
                             {notebookRecords.slice(0, 20).map((rec) => (

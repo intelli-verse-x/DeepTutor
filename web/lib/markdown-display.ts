@@ -506,7 +506,9 @@ export function normalizeMarkdownForDisplay(content: string): string {
  */
 export function stripArtifactAnnotations(content: string): string {
   if (!content.includes("Generated artifacts")) return content;
-  return content.replace(/^\s*\[Generated artifacts?:[^\]]*\]\s*$/gim, "").trim();
+  return content
+    .replace(/^\s*\[Generated artifacts?:[^\]]*\]\s*$/gim, "")
+    .trim();
 }
 
 export function hasVisibleMarkdownContent(content: string): boolean {

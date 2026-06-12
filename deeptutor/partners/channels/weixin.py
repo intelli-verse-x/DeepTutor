@@ -11,18 +11,18 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from collections import OrderedDict
+from contextlib import suppress
 import hashlib
 import json
 import os
+from pathlib import Path
 import random
 import re
 import time
-import uuid
-from collections import OrderedDict
-from contextlib import suppress
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+import uuid
 
 import httpx
 from loguru import logger
@@ -72,6 +72,7 @@ def _build_client_version(version: str) -> int:
     patch = _as_int(2)
     return ((major & 0xFF) << 16) | ((minor & 0xFF) << 8) | (patch & 0xFF)
 
+
 ILINK_APP_CLIENT_VERSION = _build_client_version(WEIXIN_CHANNEL_VERSION)
 BASE_INFO: dict[str, str] = {"channel_version": WEIXIN_CHANNEL_VERSION}
 
@@ -115,7 +116,10 @@ _VOICE_EXTS = {".mp3", ".wav", ".amr", ".silk", ".ogg", ".m4a", ".aac", ".flac"}
 def _has_downloadable_media_locator(media: dict[str, Any] | None) -> bool:
     if not isinstance(media, dict):
         return False
-    return bool(str(media.get("encrypt_query_param", "") or "") or str(media.get("full_url", "") or "").strip())
+    return bool(
+        str(media.get("encrypt_query_param", "") or "")
+        or str(media.get("full_url", "") or "").strip()
+    )
 
 
 class WeixinConfig(DeliveryOverrides):
@@ -387,7 +391,9 @@ class WeixinChannel(BaseChannel):
                 elif status == "scaned_but_redirect":
                     redirect_host = str(status_data.get("redirect_host", "") or "").strip()
                     if redirect_host:
-                        if redirect_host.startswith("http://") or redirect_host.startswith("https://"):
+                        if redirect_host.startswith("http://") or redirect_host.startswith(
+                            "https://"
+                        ):
                             redirected_base = redirect_host
                         else:
                             redirected_base = f"https://{redirect_host}"
@@ -478,7 +484,9 @@ class WeixinChannel(BaseChannel):
             self._token = self.config.token
         elif not self._load_state():
             if not await self._qr_login():
-                self.logger.error("login failed. open the Weixin channel and scan the QR code to authenticate.")
+                self.logger.error(
+                    "login failed. open the Weixin channel and scan the QR code to authenticate."
+                )
                 self._running = False
                 return
 
@@ -514,6 +522,7 @@ class WeixinChannel(BaseChannel):
             await self._client.aclose()
             self._client = None
         self._save_state()
+
     # ------------------------------------------------------------------
     # Polling  (matches monitor.ts monitorWeixinProvider)
     # ------------------------------------------------------------------
@@ -879,7 +888,9 @@ class WeixinChannel(BaseChannel):
                 hash_seed = encrypt_query_param or full_url
                 h = abs(hash(hash_seed)) % 100000
                 filename = f"{media_type}_{ts}_{h}{ext}"
-            safe_name = safe_filename(os.path.basename(filename)) or f"{media_type}_{int(time.time())}{ext}"
+            safe_name = (
+                safe_filename(os.path.basename(filename)) or f"{media_type}_{int(time.time())}{ext}"
+            )
             file_path = media_dir / safe_name
             file_path.write_bytes(data)
             return str(file_path)
@@ -915,7 +926,11 @@ class WeixinChannel(BaseChannel):
             }
             return ticket
 
-        prev_delay = float(entry.get("retry_delay_s", CONFIG_CACHE_INITIAL_RETRY_S)) if entry else CONFIG_CACHE_INITIAL_RETRY_S
+        prev_delay = (
+            float(entry.get("retry_delay_s", CONFIG_CACHE_INITIAL_RETRY_S))
+            if entry
+            else CONFIG_CACHE_INITIAL_RETRY_S
+        )
         next_delay = min(prev_delay * 2, CONFIG_CACHE_MAX_RETRY_S)
         if entry:
             entry["next_fetch_at"] = now + next_delay
@@ -930,9 +945,7 @@ class WeixinChannel(BaseChannel):
         }
         return ""
 
-    async def _refresh_context_token_if_stale(
-        self, chat_id: str, context_token: str
-    ) -> str:
+    async def _refresh_context_token_if_stale(self, chat_id: str, context_token: str) -> str:
         """Return a fresh context_token if the cached one is too old.
 
         iLink context_token expires server-side after a short idle period
@@ -1019,9 +1032,7 @@ class WeixinChannel(BaseChannel):
         try:
             await self._send_text(chat_id, "\n\n".join(hints), ctx_token)
         except Exception:
-            self.logger.exception(
-                "Failed to flush buffered tool hints for {}", chat_id
-            )
+            self.logger.exception("Failed to flush buffered tool hints for {}", chat_id)
 
     async def _send_typing(self, user_id: str, typing_ticket: str, status: int) -> None:
         """Best-effort sendtyping wrapper."""
@@ -1035,7 +1046,9 @@ class WeixinChannel(BaseChannel):
         }
         await self._api_post("ilink/bot/sendtyping", body)
 
-    async def _typing_keepalive_loop(self, user_id: str, typing_ticket: str, stop_event: asyncio.Event) -> None:
+    async def _typing_keepalive_loop(
+        self, user_id: str, typing_ticket: str, stop_event: asyncio.Event
+    ) -> None:
         try:
             while not stop_event.is_set():
                 await asyncio.sleep(TYPING_KEEPALIVE_INTERVAL_S)
@@ -1069,9 +1082,7 @@ class WeixinChannel(BaseChannel):
         # Reasoning deltas are invisible in WeChat (there is no reasoning
         # UI).  Skip them entirely — do not send and do not flush buffer.
         if is_progress and (msg.metadata or {}).get("_reasoning_delta"):
-            self.logger.debug(
-                "Dropped invisible reasoning delta for {}", msg.chat_id
-            )
+            self.logger.debug("Dropped invisible reasoning delta for {}", msg.chat_id)
             return
 
         content = msg.content.strip()
@@ -1115,7 +1126,7 @@ class WeixinChannel(BaseChannel):
 
         try:
             # --- Send media files first (following Telegram channel pattern) ---
-            for media_path in (msg.media or []):
+            for media_path in msg.media or []:
                 try:
                     await self._send_media_file(msg.chat_id, media_path, ctx_token)
                 except (httpx.TimeoutException, httpx.TransportError):
@@ -1129,9 +1140,7 @@ class WeixinChannel(BaseChannel):
                     raise
                 except httpx.HTTPStatusError as http_err:
                     status_code = (
-                        http_err.response.status_code
-                        if http_err.response is not None
-                        else 0
+                        http_err.response.status_code if http_err.response is not None else 0
                     )
                     if status_code >= 500:
                         # Server-side / retryable HTTP error — same as network.
@@ -1148,7 +1157,9 @@ class WeixinChannel(BaseChannel):
                     filename = Path(media_path).name
                     self.logger.exception("Failed to send media {}", media_path)
                     await self._send_text(
-                        msg.chat_id, f"[Failed to send: {filename}]", ctx_token,
+                        msg.chat_id,
+                        f"[Failed to send: {filename}]",
+                        ctx_token,
                     )
                 except Exception:
                     # Non-network errors (format, file-not-found, etc.):
@@ -1157,7 +1168,9 @@ class WeixinChannel(BaseChannel):
                     self.logger.exception("Failed to send media {}", media_path)
                     # Notify user about failure via text
                     await self._send_text(
-                        msg.chat_id, f"[Failed to send: {filename}]", ctx_token,
+                        msg.chat_id,
+                        f"[Failed to send: {filename}]",
+                        ctx_token,
                     )
 
             # --- Send text content ---
@@ -1304,7 +1317,7 @@ class WeixinChannel(BaseChannel):
 
         raw_data = p.read_bytes()
         raw_size = len(raw_data)
-        raw_md5 = hashlib.md5(raw_data).hexdigest()
+        raw_md5 = hashlib.md5(raw_data, usedforsecurity=False).hexdigest()
 
         # Determine upload media type from extension
         ext = p.suffix.lower()
@@ -1474,8 +1487,10 @@ def _encrypt_aes_ecb(data: bytes, aes_key_b64: str) -> bytes:
     pad_len = 16 - len(data) % 16
     padded = data + bytes([pad_len] * pad_len)
 
+    # AES-128-ECB is mandated by the WeChat CDN media protocol — not our choice.
+    # The ``Crypto`` namespace is provided by the maintained pycryptodome fork.
     with suppress(ImportError):
-        from Crypto.Cipher import AES
+        from Crypto.Cipher import AES  # nosec B413
 
         cipher = AES.new(key, AES.MODE_ECB)
         return cipher.encrypt(padded)
@@ -1483,7 +1498,7 @@ def _encrypt_aes_ecb(data: bytes, aes_key_b64: str) -> bytes:
     try:
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-        cipher_obj = Cipher(algorithms.AES(key), modes.ECB())
+        cipher_obj = Cipher(algorithms.AES(key), modes.ECB())  # nosec B305
         encryptor = cipher_obj.encryptor()
         return encryptor.update(padded) + encryptor.finalize()
     except ImportError:
@@ -1504,8 +1519,10 @@ def _decrypt_aes_ecb(data: bytes, aes_key_b64: str) -> bytes:
 
     decrypted: bytes | None = None
 
+    # AES-128-ECB is mandated by the WeChat CDN media protocol — not our choice.
+    # The ``Crypto`` namespace is provided by the maintained pycryptodome fork.
     with suppress(ImportError):
-        from Crypto.Cipher import AES
+        from Crypto.Cipher import AES  # nosec B413
 
         cipher = AES.new(key, AES.MODE_ECB)
         decrypted = cipher.decrypt(data)
@@ -1514,7 +1531,7 @@ def _decrypt_aes_ecb(data: bytes, aes_key_b64: str) -> bytes:
         try:
             from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-            cipher_obj = Cipher(algorithms.AES(key), modes.ECB())
+            cipher_obj = Cipher(algorithms.AES(key), modes.ECB())  # nosec B305
             decryptor = cipher_obj.decryptor()
             decrypted = decryptor.update(data) + decryptor.finalize()
         except ImportError:

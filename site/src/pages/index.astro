@@ -4,39 +4,51 @@ import "../styles/global.css";
 const features = [
   {
     chapter: "I",
-    title: "Chat Workspace",
-    body: "Five modes — Chat, Solve, Quiz, Research, Visualize — share one session, knowledge base, and citation history. Escalate mid-thread without losing context.",
+    title: "Chat",
+    body: "The default agent loop: tools, RAG, attachments, notebook writes, memory, and deeper capabilities in one session.",
     href: "/docs/explore/chat-workspace/",
   },
   {
     chapter: "II",
-    title: "Co-Writer",
-    body: "A split-view Markdown workbench where AI is a first-class collaborator. Select, rewrite, expand — grounded in your knowledge base.",
-    href: "/docs/explore/co-writer/",
+    title: "Partners",
+    body: "Persistent companions with their own soul, library, model policy, tools, and IM channels — powered by the same chat loop.",
+    href: "/docs/explore/partners/",
   },
   {
     chapter: "III",
-    title: "Book Engine",
-    body: "A multi-agent pipeline compiles your materials into interactive living books — 13 block types, including a GeoGebra viewer and animations.",
-    href: "/docs/explore/book/",
+    title: "Co-Writer",
+    body: "A selection-aware Markdown workspace where AI edits can be grounded in your knowledge base or the web.",
+    href: "/docs/explore/co-writer/",
   },
   {
     chapter: "IV",
-    title: "Knowledge",
-    body: "Versioned RAG-ready document libraries on LlamaIndex end-to-end. Every (re-)index is tracked, comparable, and rollback-able.",
-    href: "/docs/explore/knowledge/",
+    title: "Book Engine",
+    body: "Compile knowledge bases, notebooks, question assets, and chat history into interactive living books.",
+    href: "/docs/explore/book/",
   },
   {
     chapter: "V",
-    title: "Space",
-    body: "Your personal library — chat history, notebooks, question bank, and authored skills. The read-and-review counterpart to every active surface.",
-    href: "/docs/explore/space/",
+    title: "Knowledge",
+    body: "LlamaIndex-backed, versioned document libraries for RAG, Chat, Co-Writer, Book, and Partners.",
+    href: "/docs/explore/knowledge/",
   },
   {
     chapter: "VI",
+    title: "Space",
+    body: "Reusable context assets: skills, personas, notebooks, chat history, and question material.",
+    href: "/docs/explore/space/",
+  },
+  {
+    chapter: "VII",
     title: "Memory",
-    body: "Append-only L1 traces, L2 curated facts with citations, L3 cross-surface synthesis. A Memory Graph lets you audit why DeepTutor knows what it knows.",
+    body: "Inspectable personalization through L1 traces, L2 facts, L3 synthesis, and a Memory Graph.",
     href: "/docs/explore/memory/",
+  },
+  {
+    chapter: "VIII",
+    title: "Settings",
+    body: "The control plane for models, embeddings, search, tools, MCP, capabilities, network, and memory.",
+    href: "/docs/explore/settings/",
   },
 ];
 
@@ -93,7 +105,7 @@ deeptutor init && deeptutor start`,
     label: "CLI",
     tag: "Headless",
     cmd: "pip install -e ./packaging/deeptutor-cli",
-    blurb: "Lightweight install for servers, agent harnesses, Claude Code / Codex setups.",
+    blurb: "Lightweight install for servers, agent harnesses, Claude Code / Codex setups; add Partners extras when needed.",
     code: `git clone https://github.com/HKUDS/DeepTutor.git
 cd DeepTutor
 
@@ -102,7 +114,7 @@ pip install -e ./packaging/deeptutor-cli
 
 deeptutor init --cli
 deeptutor chat`,
-    foot: "No backend / frontend ports. Embeddings off by default — opt in for RAG.",
+    foot: "No Web UI. Embeddings stay off by default; add extras for RAG or Partner channels.",
     href: "/docs/get-started/cli-only/",
   },
 ];
@@ -117,7 +129,7 @@ deeptutor chat`,
     <title>DeepTutor — Agent-native, open-source personalized tutoring</title>
     <meta
       name="description"
-      content="An open-source AI learning companion. Five modes, one workspace. Personal TutorBots. Knowledge-driven learning."
+      content="An open-source, agent-native learning companion: Chat, Partners, Co-Writer, Book, Knowledge, Space, Memory, and Settings in one local workspace."
     />
     <link rel="icon" type="image/png" href="/logo.png" />
     <script is:inline>
@@ -265,8 +277,8 @@ deeptutor chat`,
           </div>
           <img
             class="showcase-shot"
-            src="/screenshots/dt-home.png"
-            alt="DeepTutor chat workspace — Chat / TutorBot / Co-Writer / Book / Knowledge / Space / Memory in the sidebar; greeting and composer in the main area."
+            src="/screenshots/chat.png"
+            alt="DeepTutor chat workspace — Chat / Partners / Co-Writer / Book / Knowledge / Space / Memory in the sidebar; greeting and composer in the main area."
             loading="eager"
             decoding="async"
           />
@@ -276,10 +288,10 @@ deeptutor chat`,
       <section class="section">
         <header class="section-head">
           <span class="section-eyebrow">What's inside</span>
-          <h2>Six pillars, <em>one</em> running context.</h2>
+          <h2>Eight surfaces, <em>one</em> running context.</h2>
           <p>
-            Every surface reads from — and writes back to — the same memory, knowledge base, and tutor.
-            Switching contexts no longer means losing your place.
+            Chat, Partners, Co-Writer, Book, Knowledge, Space, Memory, and Settings share the
+            same agent-native runtime. Switching surfaces no longer means losing your place.
           </p>
         </header>
         <div class="feature-grid">
@@ -367,7 +379,7 @@ deeptutor chat`,
               <h4>Docs</h4>
               <a href="/docs/get-started/">Get Started</a>
               <a href="/docs/explore/">Explore DeepTutor</a>
-              <a href="/docs/tutorbot/">Explore TutorBot</a>
+              <a href="/docs/partners/">Explore Partners</a>
               <a href="/docs/cli/">CLI</a>
             </div>
             <div class="footer-col">
@@ -409,6 +421,8 @@ deeptutor chat`,
             <a class="footer-pulse-tag" data-pulse="release-link" href="https://github.com/HKUDS/DeepTutor/releases" target="_blank" rel="noopener">
               <span data-pulse="release-tag">—</span>
             </a>
+            <span class="sep">·</span>
+            <span class="num"><span data-pulse="uniques">—</span> Unique Visitors</span>
             <span class="sep">·</span>
             <span class="num"><span data-pulse="requests">—</span> Page Views</span>
           </div>
@@ -494,6 +508,7 @@ deeptutor chat`,
           let releaseOK = false;
 
           if (traffic.status === "fulfilled" && traffic.value && !traffic.value.error) {
+            setText("uniques", fmtNum(traffic.value.uniques));
             setText("requests", fmtNum(traffic.value.requests));
             setText("bytes", fmtBytes(traffic.value.bytes));
             trafficOK = true;
@@ -1936,15 +1951,18 @@ deeptutor chat`,
             }
           }
         } catch {}
-        fetch("https://api.github.com/repos/HKUDS/DeepTutor")
+        // Same-origin Worker proxy — direct api.github.com calls die on the
+        // 60/h per-IP anonymous rate limit (shared NAT) and on networks that
+        // block GitHub.
+        fetch("/api/stars")
           .then((r) => (r.ok ? r.json() : null))
           .then((data) => {
-            if (!data || typeof data.stargazers_count !== "number") return;
-            paint(data.stargazers_count);
+            if (!data || typeof data.stars !== "number") return;
+            paint(data.stars);
             try {
               localStorage.setItem(
                 cacheKey,
-                JSON.stringify({ n: data.stargazers_count, t: Date.now() }),
+                JSON.stringify({ n: data.stars, t: Date.now() }),
               );
             } catch {}
           })

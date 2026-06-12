@@ -14,16 +14,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import dynamic from "next/dynamic";
+import { Paperclip } from "lucide-react";
 import { wsUrl } from "@/lib/api";
 import { getPartnerHistory } from "@/lib/partners-api";
 import type { StreamEvent } from "@/lib/unified-ws";
+import { docIconFor, formatBytes, isSvgFilename } from "@/lib/doc-attachments";
 import {
   isNarrationMarker,
   recomputeAnswerContent,
   shouldAppendEventContent,
 } from "@/lib/stream";
 import { AssistantActivity } from "@/components/chat/home/TracePanels";
-import { PartnerComposer } from "@/components/partners/PartnerComposer";
+import {
+  PartnerComposer,
+  type PartnerPendingAttachment,
+} from "@/components/partners/PartnerComposer";
 import PartnerAvatar from "@/components/partners/PartnerAvatar";
 
 const AssistantResponse = dynamic(
@@ -34,14 +39,116 @@ const AssistantResponse = dynamic(
 interface ChatMsg {
   role: "user" | "assistant";
   content: string;
+  attachments?: PartnerMessageAttachment[];
   /** Full turn event stream (live turns only; restored history has none). */
   events?: StreamEvent[];
   error?: boolean;
 }
 
+interface PartnerMessageAttachment {
+  type: string;
+  filename: string;
+  mimeType?: string;
+  size?: number;
+  previewUrl?: string;
+}
+
 function resetsVisibleConversation(content: string) {
   const command = content.trim().split(/\s+/, 1)[0]?.toLowerCase();
   return command === "/new" || command === "/clear";
+}
+
+function normalizeHistoryAttachments(
+  value: unknown,
+): PartnerMessageAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): PartnerMessageAttachment | null => {
+      if (!item || typeof item !== "object") return null;
+      const obj = item as Record<string, unknown>;
+      const filename = String(obj.filename || "");
+      if (!filename) return null;
+      const sizeRaw = obj.size;
+      return {
+        type: String(obj.type || "file"),
+        filename,
+        mimeType: String(obj.mime_type || obj.mimeType || ""),
+        size: typeof sizeRaw === "number" ? sizeRaw : undefined,
+      };
+    })
+    .filter((item): item is PartnerMessageAttachment => item !== null);
+}
+
+function sentAttachmentsForMessage(
+  attachments: PartnerPendingAttachment[],
+): PartnerMessageAttachment[] {
+  return attachments.map((item) => ({
+    type: item.type,
+    filename: item.filename,
+    mimeType: item.mimeType,
+    size: item.size,
+    previewUrl: item.previewUrl,
+  }));
+}
+
+function AttachmentStrip({
+  attachments,
+}: {
+  attachments?: PartnerMessageAttachment[];
+}) {
+  if (!attachments?.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {attachments.map((attachment, index) => {
+        if (
+          (attachment.type === "image" || isSvgFilename(attachment.filename)) &&
+          attachment.previewUrl
+        ) {
+          return (
+            <div
+              key={`${attachment.filename}-${index}`}
+              className="h-14 w-14 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--muted)]/35"
+              title={attachment.filename}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={attachment.previewUrl}
+                alt={attachment.filename}
+                className={`h-full w-full ${isSvgFilename(attachment.filename) ? "object-contain p-1" : "object-cover"}`}
+              />
+            </div>
+          );
+        }
+
+        const spec = docIconFor(attachment.filename);
+        const Icon = spec.Icon;
+        const sizeLabel = attachment.size ? formatBytes(attachment.size) : "";
+        return (
+          <div
+            key={`${attachment.filename}-${index}`}
+            className="flex max-w-[190px] items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)]/80 px-2 py-1.5"
+            title={attachment.filename}
+          >
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--muted)]/60">
+              {attachment.filename ? (
+                <Icon size={15} strokeWidth={1.5} className={spec.tint} />
+              ) : (
+                <Paperclip className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[11px] font-medium text-[var(--foreground)]">
+                {attachment.filename}
+              </div>
+              <div className="truncate text-[9px] uppercase text-[var(--muted-foreground)]">
+                {sizeLabel ? `${spec.label} · ${sizeLabel}` : spec.label}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function PartnerChat({
@@ -99,6 +206,9 @@ export default function PartnerChat({
             .map((m) => ({
               role: m.role as "user" | "assistant",
               content: m.content,
+              attachments: normalizeHistoryAttachments(
+                (m as Record<string, unknown>).attachments,
+              ),
             })),
         );
         requestAnimationFrame(() => scrollToBottom("instant"));
@@ -118,7 +228,9 @@ export default function PartnerChat({
     // socket handlers can mutate it cheaply; renders see snapshots only.
     let live: { events: StreamEvent[]; content: string } | null = null;
     const publish = () => {
-      setDraft(live ? { events: [...live.events], content: live.content } : null);
+      setDraft(
+        live ? { events: [...live.events], content: live.content } : null,
+      );
     };
 
     ws.onmessage = (e) => {
@@ -188,26 +300,47 @@ export default function PartnerChat({
   }, [partnerId, scrollToBottom]);
 
   const handleSend = useCallback(
-    (content: string) => {
+    (content: string, attachments: PartnerPendingAttachment[]) => {
       if (
         streaming ||
         !wsRef.current ||
         wsRef.current.readyState !== WebSocket.OPEN
       )
         return;
+      const visibleContent =
+        content ||
+        (attachments.every((item) => item.type === "image")
+          ? t("Please analyze the attached image(s).")
+          : t("Please use the attached file(s)."));
       wsRef.current.send(
-        JSON.stringify({ content, session_id: sessionIdRef.current }),
+        JSON.stringify({
+          content: visibleContent,
+          session_id: sessionIdRef.current,
+          attachments: attachments.map((item) => ({
+            type: item.type,
+            filename: item.filename,
+            base64: item.base64,
+            mime_type: item.mimeType,
+          })),
+        }),
       );
-      if (resetsVisibleConversation(content)) {
+      if (resetsVisibleConversation(visibleContent)) {
         setMessages([]);
       } else {
-        setMessages((msgs) => [...msgs, { role: "user", content }]);
+        setMessages((msgs) => [
+          ...msgs,
+          {
+            role: "user",
+            content: visibleContent,
+            attachments: sentAttachmentsForMessage(attachments),
+          },
+        ]);
       }
       setDraft({ events: [], content: "" });
       setStreaming(true);
       scrollToBottom();
     },
-    [streaming, scrollToBottom],
+    [streaming, scrollToBottom, t],
   );
 
   return (
@@ -215,13 +348,21 @@ export default function PartnerChat({
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-1 py-4">
         {messages.length === 0 && !draft ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <PartnerAvatar name={partnerName} emoji={emoji} color={color} image={avatar} size={56} />
+            <PartnerAvatar
+              name={partnerName}
+              emoji={emoji}
+              color={color}
+              image={avatar}
+              size={56}
+            />
             <div>
               <p className="text-[15px] font-medium text-[var(--foreground)]">
                 {partnerName}
               </p>
               <p className="mt-1 max-w-sm text-[12.5px] text-[var(--muted-foreground)]">
-                {t("Say hello — this conversation shares the same memory your partner has on its connected channels.")}
+                {t(
+                  "Say hello — this conversation shares the same memory your partner has on its connected channels.",
+                )}
               </p>
             </div>
           </div>
@@ -230,8 +371,11 @@ export default function PartnerChat({
             {messages.map((msg, i) =>
               msg.role === "user" ? (
                 <div key={i} className="flex justify-end">
-                  <div className="max-w-[75%] whitespace-pre-wrap rounded-2xl bg-[var(--secondary)] px-4 py-2.5 text-[14px] leading-relaxed text-[var(--foreground)] shadow-sm">
-                    {msg.content}
+                  <div className="max-w-[75%] rounded-2xl bg-[var(--secondary)] px-4 py-2.5 text-[14px] leading-relaxed text-[var(--foreground)] shadow-sm">
+                    {msg.content ? (
+                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                    ) : null}
+                    <AttachmentStrip attachments={msg.attachments} />
                   </div>
                 </div>
               ) : (
@@ -300,7 +444,10 @@ export default function PartnerChat({
             {t("Connecting…")}
           </p>
         )}
-        <PartnerComposer onSend={handleSend} disabled={streaming || !connected} />
+        <PartnerComposer
+          onSend={handleSend}
+          disabled={streaming || !connected}
+        />
       </div>
     </div>
   );

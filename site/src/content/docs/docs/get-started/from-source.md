@@ -42,13 +42,27 @@ python -m pip install --upgrade pip
 
 ```bash
 pip install -e ".[dev]"             # tests / lint tools
-pip install -e ".[partners]"        # Partner channel SDKs + MCP client
+pip install -e ".[partners]"        # all Partner channel SDKs (incl. wecom-aibot-sdk) + MCP client
 pip install -e ".[matrix]"          # Matrix channel without E2EE / libolm
 pip install -e ".[matrix-e2e]"      # Matrix E2EE; requires libolm
 pip install -e ".[math-animator]"   # Manim addon; requires LaTeX / ffmpeg / system libs
 ```
 
-Compose them: `pip install -e ".[dev,tutorbot,math-animator]"`.
+Compose them: `pip install -e ".[dev,partners,math-animator]"`.
+
+Full list — each extra has a `requirements/*.txt` mirror for Docker/CI builds where the source tree isn't available yet:
+
+| Extra | What it adds | Requirements mirror |
+|-------|--------------|---------------------|
+| `cli` | Compatibility extra — CLI deps, already included in the default install | `requirements/cli.txt` |
+| `server` | Compatibility extra — FastAPI server deps, already included in the default install | `requirements/server.txt` |
+| `partners` | Every built-in Partner channel SDK (`wecom-aibot-sdk`, `qq-botpy`, `slack-sdk`, `lark-oapi`, `python-telegram-bot`, `dingtalk-stream`, …) + MCP client | `requirements/partners.txt` |
+| `tutorbot` | Legacy alias for `partners`, kept for one release | — |
+| `matrix` | Matrix (Element) channel, non-E2EE — works without libolm | `requirements/matrix.txt` |
+| `matrix-e2e` | Matrix E2EE add-on — needs the system **libolm** library | `requirements/matrix-e2e.txt` |
+| `math-animator` | Manim addon — needs LaTeX, pkg-config, cairo, cmake, ffmpeg | `requirements/math-animator.txt` |
+| `dev` | pytest / pre-commit / lint & security tooling | `requirements/dev.txt` |
+| `all` | `partners` + `matrix` + `math-animator` + `dev` (E2EE not included) | — |
 
 ### System dependencies for some extras
 

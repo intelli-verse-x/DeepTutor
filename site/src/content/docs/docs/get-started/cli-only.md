@@ -60,7 +60,7 @@ The local `deeptutor-cli` install ships **no Web assets or server dependencies**
 | `deeptutor kb` (Knowledge Bases) | ✅ *(opt in during init)* | ✅ |
 | `deeptutor notebook` | ✅ | ✅ |
 | `deeptutor memory` | ✅ | ✅ |
-| `deeptutor bot` (TutorBot) | ✅ *(if `[tutorbot]` extra installed)* | ✅ |
+| `deeptutor partner` (Partners) | ✅ *(after installing channel SDKs — see below)* | ✅ |
 | `deeptutor config show` | ✅ | ✅ |
 | `deeptutor provider login` | ✅ | ✅ |
 | `deeptutor serve` (FastAPI) | ❌ | ✅ |
@@ -70,6 +70,16 @@ The local `deeptutor-cli` install ships **no Web assets or server dependencies**
 | Book Engine UI | ❌ | ✅ |
 
 To add the Web app later, install the PyPI package (Option 1) and run `deeptutor init` + `deeptutor start` from the same workspace.
+
+## Adding Partner channel SDKs
+
+CLI-only installs can still run `deeptutor partner`, but channel SDKs are not installed by default. The local `deeptutor-cli` project defines no extras — install the SDK set from the repo's requirements mirror instead (you already have the source checkout):
+
+```bash
+python -m pip install -r requirements/partners.txt
+```
+
+This covers every built-in channel SDK (wecom-aibot-sdk, qq-botpy, slack-sdk, lark-oapi, python-telegram-bot, dingtalk-stream, …). The Matrix channel is packaged separately: `pip install -r requirements/matrix.txt`, plus `requirements/matrix-e2e.txt` for encrypted rooms (needs the system `libolm` library). This does not add the Web UI; Partner config continues to live in the current workspace under `data/partners/<id>/` and `data/user/settings/`.
 
 ## Use it from another agent
 
@@ -99,12 +109,12 @@ python -m deeptutor_cli.main chat
 
 `deeptutor serve` is **unavailable** in the CLI-only install. Use [**PyPI**](/docs/get-started/pypi/) or [**From Source**](/docs/get-started/from-source/) instead.
 
-### TutorBot commands say SDK missing
+### Partner channel commands say an SDK is missing
 
-Channel SDKs (python-telegram-bot, slack-sdk, etc.) are only included with the `[tutorbot]` extra:
+Channel SDKs (wecom-aibot-sdk, qq-botpy, slack-sdk, lark-oapi, etc.) ship via the requirements mirror, not the CLI-only package:
 
 ```bash
-pip install -e "./packaging/deeptutor-cli[tutorbot]"
+python -m pip install -r requirements/partners.txt
 ```
 
 More: [**Troubleshooting**](/docs/get-started/troubleshooting/).
@@ -113,4 +123,4 @@ More: [**Troubleshooting**](/docs/get-started/troubleshooting/).
 
 - [**DeepTutor CLI**](/docs/cli/) — full CLI reference
 - [**Agent handoff**](/docs/cli/agent-handoff/) — let your agent drive
-- [**Explore TutorBot**](/docs/tutorbot/) — run a bot from CLI
+- [**Partners & Channels**](/docs/partners/) — run a Partner from CLI

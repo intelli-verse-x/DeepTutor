@@ -95,7 +95,9 @@ function PartnerDetail() {
   const handleDestroy = async () => {
     if (
       !window.confirm(
-        t("Delete this partner and ALL its data (workspace, sessions, channels)? This cannot be undone."),
+        t(
+          "Delete this partner and ALL its data (workspace, sessions, channels)? This cannot be undone.",
+        ),
       )
     )
       return;
@@ -121,7 +123,10 @@ function PartnerDetail() {
         <p className="text-[14px] text-[var(--muted-foreground)]">
           {t("Partner not found")}
         </p>
-        <Link href="/partners" className="text-[13px] text-[var(--primary)] hover:underline">
+        <Link
+          href="/partners"
+          className="text-[13px] text-[var(--primary)] hover:underline"
+        >
           {t("Back to Partners")}
         </Link>
       </div>

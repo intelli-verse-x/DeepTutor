@@ -69,9 +69,9 @@ def _make_capability(llm_response: str | None) -> MasteryPathCapability:
     cap._service = LearningService(store)
     cap._scheduler = None  # the Feynman path never touches the scheduler
     # Mock the single LLM entry point so no network/JSON contract is exercised.
-    cap._call_llm = AsyncMock(return_value=llm_response)
+    cap._call_llm = AsyncMock(return_value=llm_response)  # type: ignore[method-assign]
     # save() is a no-op so the in-memory progress isn't flushed to a missing root.
-    cap._service.save = lambda progress: None
+    cap._service.save = lambda progress: None  # type: ignore[method-assign]
     return cap
 
 

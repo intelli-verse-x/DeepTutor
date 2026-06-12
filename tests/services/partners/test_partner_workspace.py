@@ -108,9 +108,7 @@ class TestProvisioning:
         from deeptutor.services.skill.service import BUILTIN_SKILLS_ROOT
 
         builtin_names = [
-            entry.name
-            for entry in BUILTIN_SKILLS_ROOT.iterdir()
-            if (entry / "SKILL.md").exists()
+            entry.name for entry in BUILTIN_SKILLS_ROOT.iterdir() if (entry / "SKILL.md").exists()
         ]
         assert builtin_names, "expected packaged builtin skills"
         target = builtin_names[0]

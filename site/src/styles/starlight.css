@@ -237,3 +237,27 @@ site-search button[data-open-modal] {
 .pagination-links > a:hover[rel="next"] .link-title::after {
   color: var(--accent);
 }
+
+/* Brand icons (channel/provider) embedded in tables and lists: keep them
+   inline and vertically centred against the text baseline. */
+.sl-markdown-content img[src^="/channel-icons/"],
+.sl-markdown-content img[src^="/provider-icons/"] {
+  display: inline-block;
+  vertical-align: -0.2em;
+  margin: 0;
+}
+
+/* Solid-black mono brand marks vanish on the dark theme — invert them,
+   mirroring the web UI's `dark:invert` handling in ProviderIcon.tsx. */
+[data-theme="dark"] .sl-markdown-content img[src$="/anthropic.svg"],
+[data-theme="dark"] .sl-markdown-content img[src$="/githubcopilot.svg"],
+[data-theme="dark"] .sl-markdown-content img[src$="/groq.svg"],
+[data-theme="dark"] .sl-markdown-content img[src$="/jina.svg"],
+[data-theme="dark"] .sl-markdown-content img[src$="/lmstudio.svg"],
+[data-theme="dark"] .sl-markdown-content img[src$="/moonshot.svg"],
+[data-theme="dark"] .sl-markdown-content img[src$="/ollama.svg"],
+[data-theme="dark"] .sl-markdown-content img[src$="/openai.svg"],
+[data-theme="dark"] .sl-markdown-content img[src$="/openrouter.svg"],
+[data-theme="dark"] .sl-markdown-content img[src$="/xiaomimimo.svg"] {
+  filter: invert(1);
+}

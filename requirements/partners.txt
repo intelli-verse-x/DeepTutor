@@ -17,6 +17,8 @@ mcp>=1.26.0,<2.0.0
 
 # --- Channel SDKs ---
 python-telegram-bot[socks]>=22.6,<23.0
+# wecom (WeCom AI Bot WebSocket client)
+wecom-aibot-sdk>=1.0.8,<2.0.0
 lark-oapi>=1.5.0,<2.0.0
 dingtalk-stream>=0.24.0,<1.0.0
 slack-sdk>=3.39.0,<4.0.0

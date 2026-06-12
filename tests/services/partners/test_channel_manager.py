@@ -111,9 +111,7 @@ async def _dispatch_many(
 class TestSendRetry:
     @pytest.mark.asyncio
     async def test_send_retries_on_failure_then_succeeds(self, monkeypatch):
-        monkeypatch.setattr(
-            "deeptutor.partners.channels.manager._SEND_RETRY_DELAYS", (0, 0, 0)
-        )
+        monkeypatch.setattr("deeptutor.partners.channels.manager._SEND_RETRY_DELAYS", (0, 0, 0))
         msg = OutboundMessage(channel="zulip", chat_id="1", content="hi")
         channel = _DummyChannel()
         channel.send.side_effect = [RuntimeError("boom"), None]
@@ -125,14 +123,13 @@ class TestSendRetry:
 
     @pytest.mark.asyncio
     async def test_send_gives_up_after_max_retries(self, monkeypatch):
-        monkeypatch.setattr(
-            "deeptutor.partners.channels.manager._SEND_RETRY_DELAYS", (0, 0, 0)
-        )
+        monkeypatch.setattr("deeptutor.partners.channels.manager._SEND_RETRY_DELAYS", (0, 0, 0))
         msg = OutboundMessage(channel="zulip", chat_id="1", content="hi")
         channel = _DummyChannel()
         channel.send.side_effect = RuntimeError("boom")
         manager = ChannelManager(
-            ChannelsConfig(send_max_retries=2), _MultiShotBus([])  # type: ignore[arg-type]
+            ChannelsConfig(send_max_retries=2),
+            _MultiShotBus([]),  # type: ignore[arg-type]
         )
 
         await manager._send_with_retry(channel, msg)  # type: ignore[arg-type]
@@ -155,11 +152,15 @@ class TestDuplicateSuppression:
     async def test_same_reply_to_different_origin_delivered(self):
         msgs = [
             OutboundMessage(
-                channel="zulip", chat_id="1", content="same",
+                channel="zulip",
+                chat_id="1",
+                content="same",
                 metadata={"origin_message_id": "m1"},
             ),
             OutboundMessage(
-                channel="zulip", chat_id="1", content="same",
+                channel="zulip",
+                chat_id="1",
+                content="same",
                 metadata={"origin_message_id": "m2"},
             ),
         ]
@@ -187,7 +188,9 @@ class TestStreamDispatch:
     async def test_stream_end_routed_to_send_delta(self):
         msgs = [
             OutboundMessage(
-                channel="zulip", chat_id="1", content="",
+                channel="zulip",
+                chat_id="1",
+                content="",
                 metadata={"_stream_end": True, "_stream_id": "t:1"},
             ),
         ]
@@ -199,7 +202,9 @@ class TestStreamDispatch:
     async def test_streamed_final_skips_plain_send(self):
         msgs = [
             OutboundMessage(
-                channel="zulip", chat_id="1", content="final",
+                channel="zulip",
+                chat_id="1",
+                content="final",
                 metadata={"_streamed": True},
             ),
         ]
@@ -211,11 +216,15 @@ class TestStreamDispatch:
     async def test_deltas_of_different_streams_not_merged(self):
         msgs = [
             OutboundMessage(
-                channel="zulip", chat_id="1", content="a",
+                channel="zulip",
+                chat_id="1",
+                content="a",
                 metadata={"_stream_delta": True, "_stream_id": "t:1"},
             ),
             OutboundMessage(
-                channel="zulip", chat_id="1", content="b",
+                channel="zulip",
+                chat_id="1",
+                content="b",
                 metadata={"_stream_delta": True, "_stream_id": "t:2"},
             ),
         ]

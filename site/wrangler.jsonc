@@ -1,0 +1,24 @@
+// Cloudflare Worker config for deeptutor.info.
+//
+// `name` MUST stay "proud-shadow-1ebf" — that is the existing dashboard
+// project the custom domain is attached to; deploying under the same name
+// updates it in place with zero domain re-wiring.
+//
+// Secrets (set once, kept out of git):
+//   npx wrangler secret put CF_API_TOKEN   # Zone Analytics: Read, scoped to deeptutor.info
+//
+// Deploy: npm run deploy  (= astro build && wrangler deploy)
+{
+  "name": "proud-shadow-1ebf",
+  "compatibility_date": "2026-06-12",
+  "main": "worker/index.ts",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page"
+  },
+  "vars": {
+    // deeptutor.info zone id — dashboard → deeptutor.info Overview → API → Zone ID.
+    "CF_ZONE_ID": "8b9a13692ae0bc950af35398a6fbe092"
+  }
+}

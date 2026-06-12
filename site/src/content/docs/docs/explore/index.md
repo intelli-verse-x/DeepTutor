@@ -1,36 +1,32 @@
 ---
 title: Overview
-description: A map of the Explore section — five core surfaces, three-layer Memory, and a unified Settings workbench.
+description: A map of the Explore section — Chat, Partners, Co-Writer, Book, Knowledge, Space, Memory, and Settings.
 ---
 
-DeepTutor is organised around **five core surfaces**, a **three-layer Memory** that sits underneath them, and a unified **Settings** workbench. This section walks each one; the table below is the map.
+DeepTutor is organized around connected learning surfaces that share one agent-native runtime. This section starts with the surfaces users touch every day, then explains the library, memory, and control layers underneath them.
 
-![DeepTutor home screen](/screenshots/dt-current-home.png)
+![Chat workspace](/screenshots/chat.png)
 
-## The five surfaces
+## Product map
 
 | # | Surface | One-liner | Page |
 |---|---------|-----------|------|
-| 1 | **Chat** | One thread, five modes (Chat / Solve / Quiz / Research / Visualize), any tool | [**Chat Workspace**](/docs/explore/chat-workspace/) |
-| 2 | **Co-Writer** | Split-view Markdown workbench where AI is a first-class collaborator | [**Co-Writer**](/docs/explore/co-writer/) |
-| 3 | **Book** | Multi-agent pipeline that compiles your materials into interactive "living books" | [**Book Engine**](/docs/explore/book/) |
-| 4 | **Knowledge** | Versioned RAG-ready document libraries (LlamaIndex end-to-end) | [**Knowledge Bases**](/docs/explore/knowledge/) |
-| 5 | **Space** | Read / review hub: Chat History, Notebooks, Question Bank, Skills | [**Space**](/docs/explore/space/) |
-
-## Plus
-
-| Surface | One-liner | Page |
-|---------|-----------|------|
-| **Memory** | Three-layer pipeline (L1 trace / L2 per-surface / L3 cross-surface) + Memory Graph | [**Memory**](/docs/explore/memory/) |
-| **Settings** | Unified control center — Models, Embedding, Search, Capabilities, Tools, Memory, MCP, Appearance, Status | [**Settings**](/docs/explore/settings/) |
+| 1 | **Chat** | Default agent loop: tools, RAG, attachments, notebook writes, and deeper capabilities in one thread | [**Chat Workspace**](/docs/explore/chat-workspace/) |
+| 2 | **Partners** | Persistent IM-connected companions with their own soul, library, and channels | [**Partners**](/docs/explore/partners/) |
+| 3 | **Co-Writer** | Selection-aware Markdown editor where AI edits can use KB or web context | [**Co-Writer**](/docs/explore/co-writer/) |
+| 4 | **Book** | Compile your materials into interactive living books | [**Book Engine**](/docs/explore/book/) |
+| 5 | **Knowledge** | LlamaIndex-backed, versioned RAG libraries | [**Knowledge Bases**](/docs/explore/knowledge/) |
+| 6 | **Space** | Skills, personas, notebooks, history, and reusable context assets | [**Space**](/docs/explore/space/) |
+| 7 | **Memory** | L1 trace, L2 per-surface facts, L3 cross-surface synthesis, and graph audit | [**Memory**](/docs/explore/memory/) |
+| 8 | **Settings** | Models, embeddings, search, tools, MCP, network, memory, and runtime control | [**Settings**](/docs/explore/settings/) |
 
 ## How they fit together
 
-- **Capabilities live inside Chat.** Solve / Quiz / Research / Visualize are not separate top-level tabs — they're modes you switch into mid-thread, sharing the session, knowledge base, attachments, and citation history of the surrounding chat.
-- **Tools stay decoupled from workflows.** Built-in tools (RAG, web search, code execution, reason, brainstorm, paper search, `ask_user`, `web_fetch`, `write_note`, `list_notebook`, `github_query`) compose freely on top of every mode. Add MCP servers in Settings to extend.
-- **Memory is the substrate.** Every surface reads from and writes to the same three-layer Memory store, so what you learn in Chat surfaces in Co-Writer, in a TutorBot conversation, or in a Book reading session.
-- **Sessions cross surfaces.** A session started in the Web UI shows up in the CLI (and vice versa); a chat session can be saved into a Notebook, attached to a Book page, or referenced from Co-Writer.
+- **Chat is the default loop.** `chat`, `deep_solve`, `deep_question`, `deep_research`, `visualize`, `math_animator`, `auto`, and `mastery_path` run through the same orchestrated runtime.
+- **Partners reuse Chat, not a separate bot engine.** A partner message becomes a scoped chat turn inside `data/partners/<id>/workspace/`.
+- **Tools are mounted by context.** User-toggleable tools are `brainstorm`, `web_search`, `paper_search`, and `reason`; contextual tools include RAG, source reading, memory, skills, notebooks, URL fetch, GitHub, ask-user, and sandboxed execution.
+- **Memory is inspectable.** The workbench and graph let you trace synthesized facts back to L2 summaries and raw L1 events.
 
 ## Next
 
-Start with [**Chat Workspace**](/docs/explore/chat-workspace/) — most users spend ~80% of their time there. From the CLI side, see the [**CLI overview**](/docs/cli/).
+Start with [**Chat Workspace**](/docs/explore/chat-workspace/) for the core interaction model, then read [**Partners**](/docs/explore/partners/) if you want DeepTutor inside IM channels.

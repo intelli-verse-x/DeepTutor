@@ -182,7 +182,7 @@ export default function NotebooksSection() {
         };
       case "tutorbot":
         return {
-          label: t("Tutorbot"),
+          label: t("Partner"),
           color:
             "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
           icon: Bot,

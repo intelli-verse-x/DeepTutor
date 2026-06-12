@@ -46,7 +46,9 @@ def test_partner_identity_without_description():
         metadata={"agent_identity": {"name": "frank"}},
     )
     content = _general_block(context)
-    assert content == 'You are a companion created by the user. The name the user gave you is "frank".'
+    assert (
+        content == 'You are a companion created by the user. The name the user gave you is "frank".'
+    )
 
 
 def test_blank_identity_falls_back_to_product():

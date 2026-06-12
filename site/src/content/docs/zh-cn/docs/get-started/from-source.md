@@ -42,13 +42,27 @@ python -m pip install --upgrade pip
 
 ```bash
 pip install -e ".[dev]"             # 测试 / lint 工具
-pip install -e ".[partners]"        # Partners 渠道 SDK + MCP 客户端
+pip install -e ".[partners]"        # 全部 Partner channel SDK（含 wecom-aibot-sdk）+ MCP 客户端
 pip install -e ".[matrix]"          # 不带 E2EE / libolm 的 Matrix channel
 pip install -e ".[matrix-e2e]"      # 带 E2EE 的 Matrix；需要 libolm
 pip install -e ".[math-animator]"   # Manim 插件；需要 LaTeX / ffmpeg / 系统库
 ```
 
-也可以组合：`pip install -e ".[dev,tutorbot,math-animator]"`。
+也可以组合：`pip install -e ".[dev,partners,math-animator]"`。
+
+全集如下 —— 每个 extra 都有对应的 `requirements/*.txt` 镜像文件，供拿不到源码树的 Docker/CI 构建使用：
+
+| Extra | 用途 | Requirements 镜像 |
+|-------|------|-------------------|
+| `cli` | 兼容性 extra —— CLI 依赖，默认安装已包含 | `requirements/cli.txt` |
+| `server` | 兼容性 extra —— FastAPI server 依赖，默认安装已包含 | `requirements/server.txt` |
+| `partners` | 全部内置 Partner channel SDK（`wecom-aibot-sdk`、`qq-botpy`、`slack-sdk`、`lark-oapi`、`python-telegram-bot`、`dingtalk-stream` 等）+ MCP 客户端 | `requirements/partners.txt` |
+| `tutorbot` | `partners` 的兼容别名，保留一个版本周期 | — |
+| `matrix` | Matrix（Element）channel，非 E2EE —— 不需要 libolm | `requirements/matrix.txt` |
+| `matrix-e2e` | Matrix E2EE 附加包 —— 需要系统级 **libolm** 库 | `requirements/matrix-e2e.txt` |
+| `math-animator` | Manim 插件 —— 需要 LaTeX、pkg-config、cairo、cmake、ffmpeg | `requirements/math-animator.txt` |
+| `dev` | pytest / pre-commit / lint 与安全检查工具 | `requirements/dev.txt` |
+| `all` | `partners` + `matrix` + `math-animator` + `dev`（不含 E2EE） | — |
 
 ### 部分 extras 需要的系统依赖
 

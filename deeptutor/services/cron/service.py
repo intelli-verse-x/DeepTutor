@@ -101,9 +101,7 @@ class CronJob:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CronJob":
         state = dict(data.get("state") or {})
-        state["run_history"] = [
-            CronRunRecord(**record) for record in state.get("run_history", [])
-        ]
+        state["run_history"] = [CronRunRecord(**record) for record in state.get("run_history", [])]
         return cls(
             id=str(data["id"]),
             name=str(data.get("name") or ""),

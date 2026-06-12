@@ -200,11 +200,7 @@ export default memo(function ContextReferenceTree({
         className={`shrink-0 transition-transform ${
           // The chevron points where tapping will reveal rows: up-direction
           // trees expand upward, down-direction trees expand downward.
-          expanded
-            ? "rotate-180"
-            : direction === "up"
-              ? ""
-              : "-rotate-90"
+          expanded ? "rotate-180" : direction === "up" ? "" : "-rotate-90"
         }`}
       />
     </button>

@@ -7,25 +7,41 @@ Partner channels 是同一个 Partner brain 外面的投递适配器。它不会
 
 大多数配置建议在 Web UI 完成：**Partners -> 你的 partner -> Channels** 会从 `/api/v1/partners/channels/schema` 渲染实时 schema，自动 mask secret 字段，并允许你 reload channels，而不需要手写 YAML。
 
+![Partner channel 配置卡片](/screenshots/partners-channels.png)
+
 ## 内置渠道
 
 | 渠道 | Key | 连接模型 | 适合场景 | 核心字段 |
 | --- | --- | --- | --- | --- |
-| WeChat | `weixin` | HTTP long-poll + 扫码登录 | 个人微信助手 | `allow_from`；可选 `token`、`state_dir`、`route_tag`、`poll_timeout` |
-| WeCom | `wecom` | 企业微信 AI Bot WebSocket | 企业微信 / WeChat Work | `bot_id`、`secret`、`allow_from` |
-| QQ | `qq` | 腾讯 botpy WebSocket | 官方 QQ Bot 部署 | `app_id`、`secret`、`allow_from`、`msg_format` |
-| QQ (NapCat) | `napcat` | OneBot v11 WebSocket | 通过 NapCat 接个人 QQ | `ws_url`、可选 `access_token`、`allow_from`、`group_policy` |
-| Telegram | `telegram` | Bot API polling | 简单个人/群 bot | `token`、`allow_from` |
-| Discord | `discord` | Gateway WebSocket | Discord server 和 DM | `token`、`allow_from`、群策略字段 |
-| Slack | `slack` | Socket Mode | Slack team、DM、threaded channel help | `bot_token`、`app_token`、`allow_from`、`group_policy` |
-| Feishu / Lark | `feishu` | Lark SDK WebSocket | 飞书 / Lark 企业聊天 | `app_id`、`app_secret`，以及 verification/encryption 字段 |
-| DingTalk | `dingtalk` | Stream Mode | 钉钉企业聊天 | 应用凭证、`allow_from`、群策略字段 |
-| Matrix | `matrix` | Matrix sync loop | 去中心化房间，可选 E2EE | `homeserver`、用户凭证或 `access_token`、`allow_from`、`group_policy` |
-| Zulip | `zulip` | Event queue | stream + topic 工作流 | `email`、`api_key`、`site`、`allow_from`、`group_policy` |
-| WhatsApp | `whatsapp` | Bridge WebSocket | 通过桥接运行时接 WhatsApp | bridge URL/token、`allow_from` |
-| Email | `email` | IMAP poll + SMTP send | 异步邮件答疑 / helpdesk | IMAP host/user/password、SMTP host/user/password、`allow_from` |
-| Mochat | `mochat` | Socket.IO 或 HTTP polling | 客服式聊天面板 | `base_url` / socket URL、`claw_token`、`allow_from` |
-| Microsoft Teams | `msteams` | 内置 HTTP webhook listener | Teams DM-first Bot Framework 集成 | `app_id`、`app_password`、`tenant_id`、host/port/path |
+| <img src="/channel-icons/weixin.svg" alt="" width="16" height="16" /> WeChat | `weixin` | HTTP long-poll + 扫码登录 | 个人微信助手 | `allow_from`；可选 `token`、`state_dir`、`route_tag`、`poll_timeout` |
+| <img src="/channel-icons/wecom.svg" alt="" width="16" height="16" /> WeCom | `wecom` | 企业微信 AI Bot WebSocket | 企业微信 / WeChat Work | `bot_id`、`secret`、`allow_from` |
+| <img src="/channel-icons/qq.svg" alt="" width="16" height="16" /> QQ | `qq` | 腾讯 botpy WebSocket | 官方 QQ Bot 部署 | `app_id`、`secret`、`allow_from`、`msg_format` |
+| <img src="/channel-icons/napcat.svg" alt="" width="16" height="16" /> QQ (NapCat) | `napcat` | OneBot v11 WebSocket | 通过 NapCat 接个人 QQ | `ws_url`、可选 `access_token`、`allow_from`、`group_policy` |
+| <img src="/channel-icons/telegram.svg" alt="" width="16" height="16" /> Telegram | `telegram` | Bot API polling | 简单个人/群 bot | `token`、`allow_from` |
+| <img src="/channel-icons/discord.svg" alt="" width="16" height="16" /> Discord | `discord` | Gateway WebSocket | Discord server 和 DM | `token`、`allow_from`、群策略字段 |
+| <img src="/channel-icons/slack.svg" alt="" width="16" height="16" /> Slack | `slack` | Socket Mode | Slack team、DM、threaded channel help | `bot_token`、`app_token`、`allow_from`、`group_policy` |
+| <img src="/channel-icons/feishu.svg" alt="" width="16" height="16" /> Feishu / Lark | `feishu` | Lark SDK WebSocket | 飞书 / Lark 企业聊天 | `app_id`、`app_secret`，以及 verification/encryption 字段 |
+| <img src="/channel-icons/dingtalk.svg" alt="" width="16" height="16" /> DingTalk | `dingtalk` | Stream Mode | 钉钉企业聊天 | 应用凭证、`allow_from`、群策略字段 |
+| <img src="/channel-icons/matrix.svg" alt="" width="16" height="16" /> Matrix | `matrix` | Matrix sync loop | 去中心化房间，可选 E2EE | `homeserver`、用户凭证或 `access_token`、`allow_from`、`group_policy` |
+| <img src="/channel-icons/zulip.svg" alt="" width="16" height="16" /> Zulip | `zulip` | Event queue | stream + topic 工作流 | `email`、`api_key`、`site`、`allow_from`、`group_policy` |
+| <img src="/channel-icons/whatsapp.svg" alt="" width="16" height="16" /> WhatsApp | `whatsapp` | Bridge WebSocket | 通过桥接运行时接 WhatsApp | bridge URL/token、`allow_from` |
+| <img src="/channel-icons/email.svg" alt="" width="16" height="16" /> Email | `email` | IMAP poll + SMTP send | 异步邮件答疑 / helpdesk | IMAP host/user/password、SMTP host/user/password、`allow_from` |
+| <img src="/channel-icons/mochat.svg" alt="" width="16" height="16" /> Mochat | `mochat` | Socket.IO 或 HTTP polling | 客服式聊天面板 | `base_url` / socket URL、`claw_token`、`allow_from` |
+| <img src="/channel-icons/msteams.svg" alt="" width="16" height="16" /> Microsoft Teams | `msteams` | 内置 HTTP webhook listener | Teams DM-first Bot Framework 集成 | `app_id`、`app_password`、`tenant_id`、host/port/path |
+
+## 安装依赖
+
+除 Matrix 外，所有内置 channel 都包含在 Partners extra 里：
+
+```bash
+pip install -e ".[partners]"
+# 或发布包支持 extras 时：
+pip install "deeptutor[partners]"
+```
+
+这一条命令会装齐全部 channel SDK——`python-telegram-bot`、`slack-sdk`、`lark-oapi`、`dingtalk-stream`、`qq-botpy`、`wecom-aibot-sdk`、`python-socketio` 等（完整清单见 `requirements/partners.txt`）。Email 只用 Python 标准库，不需要额外的包。Matrix 单独成 extra，因为加密房间依赖原生 `libolm` 库：普通房间装 `".[matrix]"`，E2EE 加密房间装 `".[matrix-e2e]"`。
+
+如果服务器上缺某个 channel 的依赖，Channels 面板会把该 channel 置灰，并显示 import 错误（例如 `No module named 'lark_oapi'`）。装上缺的包、重启 DeepTutor，卡片就能编辑了。
 
 ## 共享投递开关
 
@@ -69,6 +85,19 @@ Docker 或生产部署要持久化整个 `data/partners/`。丢失 runtime state
 
 ## 详细页面
 
-- [WeChat](/zh-cn/docs/partners/weixin/) —— 个人微信扫码登录和 long-poll 配置
-- [WeCom](/zh-cn/docs/partners/wecom/) —— 企业微信 AI Bot 配置
-- [QQ / NapCat](/zh-cn/docs/partners/qq/) —— 官方 QQ bot 和个人 QQ bridge 两条路径
+每个内置 channel 都有专属配置页：平台侧申请步骤、对着截图逐字段讲解 channel card、配完后的验证流程和故障排查：
+
+- <img src="/channel-icons/weixin.svg" alt="" width="16" height="16" /> [WeChat](/zh-cn/docs/partners/weixin/) —— 个人微信扫码登录和 long-poll 配置
+- <img src="/channel-icons/wecom.svg" alt="" width="16" height="16" /> [WeCom](/zh-cn/docs/partners/wecom/) —— 企业微信 AI Bot 配置
+- <img src="/channel-icons/qq.svg" alt="" width="16" height="16" /> [QQ / NapCat](/zh-cn/docs/partners/qq/) —— 官方 QQ bot 和个人 QQ bridge 两条路径
+- <img src="/channel-icons/telegram.svg" alt="" width="16" height="16" /> [Telegram](/zh-cn/docs/partners/telegram/) —— BotFather 注册、Bot API 轮询、流式回复
+- <img src="/channel-icons/discord.svg" alt="" width="16" height="16" /> [Discord](/zh-cn/docs/partners/discord/) —— Developer Portal 应用、intents、Gateway WebSocket
+- <img src="/channel-icons/slack.svg" alt="" width="16" height="16" /> [Slack](/zh-cn/docs/partners/slack/) —— Socket Mode 应用（bot + app 双 token）
+- <img src="/channel-icons/feishu.svg" alt="" width="16" height="16" /> [Feishu / Lark](/zh-cn/docs/partners/feishu/) —— 开放平台应用和 CardKit 流式卡片
+- <img src="/channel-icons/dingtalk.svg" alt="" width="16" height="16" /> [DingTalk](/zh-cn/docs/partners/dingtalk/) —— Stream Mode 企业机器人
+- <img src="/channel-icons/matrix.svg" alt="" width="16" height="16" /> [Matrix](/zh-cn/docs/partners/matrix/) —— homeserver 凭证和可选 E2EE
+- <img src="/channel-icons/zulip.svg" alt="" width="16" height="16" /> [Zulip](/zh-cn/docs/partners/zulip/) —— bot 账号和 stream 订阅
+- <img src="/channel-icons/whatsapp.svg" alt="" width="16" height="16" /> [WhatsApp](/zh-cn/docs/partners/whatsapp/) —— bridge 运行时配置
+- <img src="/channel-icons/email.svg" alt="" width="16" height="16" /> [Email](/zh-cn/docs/partners/email/) —— IMAP 收件轮询和 SMTP 回信
+- <img src="/channel-icons/mochat.svg" alt="" width="16" height="16" /> [Mochat](/zh-cn/docs/partners/mochat/) —— Socket.IO 客服面板
+- <img src="/channel-icons/msteams.svg" alt="" width="16" height="16" /> [Microsoft Teams](/zh-cn/docs/partners/msteams/) —— Bot Framework webhook 监听

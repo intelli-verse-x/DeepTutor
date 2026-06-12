@@ -146,24 +146,20 @@ deeptutor kb create physics --doc chapter1.pdf
 
 ### `401 Unauthorized` on every API call after restart
 
-`AUTH_SECRET` was regenerated, invalidating every JWT.
+`data/system/auth/auth_secret` was lost or regenerated, invalidating every JWT.
 
-Fix: pin `AUTH_SECRET` in `.env` so it persists across restarts:
-
-```bash
-AUTH_SECRET=$(openssl rand -hex 32)
-```
+Fix: restore `data/system/auth/auth_secret` from backup, or accept the new secret and ask all users to log in again. Project-root `.env` files are not auto-loaded by the runtime.
 
 ### First user wasn't promoted to admin
 
-Edit `multi-user/_system/auth/users.json`, set `"role": "admin"` for the user, restart.
+Edit `data/system/auth/users.json`, set `"role": "admin"` for the user, restart.
 
 ### Login works but redirects back to `/login`
 
 The auth cookie isn't being set, usually because:
 
-1. `AUTH_COOKIE_SECURE=true` but you're not on HTTPS — set it `false` for local testing
-2. `auth.json: cookie_secure=false` on a cross-site HTTPS deployment — set it `true` and restart so the cookie uses `SameSite=None; Secure`
+1. `auth.json: cookie_secure=false` on a cross-site HTTPS deployment — set it `true` and restart so the cookie uses `SameSite=None; Secure`
+2. `auth.json: cookie_secure=true` during local HTTP testing — set it `false`
 3. The browser blocks third-party cookies and you're on a subdomain — serve frontend and API from the same hostname (e.g., both at `deeptutor.example.com`, frontend on `/`, API proxied at `/api/`)
 
 ## Docker
@@ -254,47 +250,50 @@ Open the browser dev tools (⌥⌘I) and check the Console tab. Common causes:
 
 Same as above — usually backend isn't running or CORS / API base URL mismatch. Check the Network tab to see what URL the request goes to.
 
-## TutorBot
+## Partners & channels
 
-### Bot says "missing SDK" on start
+### Partner channel grayed out in the Channels panel / "missing SDK"
 
-The gateway-specific SDK wasn't installed. The error message tells you which one. Install:
+When a channel's SDK can't be imported, the Partners **Channels** panel disables that channel and shows the import error (e.g. `No module named 'lark_oapi'`); starting the partner from the CLI reports the same error. Install the missing dependency set, then restart DeepTutor:
 
 ```bash
-# Generic
-pip install -e ".[partners]"
-
-# Or one specific (rarely needed)
-pip install python-telegram-bot   # Telegram
-pip install slack-sdk              # Slack
-pip install zulip                  # Zulip
-pip install matrix-nio             # Matrix (no E2EE)
+pip install -e ".[partners]"           # all built-in channel SDKs (source install)
+pip install -U "deeptutor[partners]"   # same, for the PyPI install
+pip install -e ".[matrix]"             # Matrix channel; ".[matrix-e2e]" for encrypted rooms (needs libolm)
 ```
 
-### Bot connects but doesn't respond
+If you are using the CLI-only package from `packaging/deeptutor-cli` (it defines no extras), install the requirements mirror from the source checkout instead:
 
-Check `allow_from` in the bot's channel config:
+```bash
+python -m pip install -r requirements/partners.txt
+```
+
+The channel comes back once the package is installed and the server restarted.
+
+### Partner connects but doesn't respond
+
+Check `allow_from` in the channel card:
 
 ```yaml
-telegram:
+weixin:
   enabled: true
-  token: "..."
   allow_from:               # empty = deny everyone
     - "*"                    # allow all
-    # - "12345678"           # or specific Telegram user IDs
+    # - "sender-id"          # or specific user/chat ids after testing
 ```
 
 By default `allow_from: []` denies everyone — you have to explicitly opt users in.
 
-### Bot disconnects after a few minutes
+### Channel disconnects after a few minutes
 
 Long-poll / WebSocket connections drop occasionally. The channel manager auto-reconnects with backoff, but if you see frequent drops:
 
 - Check network stability between the host and the gateway provider
-- For Telegram polling, increase `timeout` to 60 seconds
-- For Matrix, verify the homeserver isn't aggressively timing out
+- For WeChat, confirm `state_dir` is writable and persisted
+- For Teams/webhook-style channels, confirm the public callback URL reaches the configured host/port/path
+- For Matrix, verify the homeserver is not aggressively timing out
 
-See [**Explore TutorBot**](/docs/tutorbot/) for per-gateway debugging.
+See [**Partners & Channels**](/docs/partners/) and the [**Channel Matrix**](/docs/partners/channels/) for channel-specific debugging.
 
 ## Memory / RAG accuracy
 

@@ -47,7 +47,7 @@ def _make_capability() -> MasteryPathCapability:
     cap._store._root = None
     cap._service = LearningService(cap._store)
     cap._scheduler = None
-    cap._call_llm = AsyncMock(return_value=None)
+    cap._call_llm = AsyncMock(return_value=None)  # type: ignore[method-assign]
     return cap
 
 
@@ -86,7 +86,7 @@ async def test_error_diagnosis_llm_skip_advances_to_review_and_marks_unavailable
     is flagged unavailable, its prior error_type is preserved, and the stage
     advances to REVIEW rather than wedging on the flaky model."""
     cap = _make_capability()
-    cap._call_llm = AsyncMock(return_value=None)
+    cap._call_llm = AsyncMock(return_value=None)  # type: ignore[method-assign]
     progress = _make_progress()
     stream = FakeStream()
 
@@ -192,7 +192,7 @@ async def test_error_diagnosis_ignores_invalid_error_type():
 async def test_error_diagnosis_diagnoses_retrying_records():
     """``retrying`` records are active for diagnosis just like ``active`` ones."""
     cap = _make_capability()
-    cap._call_llm = AsyncMock(return_value=None)
+    cap._call_llm = AsyncMock(return_value=None)  # type: ignore[method-assign]
     retrying = ErrorRecord(
         id="er2",
         question_id="q2",

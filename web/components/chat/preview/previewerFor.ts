@@ -49,12 +49,7 @@ const DOCX_EXTS = new Set([".docx", ".docm"]);
 const XLSX_EXTS = new Set([".xlsx", ".xlsm"]);
 // Office binaries with no reliable browser renderer (PowerPoint, and the
 // legacy pre-OOXML formats) — fall back to the extractor's plain text.
-const OFFICE_BINARY_EXTS = new Set([
-  ".pptx",
-  ".ppt",
-  ".doc",
-  ".xls",
-]);
+const OFFICE_BINARY_EXTS = new Set([".pptx", ".ppt", ".doc", ".xls"]);
 const MARKDOWN_EXTS = new Set([".md", ".markdown", ".rst", ".asciidoc"]);
 const PLAIN_TEXT_EXTS = new Set([
   ".txt",
@@ -105,8 +100,7 @@ export function previewKindFor(source: FilePreviewSource): PreviewKind {
     return "docx";
   if (
     XLSX_EXTS.has(ext) ||
-    mime ===
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   )
     return "xlsx";
   if (OFFICE_BINARY_EXTS.has(ext)) return "office-text";

@@ -60,7 +60,7 @@ deeptutor config show
 | `deeptutor kb`（知识库） | ✅ *（init 时选择启用）* | ✅ |
 | `deeptutor notebook` | ✅ | ✅ |
 | `deeptutor memory` | ✅ | ✅ |
-| `deeptutor bot`（TutorBot） | ✅ *（装了 `[tutorbot]` extra 时）* | ✅ |
+| `deeptutor partner`（Partners） | ✅ *（补装 channel SDK 后，见下文）* | ✅ |
 | `deeptutor config show` | ✅ | ✅ |
 | `deeptutor provider login` | ✅ | ✅ |
 | `deeptutor serve`（FastAPI） | ❌ | ✅ |
@@ -70,6 +70,16 @@ deeptutor config show
 | Book Engine UI | ❌ | ✅ |
 
 后续要加 Web 应用，装 PyPI 包（选项 1），然后在同一工作区跑 `deeptutor init` + `deeptutor start`。
+
+## 补装 Partner channel SDK
+
+仅 CLI 安装也可以运行 `deeptutor partner`，但 channel SDK 不会默认安装。本地的 `deeptutor-cli` 项目没有定义任何 extras —— 请改用仓库里的 requirements 镜像文件来装 SDK 全集（源码 checkout 本来就在手边）：
+
+```bash
+python -m pip install -r requirements/partners.txt
+```
+
+它覆盖全部内置 channel SDK（wecom-aibot-sdk、qq-botpy、slack-sdk、lark-oapi、python-telegram-bot、dingtalk-stream 等）。Matrix 渠道单独打包：`pip install -r requirements/matrix.txt`，加密房间再装 `requirements/matrix-e2e.txt`（需要系统级 `libolm` 库）。这不会安装 Web UI；Partner 配置仍写入当前工作区的 `data/partners/<id>/` 和 `data/user/settings/`。
 
 ## 让另一个 agent 来调用
 
@@ -99,12 +109,12 @@ python -m deeptutor_cli.main chat
 
 `deeptutor serve` 在仅 CLI 安装里**不可用**。请用 [**PyPI**](/zh-cn/docs/get-started/pypi/) 或 [**从源码安装**](/zh-cn/docs/get-started/from-source/)。
 
-### TutorBot 命令提示 SDK 缺失
+### Partner 渠道命令提示 SDK 缺失
 
-Channel SDKs（python-telegram-bot、slack-sdk 等）只在 `[tutorbot]` extra 里：
+Channel SDKs（wecom-aibot-sdk、qq-botpy、slack-sdk、lark-oapi 等）随 requirements 镜像文件分发，不在仅 CLI 包里：
 
 ```bash
-pip install -e "./packaging/deeptutor-cli[tutorbot]"
+python -m pip install -r requirements/partners.txt
 ```
 
 更多：[**故障排查**](/zh-cn/docs/get-started/troubleshooting/)。
@@ -113,4 +123,4 @@ pip install -e "./packaging/deeptutor-cli[tutorbot]"
 
 - [**DeepTutor CLI**](/zh-cn/docs/cli/) —— 完整 CLI 参考
 - [**Agent handoff**](/zh-cn/docs/cli/agent-handoff/) —— 让你的 agent 来驱动
-- [**探索 TutorBot**](/zh-cn/docs/tutorbot/) —— 从 CLI 跑一个 bot
+- [**Partners 伙伴与渠道**](/zh-cn/docs/partners/) —— 从 CLI 跑一个 Partner

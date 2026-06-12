@@ -2,11 +2,7 @@ import { apiFetch, apiUrl } from "@/lib/api";
 
 export type McpTransport = "stdio" | "sse" | "streamableHttp";
 
-export type McpServerStatus =
-  | "connecting"
-  | "connected"
-  | "error"
-  | "disabled";
+export type McpServerStatus = "connecting" | "connected" | "error" | "disabled";
 
 export interface McpServerConfig {
   type: McpTransport | null;
@@ -124,13 +120,16 @@ function normalizeServerConfig(raw: unknown): McpServerConfig {
         ? type
         : null,
     command: String(item.command ?? base.command),
-    args: Array.isArray(item.args) ? item.args.map((a) => String(a)) : base.args,
+    args: Array.isArray(item.args)
+      ? item.args.map((a) => String(a))
+      : base.args,
     env: normalizeStringMap(item.env),
     cwd: String(item.cwd ?? base.cwd),
     url: String(item.url ?? base.url),
     headers: normalizeStringMap(item.headers),
     tool_timeout:
-      typeof item.tool_timeout === "number" && Number.isFinite(item.tool_timeout)
+      typeof item.tool_timeout === "number" &&
+      Number.isFinite(item.tool_timeout)
         ? item.tool_timeout
         : base.tool_timeout,
     enabled_tools: Array.isArray(item.enabled_tools)

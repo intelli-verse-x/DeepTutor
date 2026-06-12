@@ -20,7 +20,7 @@ from deeptutor.partners.bus.events import OutboundMessage
 from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.channels.base import BaseChannel
 from deeptutor.partners.config.paths import get_media_dir
-from deeptutor.partners.config.schema import Base, DeliveryOverrides
+from deeptutor.partners.config.schema import DeliveryOverrides
 from deeptutor.partners.helpers import split_message
 
 _UPLOAD_LINK_RE = re.compile(

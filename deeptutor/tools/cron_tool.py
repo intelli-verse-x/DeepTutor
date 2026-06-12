@@ -70,9 +70,7 @@ def _build_schedule(kwargs: dict[str, Any]) -> CronSchedule:
         return CronSchedule(kind="at", at_ms=_parse_at(at_raw))
     if every_raw is not None:
         return CronSchedule(kind="every", every_seconds=int(every_raw))
-    return CronSchedule(
-        kind="cron", expr=expr, tz=str(kwargs.get("tz") or "").strip() or None
-    )
+    return CronSchedule(kind="cron", expr=expr, tz=str(kwargs.get("tz") or "").strip() or None)
 
 
 def run_cron_action(kwargs: dict[str, Any]) -> CronActionOutcome:
@@ -95,9 +93,7 @@ def run_cron_action(kwargs: dict[str, Any]) -> CronActionOutcome:
         if not jobs:
             return CronActionOutcome(ok=True, text="No scheduled tasks for this conversation.")
         lines = [f"{len(jobs)} scheduled task(s):"] + [_render_job(job) for job in jobs]
-        return CronActionOutcome(
-            ok=True, text="\n".join(lines), meta={"count": len(jobs)}
-        )
+        return CronActionOutcome(ok=True, text="\n".join(lines), meta={"count": len(jobs)})
 
     if action == "cancel":
         job_id = str(kwargs.get("job_id") or "").strip()
@@ -105,9 +101,7 @@ def run_cron_action(kwargs: dict[str, Any]) -> CronActionOutcome:
             return CronActionOutcome(ok=False, text="cancel needs a job_id (see action='list').")
         if service.cancel_job(job_id, owner_key=owner.key):
             return CronActionOutcome(ok=True, text=f"Task `{job_id}` cancelled.")
-        return CronActionOutcome(
-            ok=False, text=f"No task `{job_id}` found for this conversation."
-        )
+        return CronActionOutcome(ok=False, text=f"No task `{job_id}` found for this conversation.")
 
     if action == "schedule":
         if bool(kwargs.get("_cron_in_context")):
@@ -128,9 +122,7 @@ def run_cron_action(kwargs: dict[str, Any]) -> CronActionOutcome:
                 message=message,
                 schedule=schedule,
                 owner=owner,
-                delete_after_run=(
-                    bool(delete_after_run) if delete_after_run is not None else None
-                ),
+                delete_after_run=(bool(delete_after_run) if delete_after_run is not None else None),
             )
         except (ValueError, TypeError) as exc:
             return CronActionOutcome(ok=False, text=f"Could not schedule: {exc}")

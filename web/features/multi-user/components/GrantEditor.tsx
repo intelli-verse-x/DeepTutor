@@ -438,7 +438,9 @@ export function GrantEditor({ userId }: { userId: string }) {
                       description={tool.description}
                       checked={grant.enabled_tools!.includes(tool.name)}
                       disabled={controlsDisabled}
-                      onToggle={() => toggleToolName("enabled_tools", tool.name)}
+                      onToggle={() =>
+                        toggleToolName("enabled_tools", tool.name)
+                      }
                     />
                   ))}
                 </div>
@@ -499,7 +501,8 @@ export function GrantEditor({ userId }: { userId: string }) {
                   onToggle={() =>
                     setGrant((current) => ({
                       ...current,
-                      exec_enabled: current.exec_enabled === false ? null : false,
+                      exec_enabled:
+                        current.exec_enabled === false ? null : false,
                     }))
                   }
                 />

@@ -35,11 +35,7 @@ export default function PersonaSelector({
   const { t } = useTranslation();
   const [openState, setOpenState] = useState(false);
   const open = openProp ?? openState;
-  const {
-    expanded,
-    linger,
-    triggerProps: lingerProps,
-  } = useLingerExpand(open);
+  const { expanded, linger, triggerProps: lingerProps } = useLingerExpand(open);
   const setOpen = (next: boolean) => {
     setOpenState(next);
     onOpenChange?.(next);
@@ -115,7 +111,8 @@ export default function PersonaSelector({
   };
 
   const showDefaultRow =
-    !query.trim() || defaultLabel.toLowerCase().includes(query.trim().toLowerCase());
+    !query.trim() ||
+    defaultLabel.toLowerCase().includes(query.trim().toLowerCase());
 
   return (
     <div ref={rootRef} className="relative">

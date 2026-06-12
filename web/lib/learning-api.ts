@@ -5,7 +5,12 @@ export interface ModuleInit {
   name: string;
   order: number;
   pass_threshold?: number;
-  knowledge_points: { id: string; name: string; type: string; module_id: string }[];
+  knowledge_points: {
+    id: string;
+    name: string;
+    type: string;
+    module_id: string;
+  }[];
 }
 
 export interface LearningKnowledgePoint {
@@ -38,11 +43,14 @@ export async function fetchProgress(bookId: string): Promise<ProgressDetail> {
 }
 
 export async function initModules(bookId: string, modules: ModuleInit[]) {
-  const res = await apiFetch(apiUrl(`/api/v1/learning/progress/${bookId}/init-modules`), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ modules }),
-  });
+  const res = await apiFetch(
+    apiUrl(`/api/v1/learning/progress/${bookId}/init-modules`),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ modules }),
+    },
+  );
   if (!res.ok) throw new Error(`Failed to init modules: ${res.status}`);
   return res.json();
 }
@@ -69,23 +77,37 @@ export async function fetchAllProgress(): Promise<ProgressListResult> {
 }
 
 export async function deleteProgress(bookId: string) {
-  const res = await apiFetch(apiUrl(`/api/v1/learning/progress/${encodeURIComponent(bookId)}`), { method: "DELETE" });
+  const res = await apiFetch(
+    apiUrl(`/api/v1/learning/progress/${encodeURIComponent(bookId)}`),
+    { method: "DELETE" },
+  );
   if (!res.ok) throw new Error(`Failed to delete progress: ${res.status}`);
   return res.json();
 }
 
 export async function redoProgress(bookId: string) {
-  const res = await apiFetch(apiUrl(`/api/v1/learning/progress/${encodeURIComponent(bookId)}/redo`), { method: "POST" });
+  const res = await apiFetch(
+    apiUrl(`/api/v1/learning/progress/${encodeURIComponent(bookId)}/redo`),
+    { method: "POST" },
+  );
   if (!res.ok) throw new Error(`Failed to redo progress: ${res.status}`);
   return res.json();
 }
 
-export async function importFromBook(bookId: string, chapters: { title: string; knowledge_points: string[] }[]) {
-  const res = await apiFetch(apiUrl(`/api/v1/learning/progress/${encodeURIComponent(bookId)}/import-from-book`), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chapters }),
-  });
+export async function importFromBook(
+  bookId: string,
+  chapters: { title: string; knowledge_points: string[] }[],
+) {
+  const res = await apiFetch(
+    apiUrl(
+      `/api/v1/learning/progress/${encodeURIComponent(bookId)}/import-from-book`,
+    ),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chapters }),
+    },
+  );
   if (!res.ok) throw new Error(`Failed to import from book: ${res.status}`);
   return res.json();
 }
@@ -95,11 +117,17 @@ export async function generateModulesFromNotebook(
   notebookId: string,
   records: { id: string; type: string; title: string; output: string }[],
 ): Promise<{ modules: ModuleInit[] }> {
-  const res = await apiFetch(apiUrl(`/api/v1/learning/progress/${encodeURIComponent(bookId)}/generate-from-notebook`), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ notebook_id: notebookId, records }),
-  });
-  if (!res.ok) throw new Error(`Failed to generate modules from notebook: ${res.status}`);
+  const res = await apiFetch(
+    apiUrl(
+      `/api/v1/learning/progress/${encodeURIComponent(bookId)}/generate-from-notebook`,
+    ),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notebook_id: notebookId, records }),
+    },
+  );
+  if (!res.ok)
+    throw new Error(`Failed to generate modules from notebook: ${res.status}`);
   return res.json();
 }

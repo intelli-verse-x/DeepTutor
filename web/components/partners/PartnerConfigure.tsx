@@ -10,10 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, Save, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import PartnerModelSelect from "@/components/partners/PartnerModelSelect";
-import {
-  listLLMOptions,
-  type LLMOption,
-} from "@/lib/llm-options";
+import { listLLMOptions, type LLMOption } from "@/lib/llm-options";
 import type { LLMSelection } from "@/lib/unified-ws";
 import {
   addPartnerAssets,
@@ -32,6 +29,7 @@ import AssetPicker, {
 } from "@/components/partners/AssetPicker";
 import ToolPicker from "@/components/partners/ToolPicker";
 import FaceEditor, { type FaceValue } from "@/components/partners/FaceEditor";
+import SoulEditor from "@/components/partners/SoulEditor";
 
 function Section({
   title,
@@ -48,7 +46,9 @@ function Section({
     <section className="rounded-xl border border-[var(--border)] p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-[13px] font-medium text-[var(--foreground)]">{title}</h3>
+          <h3 className="text-[13px] font-medium text-[var(--foreground)]">
+            {title}
+          </h3>
           {description && (
             <p className="mt-0.5 text-[11.5px] text-[var(--muted-foreground)]">
               {description}
@@ -92,7 +92,9 @@ export default function PartnerConfigure({
 
   // Model
   const [llmOptions, setLLMOptions] = useState<LLMOption[]>([]);
-  const [activeLLMDefault, setActiveLLMDefault] = useState<LLMSelection | null>(null);
+  const [activeLLMDefault, setActiveLLMDefault] = useState<LLMSelection | null>(
+    null,
+  );
   const [llmLoading, setLLMLoading] = useState(true);
   const [llmError, setLLMError] = useState(false);
   const [selection, setSelection] = useState<LLMSelection | null>(
@@ -125,7 +127,9 @@ export default function PartnerConfigure({
         setSoulLoaded(true);
       })
       .catch(() => setSoulLoaded(true));
-    void getPartnerAssets(partnerId).then(setAssets).catch(() => {});
+    void getPartnerAssets(partnerId)
+      .then(setAssets)
+      .catch(() => {});
     void (async () => {
       try {
         const payload = await listLLMOptions();
@@ -308,7 +312,9 @@ export default function PartnerConfigure({
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
-            <label className="mb-1 block text-[12px] font-medium">{t("Name")}</label>
+            <label className="mb-1 block text-[12px] font-medium">
+              {t("Name")}
+            </label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -340,7 +346,9 @@ export default function PartnerConfigure({
             />
           </div>
           <div className="sm:col-span-2 mt-1">
-            <span className="mb-2 block text-[12px] font-medium">{t("Face")}</span>
+            <span className="mb-2 block text-[12px] font-medium">
+              {t("Face")}
+            </span>
             <FaceEditor name={name} value={face} onChange={setFace} />
           </div>
         </div>
@@ -348,7 +356,9 @@ export default function PartnerConfigure({
 
       <Section
         title={t("Soul")}
-        description={t("The partner's persona — injected into every conversation.")}
+        description={t(
+          "The partner's persona — injected into every conversation.",
+        )}
         action={
           <button
             type="button"
@@ -365,17 +375,14 @@ export default function PartnerConfigure({
           </button>
         }
       >
-        <textarea
-          value={soul}
-          onChange={(e) => setSoul(e.target.value)}
-          rows={10}
-          className="w-full rounded-xl border border-[var(--border)] bg-transparent px-3.5 py-3 font-mono text-[12.5px] leading-relaxed outline-none focus:border-[var(--ring)]"
-        />
+        <SoulEditor value={soul} onChange={setSoul} heightClass="h-[280px]" />
       </Section>
 
       <Section
         title={t("Model")}
-        description={t("The primary model answers every turn; if it fails outright, the turn is retried once on the backup.")}
+        description={t(
+          "The primary model answers every turn; if it fails outright, the turn is retried once on the backup.",
+        )}
       >
         <div className="max-w-md space-y-3">
           <div>
@@ -440,7 +447,9 @@ export default function PartnerConfigure({
 
       <Section
         title={t("Library")}
-        description={t("Knowledge bases, skills, and notebooks copied into this partner's workspace.")}
+        description={t(
+          "Knowledge bases, skills, and notebooks copied into this partner's workspace.",
+        )}
         action={
           <button
             type="button"
@@ -462,7 +471,8 @@ export default function PartnerConfigure({
               value={pendingAssets}
               onChange={setPendingAssets}
               excluded={{
-                knowledge_bases: assets?.knowledge_bases.map((kb) => kb.name) ?? [],
+                knowledge_bases:
+                  assets?.knowledge_bases.map((kb) => kb.name) ?? [],
                 skills: assets?.skills.map((skill) => skill.name) ?? [],
                 notebooks: assets?.notebooks.map((nb) => nb.id) ?? [],
               }}
@@ -486,7 +496,9 @@ export default function PartnerConfigure({
 
         {assetRows.length === 0 ? (
           <p className="text-[12.5px] text-[var(--muted-foreground)]">
-            {t("Nothing assigned yet — this partner only knows what you tell it.")}
+            {t(
+              "Nothing assigned yet — this partner only knows what you tell it.",
+            )}
           </p>
         ) : (
           <ul className="divide-y divide-[var(--border)]">

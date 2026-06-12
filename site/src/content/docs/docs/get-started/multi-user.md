@@ -25,6 +25,9 @@ deeptutor start
 #    bases, and skills. Save. The user can now sign in and start working.
 ```
 
+
+![Multi-user admin interface](/screenshots/multi-user.png)
+
 ## What the admin sees
 
 - **Full Settings page** at `/settings` — manage LLM / embedding / search providers, API keys, model catalogs, and runtime "Apply".
@@ -93,7 +96,7 @@ Deployments upgraded from the pre-v1.5 layout (a sibling `multi-user/` directory
 
 ## Caddyfile example
 
-```caddyfile
+```text
 deeptutor.example.com {
     reverse_proxy /api/* localhost:8001
     reverse_proxy localhost:3782

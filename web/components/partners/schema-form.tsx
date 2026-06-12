@@ -6,6 +6,7 @@
  * Pydantic JSON schema served by `GET /api/v1/partners/channels/schema`.
  */
 
+import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 
 export type JsonSchema = {
@@ -76,6 +77,70 @@ function FieldLabel({
         <span className="ml-1 font-normal opacity-70">— {description}</span>
       )}
     </label>
+  );
+}
+
+/** Free-form dict field (object without fixed properties) → JSON textarea. */
+function JsonObjectField({
+  label,
+  description,
+  value,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  value: unknown;
+  onChange: (next: unknown) => void;
+}) {
+  const [draft, setDraft] = useState(() => {
+    const obj =
+      value && typeof value === "object"
+        ? (value as Record<string, unknown>)
+        : {};
+    return Object.keys(obj).length ? JSON.stringify(obj, null, 2) : "";
+  });
+  const [invalid, setInvalid] = useState(false);
+  return (
+    <div>
+      <FieldLabel
+        label={label}
+        description={description ?? 'JSON object, e.g. {"key": "value"}'}
+      />
+      <textarea
+        value={draft}
+        onChange={(e) => {
+          const text = e.target.value;
+          setDraft(text);
+          if (!text.trim()) {
+            setInvalid(false);
+            onChange({});
+            return;
+          }
+          try {
+            const parsed: unknown = JSON.parse(text);
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              !Array.isArray(parsed)
+            ) {
+              setInvalid(false);
+              onChange(parsed);
+            } else {
+              setInvalid(true);
+            }
+          } catch {
+            setInvalid(true);
+          }
+        }}
+        rows={4}
+        className="w-full rounded-lg border border-[var(--border)] bg-transparent px-3 py-2 font-mono text-[13px] outline-none focus:border-[var(--ring)]"
+      />
+      {invalid && (
+        <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+          Invalid JSON — value not applied.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -203,6 +268,18 @@ export function SchemaField({
           />
         ))}
       </fieldset>
+    );
+  }
+
+  // Free-form dict (additionalProperties only) → JSON textarea.
+  if (v.type === "object") {
+    return (
+      <JsonObjectField
+        label={label}
+        description={description}
+        value={value}
+        onChange={onChange}
+      />
     );
   }
 

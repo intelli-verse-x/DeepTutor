@@ -25,15 +25,25 @@ After `deeptutor start`, open the frontend URL printed in the terminal — by de
 
 > Skipping `deeptutor init` is fine for a quick trial; the app boots with default ports and empty model settings. Configure them later in **Settings → LLM**.
 
-## Trying the v1.4.0 beta
+## Trying pre-releases
 
-PyPI normalizes `1.4.0-beta` → `1.4.0b0`, so plain `pip install -U deeptutor` stays on stable. To opt in:
+Plain `pip install -U deeptutor` stays on stable — PyPI skips pre-release versions (e.g. `1.X.0b0` betas) unless you opt in:
 
 ```bash
 pip install --pre -U deeptutor
-# or pin exactly:
-pip install -U deeptutor==1.4.0b0
+# or pin an exact version:
+pip install -U "deeptutor==<version>"
 ```
+
+## Optional extras
+
+The PyPI wheel already ships the full Web app + CLI. Add-ons install as extras — e.g. all built-in Partner channel SDKs (WeCom, QQ, Slack, Feishu, Telegram, DingTalk, …):
+
+```bash
+pip install -U "deeptutor[partners]"
+```
+
+The full extras table (`matrix`, `matrix-e2e`, `math-animator`, `dev`, `all`) is in [**Install from Source**](/docs/get-started/from-source/#optional-install-extras) — the same extra names work against the PyPI package.
 
 ## Where things live
 

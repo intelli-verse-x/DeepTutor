@@ -10,6 +10,8 @@ entry points (HTTP / SSE / WebSocket).
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 from typing import Any, AsyncGenerator, Literal
@@ -20,6 +22,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from deeptutor.core.i18n import t
+from deeptutor.partners.config.paths import get_partner_media_dir
+from deeptutor.partners.helpers import safe_filename
 from deeptutor.services.partners import get_partner_manager, slugify_partner_id
 from deeptutor.services.partners.manager import (
     LEGACY_GLOBAL_DELIVERY_KEYS,
@@ -138,12 +142,21 @@ class AssetAddRequest(AssetSpec):
     pass
 
 
+class ChatAttachmentRequest(BaseModel):
+    type: str = "file"
+    url: str = ""
+    base64: str = ""
+    filename: str = ""
+    mime_type: str = ""
+
+
 class ChatMessageRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    content: str = Field(..., min_length=1)
+    content: str = ""
     session_id: str | None = None
     chat_id: str | None = None
+    attachments: list[ChatAttachmentRequest] = Field(default_factory=list)
     llm_selection: dict[str, str] | None = Field(default=None, alias="llmSelection")
 
 
@@ -201,9 +214,7 @@ def _validate_avatar_payload(value: str | None) -> str:
     if not avatar:
         return ""
     if not avatar.startswith("data:image/"):
-        raise HTTPException(
-            status_code=422, detail="Avatar must be a data:image/* URL"
-        )
+        raise HTTPException(status_code=422, detail="Avatar must be a data:image/* URL")
     if len(avatar) > _AVATAR_MAX_CHARS:
         raise HTTPException(
             status_code=422,
@@ -330,11 +341,21 @@ async def soul_sources():
     from deeptutor.multi_user.paths import get_admin_path_service
     from deeptutor.services.persona import PersonaService, get_persona_service
 
+    def _persona_entry(service: PersonaService, info: Any) -> dict[str, str]:
+        # Content rides along so the wizard can preview the clone; creation
+        # still re-resolves the persona server-side (_resolve_soul_content).
+        try:
+            content = strip_frontmatter(service.get_detail(info.name).content)
+        except Exception:
+            content = ""
+        return {"name": info.name, "description": info.description, "content": content}
+
     personas: list[dict[str, str]] = []
     seen: set[str] = set()
     try:
-        for info in get_persona_service().list_personas():
-            personas.append({"name": info.name, "description": info.description})
+        service = get_persona_service()
+        for info in service.list_personas():
+            personas.append(_persona_entry(service, info))
             seen.add(info.name)
     except Exception:
         logger.warning("Failed to list user personas", exc_info=True)
@@ -345,7 +366,7 @@ async def soul_sources():
             )
             for info in admin_service.list_personas():
                 if info.name not in seen:
-                    personas.append({"name": info.name, "description": info.description})
+                    personas.append(_persona_entry(admin_service, info))
     except Exception:
         logger.warning("Failed to list admin personas", exc_info=True)
 
@@ -703,13 +724,73 @@ def _resolve_http_session(payload: ChatMessageRequest) -> tuple[str, str]:
     return session_id, session_id
 
 
+_PARTNER_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+_PARTNER_UPLOAD_MAX_TOTAL_BYTES = 25 * 1024 * 1024
+
+
+def _clean_attachment_base64(value: str) -> str:
+    text = str(value or "").strip()
+    if text.startswith("data:") and "," in text:
+        return text.split(",", 1)[1]
+    return text
+
+
+def _default_attachment_prompt(attachments: list[ChatAttachmentRequest]) -> str:
+    if attachments and all(str(item.type).lower() == "image" for item in attachments):
+        return t("Please analyze the attached image(s).")
+    return t("Please use the attached file(s).")
+
+
+def _materialize_partner_attachments(
+    partner_id: str,
+    attachments: list[ChatAttachmentRequest],
+) -> list[str]:
+    """Persist browser-sent attachment bytes into the partner media tree."""
+    if not attachments:
+        return []
+
+    media_dir = get_partner_media_dir(partner_id, "web")
+    total_bytes = 0
+    media_paths: list[str] = []
+    for item in attachments:
+        raw_b64 = _clean_attachment_base64(item.base64)
+        if not raw_b64:
+            # Partner web chat accepts uploaded bytes only. URL-only
+            # attachments are ignored rather than fetched server-side.
+            continue
+        try:
+            data = base64.b64decode(raw_b64, validate=False)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid attachment data for {item.filename or 'file'}",
+            ) from exc
+        if len(data) > _PARTNER_UPLOAD_MAX_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Attachment too large: {item.filename or 'file'}",
+            )
+        if total_bytes + len(data) > _PARTNER_UPLOAD_MAX_TOTAL_BYTES:
+            raise HTTPException(status_code=413, detail="Attachment batch too large")
+        total_bytes += len(data)
+
+        filename = safe_filename(item.filename or "attachment") or "attachment"
+        path = media_dir / f"{uuid4().hex[:12]}_{filename}"
+        path.write_bytes(data)
+        media_paths.append(str(path))
+    return media_paths
+
+
 @router.post("/{partner_id}/chat")
 async def partner_chat_http(partner_id: str, payload: ChatMessageRequest) -> dict[str, Any]:
     """Send one HTTP message to a partner with persistent session context."""
     content = payload.content.strip()
-    if not content:
+    if not content and not payload.attachments:
         raise HTTPException(status_code=400, detail=t("api.content_required"))
     await _ensure_running_partner(partner_id)
+    media_paths = _materialize_partner_attachments(partner_id, payload.attachments)
+    if not content and media_paths:
+        content = _default_attachment_prompt(payload.attachments)
     mgr = get_partner_manager()
     session_id, chat_id = _resolve_http_session(payload)
     try:
@@ -718,6 +799,7 @@ async def partner_chat_http(partner_id: str, payload: ChatMessageRequest) -> dic
             content,
             chat_id=chat_id,
             session_id=session_id,
+            media=media_paths,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -736,9 +818,12 @@ async def _partner_chat_stream(
 
     mgr = get_partner_manager()
     content = payload.content.strip()
-    if not content:
+    if not content and not payload.attachments:
         yield _sse("error", {"detail": t("api.content_required")})
         return
+    media_paths = _materialize_partner_attachments(partner_id, payload.attachments)
+    if not content and media_paths:
+        content = _default_attachment_prompt(payload.attachments)
     session_id, chat_id = _resolve_http_session(payload)
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     done = asyncio.Event()
@@ -755,6 +840,7 @@ async def _partner_chat_stream(
                 content,
                 chat_id=chat_id,
                 session_id=session_id,
+                media=media_paths,
                 on_event=on_event,
             )
         except Exception as exc:  # noqa: BLE001
@@ -787,7 +873,7 @@ async def _partner_chat_stream(
 @router.post("/{partner_id}/chat/execute-stream")
 async def partner_chat_http_stream(partner_id: str, payload: ChatMessageRequest):
     """Stream one HTTP message to a partner as server-sent events."""
-    if not payload.content.strip():
+    if not payload.content.strip() and not payload.attachments:
         raise HTTPException(status_code=400, detail=t("api.content_required"))
     await _ensure_running_partner(partner_id)
     return StreamingResponse(
@@ -801,7 +887,8 @@ async def partner_chat_http_stream(partner_id: str, payload: ChatMessageRequest)
 async def partner_chat_ws(ws: WebSocket, partner_id: str):
     """Web chat socket.
 
-    Client → server: ``{"content": str, "session_id"?: str, "chat_id"?: str}``.
+    Client → server: ``{"content": str, "session_id"?: str, "chat_id"?: str,
+    "attachments"?: [{"type", "filename", "mime_type", "base64"}]}``.
     Server → client frames:
 
     * ``{"type": "stream_event", "event": {...}}`` — every chat-loop
@@ -868,8 +955,27 @@ async def partner_chat_ws(ws: WebSocket, partner_id: str):
                 continue
 
             content = data.get("content", "").strip()
-            if not content:
+            try:
+                attachments = [
+                    ChatAttachmentRequest.model_validate(item)
+                    for item in (data.get("attachments") or [])
+                    if isinstance(item, dict)
+                ]
+            except ValidationError:
+                if not await _safe_send({"type": "error", "content": "Invalid attachments"}):
+                    break
                 continue
+
+            if not content and not attachments:
+                continue
+            try:
+                media_paths = _materialize_partner_attachments(partner_id, attachments)
+            except HTTPException as exc:
+                if not await _safe_send({"type": "error", "content": str(exc.detail)}):
+                    break
+                continue
+            if not content and media_paths:
+                content = _default_attachment_prompt(attachments)
 
             async def on_event(event: Any) -> None:
                 # Best-effort: never raise into the runner. A vanished
@@ -886,6 +992,7 @@ async def partner_chat_ws(ws: WebSocket, partner_id: str):
                     content,
                     chat_id=data.get("chat_id", "web"),
                     session_id=data.get("session_id"),
+                    media=media_paths,
                     on_event=on_event,
                 )
                 if not await _safe_send({"type": "content", "content": response}):

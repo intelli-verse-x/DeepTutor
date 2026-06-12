@@ -603,108 +603,108 @@ export default function SkillsSection() {
                   ? t("Preset")
                   : null;
             return (
-            <li
-              key={skill.name}
-              role="button"
-              tabIndex={0}
-              onClick={() => void openView(skill)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  void openView(skill);
-                }
-              }}
-              title={t("View skill")}
-              className="group relative flex cursor-pointer flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm transition-all hover:border-[var(--foreground)]/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/40"
-            >
-              <div className="mb-2 flex items-start justify-between gap-2">
-                <div className="flex items-start gap-2.5">
-                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[var(--border)]/60 bg-[var(--background)] text-[var(--muted-foreground)]">
-                    <Wand2 size={13} strokeWidth={1.6} />
-                  </span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate text-[14px] font-semibold tracking-tight text-[var(--foreground)]">
-                        {skill.name}
-                      </span>
-                      {sourceBadge ? (
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
-                          {readOnly ? <Lock size={9} /> : null}
-                          {sourceBadge}
+              <li
+                key={skill.name}
+                role="button"
+                tabIndex={0}
+                onClick={() => void openView(skill)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    void openView(skill);
+                  }
+                }}
+                title={t("View skill")}
+                className="group relative flex cursor-pointer flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm transition-all hover:border-[var(--foreground)]/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/40"
+              >
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2.5">
+                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[var(--border)]/60 bg-[var(--background)] text-[var(--muted-foreground)]">
+                      <Wand2 size={13} strokeWidth={1.6} />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-[14px] font-semibold tracking-tight text-[var(--foreground)]">
+                          {skill.name}
                         </span>
-                      ) : null}
-                    </div>
-                    {skill.description ? (
-                      <p className="mt-0.5 line-clamp-2 text-[12px] leading-relaxed text-[var(--muted-foreground)]">
-                        {skill.description}
-                      </p>
-                    ) : (
-                      <p className="mt-0.5 text-[12px] italic text-[var(--muted-foreground)]/60">
-                        {t("No description.")}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {readOnly ? (
-                  <span className="shrink-0 text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100">
-                    <Eye size={13} />
-                  </span>
-                ) : (
-                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void openEdit(skill.name);
-                      }}
-                      className="rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
-                      title={t("Edit")}
-                    >
-                      <Pencil size={13} />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void handleDelete(skill.name);
-                      }}
-                      disabled={deleting === skill.name}
-                      className="rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/30"
-                      title={t("Delete")}
-                    >
-                      {deleting === skill.name ? (
-                        <Loader2 size={13} className="animate-spin" />
+                        {sourceBadge ? (
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                            {readOnly ? <Lock size={9} /> : null}
+                            {sourceBadge}
+                          </span>
+                        ) : null}
+                      </div>
+                      {skill.description ? (
+                        <p className="mt-0.5 line-clamp-2 text-[12px] leading-relaxed text-[var(--muted-foreground)]">
+                          {skill.description}
+                        </p>
                       ) : (
-                        <Trash2 size={13} />
+                        <p className="mt-0.5 text-[12px] italic text-[var(--muted-foreground)]/60">
+                          {t("No description.")}
+                        </p>
                       )}
-                    </button>
+                    </div>
+                  </div>
+                  {readOnly ? (
+                    <span className="shrink-0 text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100">
+                      <Eye size={13} />
+                    </span>
+                  ) : (
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void openEdit(skill.name);
+                        }}
+                        className="rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                        title={t("Edit")}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleDelete(skill.name);
+                        }}
+                        disabled={deleting === skill.name}
+                        className="rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/30"
+                        title={t("Delete")}
+                      >
+                        {deleting === skill.name ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={13} />
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {skill.tags && skill.tags.length > 0 ? (
+                  <div className="mt-auto flex flex-wrap gap-1 pt-2">
+                    {skill.tags.map((tag) => (
+                      <button
+                        key={tag}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFilterTag(tag);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-full border border-[var(--border)]/60 bg-[var(--muted)]/40 px-2 py-0.5 text-[10.5px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)]/30 hover:text-[var(--foreground)]"
+                      >
+                        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--foreground)]/40" />
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-auto pt-2">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--border)] px-2 py-0.5 text-[10.5px] text-[var(--muted-foreground)]/70">
+                      <TagIcon size={10} />
+                      {t("Untagged")}
+                    </span>
                   </div>
                 )}
-              </div>
-
-              {skill.tags && skill.tags.length > 0 ? (
-                <div className="mt-auto flex flex-wrap gap-1 pt-2">
-                  {skill.tags.map((tag) => (
-                    <button
-                      key={tag}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFilterTag(tag);
-                      }}
-                      className="inline-flex items-center gap-1 rounded-full border border-[var(--border)]/60 bg-[var(--muted)]/40 px-2 py-0.5 text-[10.5px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)]/30 hover:text-[var(--foreground)]"
-                    >
-                      <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--foreground)]/40" />
-                      {tag}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-auto pt-2">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--border)] px-2 py-0.5 text-[10.5px] text-[var(--muted-foreground)]/70">
-                    <TagIcon size={10} />
-                    {t("Untagged")}
-                  </span>
-                </div>
-              )}
-            </li>
+              </li>
             );
           })}
         </ul>
@@ -724,7 +724,10 @@ export default function SkillsSection() {
           >
             <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-3">
               <div className="flex min-w-0 items-center gap-2">
-                <Wand2 size={14} className="shrink-0 text-[var(--muted-foreground)]" />
+                <Wand2
+                  size={14}
+                  className="shrink-0 text-[var(--muted-foreground)]"
+                />
                 <h3 className="truncate text-[14px] font-semibold text-[var(--foreground)]">
                   {viewer.name}
                 </h3>

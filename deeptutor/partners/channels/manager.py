@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from contextlib import suppress
+import hashlib
 from typing import Any
 
 from deeptutor.partners.bus.events import OutboundMessage
@@ -153,7 +153,9 @@ class ChannelManager:
     @staticmethod
     def _fingerprint_content(content: str) -> str:
         normalized = " ".join(content.split())
-        return hashlib.sha1(normalized.encode("utf-8")).hexdigest() if normalized else ""
+        if not normalized:
+            return ""
+        return hashlib.sha1(normalized.encode("utf-8"), usedforsecurity=False).hexdigest()
 
     def _should_suppress_outbound(self, msg: OutboundMessage) -> bool:
         """Suppress an exact-duplicate reply to the same source message.

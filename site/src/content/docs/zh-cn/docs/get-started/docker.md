@@ -20,7 +20,7 @@ docker run --rm --name deeptutor \
 
 > ⚠️ **`3782` 和 `8001` 都要映射。** 端口 `3782` 提供 Web UI；端口 `8001` 是 FastAPI 后端，浏览器会直接调它 —— 容器里没有 in-container proxy。漏掉 `8001` 的映射，页面依然能加载，但 **设置** 会显示 "Backend unreachable" 然后没法用。
 
-打开 <http://127.0.0.1:3782>。容器首次启动时会创建 `/app/data/user/settings/*.json`；从 Web 的设置页面里配置模型 provider。配置、API key、日志、工作区文件、记忆、知识库全部持久化在 `deeptutor-data` volume 里。
+打开 <http://127.0.0.1:3782>。容器首次启动时会创建 `/app/data/user/settings/*.json`；从 Web 的设置页面里配置模型 provider。配置、API key、日志、工作区文件、记忆、知识库、Partner 工作区（`data/partners/<id>/`）全部持久化在 `deeptutor-data` volume 里。
 
 ## 后台模式
 
@@ -38,6 +38,33 @@ docker rm deeptutor           # 删除（volume 仍保留）
 ```
 
 `deeptutor-data` volume 会在 `stop` / `rm` 之间保留设置和工作区。如果真要从头来：`docker volume rm deeptutor-data`。
+
+## 远程 Docker / 反向代理
+
+Web UI 运行在用户浏览器里，不是在容器内部。如果用户通过远程 hostname 打开 DeepTutor，浏览器需要一个自己能访问到的后端 URL。
+
+远程服务器上，打开 **设置 -> Network**，或编辑挂载 volume 里的 `data/user/settings/system.json`：
+
+```json
+{
+  "next_public_api_base_external": "https://deeptutor.example.com"
+}
+```
+
+`public_api_base` 仍作为兼容别名接受，保存时会归一化到 `next_public_api_base_external`。同一台机器本地 Docker 访问时可以留空。
+
+CORS 是另一件事：
+
+- `next_public_api_base_external` 告诉浏览器把 API 和 WebSocket 请求发到哪里。
+- `cors_origins` 列出哪些前端页面 origin 可以调用后端。
+- 未开启 auth 时，DeepTutor 默认允许正常 HTTP/HTTPS 浏览器 origin。
+- 开启 auth 后，建议设置精确前端 origin，例如 `https://deeptutor.example.com`。
+
+```json
+{
+  "cors_origins": ["https://deeptutor.example.com"]
+}
+```
 
 ## 改宿主机端口
 
@@ -131,7 +158,7 @@ docker run ... ghcr.io/hkuds/deeptutor:latest    # 用干净的 catalog 重启
 
 ### 前端能加载但 API 调用 404（远程 / 在反向代理后）
 
-显式设置外部 API base。在 volume 里的 `data/user/settings/system.json`，把 `public_api_base` 设成对外可达的 URL。重启。
+显式设置外部 API base。在 volume 里的 `data/user/settings/system.json`，把 `next_public_api_base_external` 设成对外可达的 URL 后重启。`public_api_base` 仍作为兼容别名接受。
 
 ### Docker 里的多用户模式
 

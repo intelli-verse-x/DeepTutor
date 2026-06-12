@@ -316,23 +316,23 @@ deeptutor memory clear chat                # 仅 chat surface 的 L1 轨迹
 curl -X POST http://localhost:8001/api/v1/memory/runs/start
 ```
 
-## `deeptutor bot` —— TutorBot 生命周期
+## `deeptutor partner` —— Partner 生命周期
 
 ```bash
-deeptutor bot list
+deeptutor partner list
 
-deeptutor bot create my-bot \
+deeptutor partner create math-tutor \
   --name "Math Mentor" \
-  --persona "Socratic tutor specializing in algebra and calculus" \
+  --soul "Socratic tutor specializing in algebra and calculus" \
   --model gpt-4o
 
-# `create` 会立即启动 bot。如果之前停过，再 start 即可。
-deeptutor bot stop my-bot
+deeptutor partner stop math-tutor
+deeptutor partner start math-tutor
 ```
 
-子命令：`list`、`create`、`start`、`stop`。`create` 会一步写好 bot 配置并启动它。删除一个 bot 就在它停止时删掉它的工作区目录 `data/tutorbot/<bot_id>/`。
+子命令：`list`、`create`、`start`、`stop`。`create` 会写入 partner config，并尝试启动该 partner。Web UI 是配置 channel schema、assets、tools 和 secrets 的推荐入口；CLI 适合列表、创建、启动和停止。
 
-各通道配置（Telegram、Slack 等）放在 bot 的 YAML 里，位于 `data/tutorbot/<bot_id>/`。各通道接入说明见 [**Explore TutorBot**](/zh-cn/docs/tutorbot/)。
+Partner 运行在 `data/partners/<partner_id>/workspace/` 作用域里。渠道接入说明见 [**Partners 伙伴与渠道**](/zh-cn/docs/partners/)。
 
 ## `deeptutor config show`
 

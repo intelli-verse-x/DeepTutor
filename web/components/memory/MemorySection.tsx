@@ -147,7 +147,7 @@ const SURFACE_META: Record<Surface, SurfaceMeta> = {
   quiz: { icon: ClipboardList, label: "题库" },
   kb: { icon: BookOpen, label: "Knowledge base" },
   book: { icon: Library, label: "Book" },
-  tutorbot: { icon: Bot, label: "TutorBot" },
+  tutorbot: { icon: Bot, label: "Partner" },
   cowriter: { icon: PenLine, label: "Co-writer" },
 };
 

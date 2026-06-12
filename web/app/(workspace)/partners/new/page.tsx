@@ -10,15 +10,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  Loader2,
-  Sparkles,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { listLLMOptions, sameLLMSelection, type LLMOption } from "@/lib/llm-options";
+import {
+  listLLMOptions,
+  sameLLMSelection,
+  type LLMOption,
+} from "@/lib/llm-options";
 import type { LLMSelection } from "@/lib/unified-ws";
 import {
   createPartner,
@@ -55,11 +53,17 @@ export default function NewPartnerPage() {
   // ── form state ────────────────────────────────────────────────
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [face, setFace] = useState<FaceValue>({ emoji: "", color: "", avatar: "" });
+  const [face, setFace] = useState<FaceValue>({
+    emoji: "",
+    color: "",
+    avatar: "",
+  });
   const [language, setLanguage] = useState("");
   const [soul, setSoul] = useState<SoulSpec>({ source: "default" });
   const [selection, setSelection] = useState<LLMSelection | null>(null);
-  const [backupSelection, setBackupSelection] = useState<LLMSelection | null>(null);
+  const [backupSelection, setBackupSelection] = useState<LLMSelection | null>(
+    null,
+  );
   const [assets, setAssets] = useState<AssetSelection>({
     knowledge_bases: [],
     skills: [],
@@ -67,7 +71,9 @@ export default function NewPartnerPage() {
   });
 
   const [llmOptions, setLLMOptions] = useState<LLMOption[]>([]);
-  const [activeLLMDefault, setActiveLLMDefault] = useState<LLMSelection | null>(null);
+  const [activeLLMDefault, setActiveLLMDefault] = useState<LLMSelection | null>(
+    null,
+  );
   const [llmLoading, setLLMLoading] = useState(true);
   const [llmError, setLLMError] = useState(false);
 
@@ -167,7 +173,9 @@ export default function NewPartnerPage() {
     () =>
       (candidate: LLMSelection | null, noneText: string): string => {
         if (!candidate) return noneText;
-        const option = llmOptions.find((opt) => sameLLMSelection(opt, candidate));
+        const option = llmOptions.find((opt) =>
+          sameLLMSelection(opt, candidate),
+        );
         return option ? option.model_name || option.model : candidate.model_id;
       },
     [llmOptions],
@@ -176,7 +184,9 @@ export default function NewPartnerPage() {
   const backupSummary = describeSelection(backupSelection, t("No backup"));
 
   const assetCount =
-    assets.knowledge_bases.length + assets.skills.length + assets.notebooks.length;
+    assets.knowledge_bases.length +
+    assets.skills.length +
+    assets.notebooks.length;
 
   const stepTitle: Record<StepKey, { title: string; subtitle: string }> = {
     identity: {
@@ -185,7 +195,9 @@ export default function NewPartnerPage() {
     },
     soul: {
       title: t("Give it a soul"),
-      subtitle: t("Who this partner is. Start from a template, clone a chat persona, or write it yourself."),
+      subtitle: t(
+        "Who this partner is. Start from a template, clone a chat persona, or write it yourself.",
+      ),
     },
     mind: {
       title: t("Shape its mind"),
@@ -193,10 +205,14 @@ export default function NewPartnerPage() {
     },
     library: {
       title: t("Hand over some knowledge"),
-      subtitle: t("Give it a slice of your knowledge — copied into the partner's own workspace."),
+      subtitle: t(
+        "Give it a slice of your knowledge — copied into the partner's own workspace.",
+      ),
     },
     review: {
-      title: t("Ready to meet {{name}}?", { name: name.trim() || t("your partner") }),
+      title: t("Ready to meet {{name}}?", {
+        name: name.trim() || t("your partner"),
+      }),
       subtitle: t("Almost there — check the essentials before creating."),
     },
   };
@@ -207,9 +223,9 @@ export default function NewPartnerPage() {
       <div className="flex items-center justify-between px-6 pt-5">
         <Link
           href="/partners"
-          className="inline-flex items-center gap-1.5 text-[12px] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+          className="inline-flex items-center gap-1.5 text-[13px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
+          <ArrowLeft className="h-4 w-4" />
           {t("Partners")}
         </Link>
         <ol className="flex items-center gap-1.5">
@@ -222,7 +238,15 @@ export default function NewPartnerPage() {
                   : "border-[var(--border)] text-[var(--muted-foreground)]";
             return (
               <li key={key} className="flex items-center gap-1.5">
-                {index > 0 && <span className="h-px w-5 bg-[var(--border)]" />}
+                {index > 0 && (
+                  <span
+                    className={`h-px w-5 transition-colors ${
+                      index <= stepIndex
+                        ? "bg-[var(--primary)]/40"
+                        : "bg-[var(--border)]"
+                    }`}
+                  />
+                )}
                 <button
                   type="button"
                   disabled={index > stepIndex}
@@ -231,15 +255,19 @@ export default function NewPartnerPage() {
                   aria-label={label}
                 >
                   <span
-                    className={`flex h-5 w-5 items-center justify-center rounded-full border text-[10.5px] font-semibold transition-colors ${stateClass}`}
+                    className={`flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-semibold transition-all duration-200 group-enabled:group-hover:scale-105 ${stateClass}`}
                   >
-                    {index < stepIndex ? <Check className="h-3 w-3" strokeWidth={3} /> : index + 1}
+                    {index < stepIndex ? (
+                      <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                    ) : (
+                      index + 1
+                    )}
                   </span>
                   <span
-                    className={`hidden text-[11.5px] sm:block ${
+                    className={`hidden text-[12.5px] transition-colors sm:block ${
                       index === stepIndex
                         ? "font-medium text-[var(--foreground)]"
-                        : "text-[var(--muted-foreground)]"
+                        : "text-[var(--muted-foreground)] group-enabled:group-hover:text-[var(--foreground)]"
                     }`}
                   >
                     {label}
@@ -254,8 +282,11 @@ export default function NewPartnerPage() {
 
       {/* Step body */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div key={step} className="mx-auto w-full max-w-xl px-6 pb-8 pt-10 animate-fade-in">
-          <header className="mb-6 flex items-start gap-4">
+        <div
+          key={step}
+          className="mx-auto w-full max-w-2xl px-6 pb-8 pt-10 animate-fade-in"
+        >
+          <header className="mb-7 flex items-start gap-4">
             {step === "identity" || step === "review" ? (
               <PartnerAvatar
                 name={name || "?"}
@@ -266,19 +297,21 @@ export default function NewPartnerPage() {
               />
             ) : null}
             <div>
-              <h1 className="text-[20px] font-semibold tracking-tight text-[var(--foreground)]">
+              <h1 className="text-[22px] font-semibold tracking-tight text-[var(--foreground)]">
                 {stepTitle[step].title}
               </h1>
-              <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--muted-foreground)]">
+              <p className="mt-1 text-[13.5px] leading-relaxed text-[var(--muted-foreground)]">
                 {stepTitle[step].subtitle}
               </p>
             </div>
           </header>
 
           {step === "identity" && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div>
-                <label className="mb-1 block text-[12px] font-medium">{t("Name")}</label>
+                <label className="mb-1.5 block text-[13px] font-medium">
+                  {t("Name")}
+                </label>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -287,32 +320,34 @@ export default function NewPartnerPage() {
                   }}
                   placeholder={t("e.g. Ada")}
                   autoFocus
-                  className="w-full rounded-xl border border-[var(--border)] bg-transparent px-3.5 py-2.5 text-[14px] outline-none focus:border-[var(--ring)]"
+                  className="w-full rounded-xl border border-[var(--border)] bg-transparent px-3.5 py-2.5 text-[14px] outline-none transition-colors focus:border-[var(--ring)]"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-[12px] font-medium">
+                <label className="mb-1.5 block text-[13px] font-medium">
                   {t("Description")}
                 </label>
                 <input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={t("What is this partner for?")}
-                  className="w-full rounded-xl border border-[var(--border)] bg-transparent px-3.5 py-2.5 text-[13px] outline-none focus:border-[var(--ring)]"
+                  className="w-full rounded-xl border border-[var(--border)] bg-transparent px-3.5 py-2.5 text-[14px] outline-none transition-colors focus:border-[var(--ring)]"
                 />
               </div>
               <div>
-                <label className="mb-2 block text-[12px] font-medium">{t("Face")}</label>
+                <label className="mb-2 block text-[13px] font-medium">
+                  {t("Face")}
+                </label>
                 <FaceEditor name={name} value={face} onChange={setFace} />
               </div>
               <div>
-                <label className="mb-1 block text-[12px] font-medium">
+                <label className="mb-1.5 block text-[13px] font-medium">
                   {t("Reply language")}
                 </label>
                 <select
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
-                  className="w-48 rounded-xl border border-[var(--border)] bg-transparent px-3 py-2 text-[13px] outline-none focus:border-[var(--ring)]"
+                  className="w-48 rounded-xl border border-[var(--border)] bg-transparent px-3 py-2 text-[14px] outline-none transition-colors focus:border-[var(--ring)]"
                 >
                   <option value="">{t("Auto (English)")}</option>
                   <option value="en">English</option>
@@ -327,7 +362,7 @@ export default function NewPartnerPage() {
           {step === "mind" && (
             <div className="space-y-6">
               <div>
-                <h3 className="mb-2 text-[12px] font-medium text-[var(--muted-foreground)]">
+                <h3 className="mb-2 text-[13px] font-medium text-[var(--muted-foreground)]">
                   {t("Primary model")}
                 </h3>
                 <PartnerModelPicker
@@ -340,7 +375,7 @@ export default function NewPartnerPage() {
                 />
               </div>
               <div>
-                <h3 className="mb-2 text-[12px] font-medium text-[var(--muted-foreground)]">
+                <h3 className="mb-2 text-[13px] font-medium text-[var(--muted-foreground)]">
                   {t("Backup model")}
                 </h3>
                 <PartnerModelSelect
@@ -371,7 +406,11 @@ export default function NewPartnerPage() {
           )}
 
           {step === "library" && (
-            <AssetPicker value={assets} onChange={setAssets} preselectAllSkills />
+            <AssetPicker
+              value={assets}
+              onChange={setAssets}
+              preselectAllSkills
+            />
           )}
 
           {step === "review" && (
@@ -386,31 +425,42 @@ export default function NewPartnerPage() {
                   [
                     t("Tools"),
                     `${enabledTools.length} ${t("System tools")}${
-                      mcpTools.length ? ` · ${mcpTools.length} ${t("MCP tools")}` : ""
+                      mcpTools.length
+                        ? ` · ${mcpTools.length} ${t("MCP tools")}`
+                        : ""
                     }`,
                   ],
                   [
                     t("Library"),
                     assetCount > 0
-                      ? t("{{count}} items will be copied", { count: assetCount })
-                      : t("Nothing assigned yet — this partner only knows what you tell it."),
+                      ? t("{{count}} items will be copied", {
+                          count: assetCount,
+                        })
+                      : t(
+                          "Nothing assigned yet — this partner only knows what you tell it.",
+                        ),
                   ],
                 ].map(([label, valueText]) => (
-                  <div key={label} className="flex items-baseline gap-4 px-4 py-2.5">
-                    <dt className="w-20 shrink-0 text-[12px] text-[var(--muted-foreground)]">
+                  <div
+                    key={label}
+                    className="flex items-baseline gap-4 px-4 py-3"
+                  >
+                    <dt className="w-24 shrink-0 text-[12.5px] text-[var(--muted-foreground)]">
                       {label}
                     </dt>
-                    <dd className="min-w-0 truncate text-[13px] text-[var(--foreground)]">
+                    <dd className="min-w-0 truncate text-[13.5px] text-[var(--foreground)]">
                       {valueText}
                     </dd>
                   </div>
                 ))}
               </dl>
-              <p className="text-[11.5px] text-[var(--muted-foreground)]">
-                {t("You can connect Feishu, Telegram, Slack and more right after creating.")}
+              <p className="text-[12.5px] text-[var(--muted-foreground)]">
+                {t(
+                  "You can connect Feishu, Telegram, Slack and more right after creating.",
+                )}
               </p>
               {error && (
-                <p className="rounded-lg border border-[var(--destructive)] bg-[var(--secondary)] px-3 py-2 text-[12.5px] text-[var(--destructive)]">
+                <p className="rounded-lg border border-[var(--destructive)] bg-[var(--secondary)] px-3 py-2 text-[13px] text-[var(--destructive)]">
                   {error}
                 </p>
               )}
@@ -421,14 +471,14 @@ export default function NewPartnerPage() {
 
       {/* Footer actions */}
       <div className="border-t border-[var(--border)] px-6 py-3.5">
-        <div className="mx-auto flex w-full max-w-xl items-center justify-between">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between">
           <button
             type="button"
             onClick={goBack}
             disabled={stepIndex === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] disabled:invisible"
+            className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[13.5px] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:invisible"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
+            <ArrowLeft className="h-4 w-4" />
             {t("Back")}
           </button>
           {step === "review" ? (
@@ -436,7 +486,7 @@ export default function NewPartnerPage() {
               type="button"
               onClick={() => void submit()}
               disabled={creating || !name.trim()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-[13px] font-medium text-[var(--primary-foreground)] disabled:opacity-40"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--primary)] px-5 py-2.5 text-[13.5px] font-medium text-[var(--primary-foreground)] shadow-sm transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:opacity-40"
             >
               {creating ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -450,10 +500,10 @@ export default function NewPartnerPage() {
               type="button"
               onClick={goNext}
               disabled={!canContinue}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-4 py-2 text-[13px] font-medium text-[var(--primary-foreground)] disabled:opacity-40"
+              className="inline-flex items-center gap-2 rounded-xl bg-[var(--primary)] px-5 py-2.5 text-[13.5px] font-medium text-[var(--primary-foreground)] shadow-sm transition-all duration-150 hover:opacity-90 active:scale-[0.98] disabled:opacity-40"
             >
               {t("Continue")}
-              <ArrowRight className="h-3.5 w-3.5" />
+              <ArrowRight className="h-4 w-4" />
             </button>
           )}
         </div>

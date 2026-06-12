@@ -422,7 +422,10 @@ export default function BookLibrary({
                     {onLearn && book.status === "ready" && (
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); onLearn(book); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onLearn(book);
+                        }}
                         className="mt-2 inline-flex items-center gap-1 rounded-md bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
                       >
                         <GraduationCap size={13} />

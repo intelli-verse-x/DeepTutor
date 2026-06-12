@@ -1,14 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ChevronDown,
-  Loader2,
-  Pencil,
-  Plug,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { ChevronDown, Loader2, Pencil, Plug, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { SettingsPageHeader } from "@/components/settings/shared";
@@ -80,9 +73,10 @@ function isRemoteTransport(transport: McpTransport | null): boolean {
 export default function McpSettingsPage() {
   const { t } = useTranslation();
 
-  const [servers, setServers] = useState<Record<string, McpServerConfig> | null>(
-    null,
-  );
+  const [servers, setServers] = useState<Record<
+    string,
+    McpServerConfig
+  > | null>(null);
   const [statusRows, setStatusRows] = useState<McpStatusRow[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -114,24 +108,21 @@ export default function McpSettingsPage() {
     return map;
   }, [statusRows]);
 
-  const persist = useCallback(
-    async (next: Record<string, McpServerConfig>) => {
-      setSaving(true);
-      setSaveError(null);
-      try {
-        const status = await updateMcpSettings(next);
-        setServers(next);
-        setStatusRows(status);
-        return true;
-      } catch (err) {
-        setSaveError(err instanceof Error ? err.message : String(err));
-        return false;
-      } finally {
-        setSaving(false);
-      }
-    },
-    [],
-  );
+  const persist = useCallback(async (next: Record<string, McpServerConfig>) => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const status = await updateMcpSettings(next);
+      setServers(next);
+      setStatusRows(status);
+      return true;
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, []);
 
   const handleToggleExpanded = (name: string) => {
     setExpanded((prev) => {
@@ -161,7 +152,7 @@ export default function McpSettingsPage() {
       if (!servers || saving) return;
       if (
         typeof window !== "undefined" &&
-        !window.confirm(t("Delete MCP server \"{{name}}\"?", { name }))
+        !window.confirm(t('Delete MCP server "{{name}}"?', { name }))
       ) {
         return;
       }
@@ -625,9 +616,7 @@ function ServerForm({
             className={selectClass}
             value={type ?? ""}
             onChange={(e) =>
-              setType(
-                (e.target.value || null) as McpServerConfig["type"],
-              )
+              setType((e.target.value || null) as McpServerConfig["type"])
             }
           >
             <option value="">

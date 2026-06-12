@@ -31,8 +31,8 @@ deeptutor run deep_solve "Find the derivative of sin(x²)" --tool reason --forma
 deeptutor kb create physics --doc chapter1.pdf
 deeptutor kb search physics "What is angular momentum?"
 
-# Run a TutorBot
-deeptutor bot create my-bot --persona "Socratic math tutor"
+# Run a Partner
+deeptutor partner create my-bot --persona "Socratic math tutor"
 
 # Inspect three-layer memory
 deeptutor memory show L3
@@ -47,7 +47,7 @@ This means:
 - Core learning flows can be driven from the terminal; browser-only editing and admin screens expose their state through the Web UI / API
 - `deeptutor run --format json` emits one JSON event per line; data-inspection commands such as `kb list`, `kb search`, `session show`, and `notebook show` also expose JSON where implemented
 - Sessions persist across turns — you can switch between Web, REPL, and one-shot `run` calls and resume where you left off
-- The CLI is the best automation entry point for turns, KBs, sessions, notebooks, memory, TutorBots, config inspection, plugins, providers, and Books
+- The CLI is the best automation entry point for turns, KBs, sessions, notebooks, memory, Partners, config inspection, plugins, providers, and Books
 
 ## Top-level command map
 
@@ -62,7 +62,7 @@ This means:
 | `deeptutor session` | Session inspection | `deeptutor session list / show <id>` |
 | `deeptutor notebook` | Notebook records | `deeptutor notebook create / add-md` |
 | `deeptutor memory` | Three-layer memory store | `deeptutor memory show L3` |
-| `deeptutor bot` | TutorBot lifecycle | `deeptutor bot create / start / stop` (`create` starts the bot immediately) |
+| `deeptutor partner` | Partner lifecycle | `deeptutor partner create / start / stop` (`create` writes config and starts it) |
 | `deeptutor config` | View runtime configuration | `deeptutor config show` |
 | `deeptutor plugin` | Capability / tool registry | `deeptutor plugin list` |
 | `deeptutor provider` | Provider auth flows | `deeptutor provider login openai-codex` |
@@ -127,7 +127,7 @@ $ deeptutor --help
 │ session       Session inspection.                                             │
 │ notebook      Notebook records.                                               │
 │ memory        Three-layer memory store.                                       │
-│ bot           TutorBot lifecycle.                                             │
+│ partner       Partner lifecycle.                                             │
 │ config        View runtime configuration.                                     │
 │ plugin        Capability / tool registry.                                     │
 │ provider      Provider auth flows.                                            │
@@ -140,5 +140,5 @@ And every subcommand:
 ```text
 $ deeptutor run --help
 $ deeptutor kb create --help
-$ deeptutor bot start --help
+$ deeptutor partner start --help
 ```

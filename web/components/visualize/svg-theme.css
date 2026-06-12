@@ -201,7 +201,17 @@
 
 /* Apply ramp vars: shapes take fill+stroke, descendant text takes ramp text. */
 .dt-svg-root
-  :is(.c-gray, .c-blue, .c-teal, .c-coral, .c-pink, .c-purple, .c-green, .c-amber, .c-red)
+  :is(
+    .c-gray,
+    .c-blue,
+    .c-teal,
+    .c-coral,
+    .c-pink,
+    .c-purple,
+    .c-green,
+    .c-amber,
+    .c-red
+  )
   > :is(rect, circle, ellipse, polygon),
 .dt-svg-root
   :is(rect, circle, ellipse, polygon):is(
@@ -219,7 +229,17 @@
   stroke: var(--stroke);
 }
 .dt-svg-root
-  :is(.c-gray, .c-blue, .c-teal, .c-coral, .c-pink, .c-purple, .c-green, .c-amber, .c-red)
+  :is(
+    .c-gray,
+    .c-blue,
+    .c-teal,
+    .c-coral,
+    .c-pink,
+    .c-purple,
+    .c-green,
+    .c-amber,
+    .c-red
+  )
   text {
   fill: var(--text);
 }

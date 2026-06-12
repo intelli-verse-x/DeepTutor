@@ -3,7 +3,7 @@ title: Get Started
 description: DeepTutor ships four install paths — PyPI, From Source, Docker, and CLI-Only. Pick the one that fits.
 ---
 
-DeepTutor ships **four installation paths**. They all share one workspace layout: settings live in `data/user/settings/` under the directory you launch from (or under `DEEPTUTOR_HOME` / `deeptutor start --home` if you set one explicitly).
+DeepTutor ships **four installation paths**. They all share one workspace layout: settings live in `data/user/settings/` under the directory you launch from (or under `DEEPTUTOR_HOME` / `deeptutor start --home` if you set one explicitly). Knowledge bases, memory, Partner runtime state, multi-user accounts, and audit logs also live under the same `data/` tree, so deployments only need to persist that tree.
 
 For the full app, the recommended flow is **pick a workspace directory → install → `deeptutor init` → `deeptutor start`**.
 
@@ -16,7 +16,7 @@ For the full app, the recommended flow is **pick a workspace directory → insta
 | **Docker** | Production deployments, hosted hosts, persistent volumes | [**Docker**](/docs/get-started/docker/) |
 | **CLI Only** | Headless server, agent harness, no Web UI needed | [**CLI-Only Install**](/docs/get-started/cli-only/) |
 
-> 🧪 **Trying the v1.4.0 beta?** PyPI normalizes `1.4.0-beta` to `1.4.0b0`, so plain `pip install -U deeptutor` stays on stable. Opt in with `pip install --pre -U deeptutor`, or pin exactly with `pip install -U deeptutor==1.4.0b0`.
+> 🧪 **Trying a pre-release?** Plain `pip install -U deeptutor` stays on stable — PyPI skips pre-release versions. Opt in with `pip install --pre -U deeptutor`, or pin an exact version with `pip install -U "deeptutor==<version>"`.
 
 ## Minimum requirements
 
@@ -44,9 +44,9 @@ Both are overridable via `data/user/settings/system.json` or during `deeptutor i
 
 Once you can reach `http://localhost:3782/`:
 
-- [**Explore DeepTutor**](/docs/explore/) — a tour of the five core surfaces (Chat, Co-Writer, Book, Knowledge, Space) plus Memory and Settings
+- [**Explore DeepTutor**](/docs/explore/) — a tour of the Chat, Partners, Co-Writer, Book, Knowledge, Space, Memory, and Settings
 - [**DeepTutor CLI**](/docs/cli/) — drive everything from the terminal
-- [**Explore TutorBot**](/docs/tutorbot/) — connect autonomous tutors to Telegram, Slack, Feishu, and more
+- [**Partners & Channels**](/docs/partners/) — connect autonomous tutors to WeChat, WeCom, QQ, Telegram, Slack, Feishu, and more
 - [**Multi-User Deployment**](/docs/get-started/multi-user/) — host DeepTutor for a team
 
 If something breaks, jump to [**Troubleshooting**](/docs/get-started/troubleshooting/).

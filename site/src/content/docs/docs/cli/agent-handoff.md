@@ -236,7 +236,7 @@ The shipped [`SKILL.md`](https://github.com/HKUDS/DeepTutor/blob/main/SKILL.md) 
 
 1. **When to Use** — what kinds of user requests should trigger DeepTutor
 2. **Prerequisites** — Python 3.11+, install path, `deeptutor init`
-3. **Commands** — Chat & Capabilities, Knowledge Bases, TutorBot, Memory, Sessions, Notebooks, System
+3. **Commands** — Chat & Capabilities, Knowledge Bases, Partners, Memory, Sessions, Notebooks, System
 4. **REPL Slash Commands** — the commands available inside `deeptutor chat`
 5. **Typical Workflows** — end-to-end recipes an agent can replay
 

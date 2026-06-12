@@ -1,21 +1,21 @@
 ---
 title: Documentation
-description: Agent-native, open-source personalized tutoring — install paths, surfaces, TutorBot gateways, and CLI reference.
+description: Agent-native, open-source personalized tutoring — install paths, product surfaces, Partners channels, and CLI reference.
 ---
 
 Welcome to the DeepTutor documentation. Pick a path below, or use the left sidebar.
 
 ## Where to start
 
-- **[Get Started](/docs/get-started/)** — Four install paths: PyPI, From Source, Docker, CLI-Only.
-- **[Explore DeepTutor](/docs/explore/)** — Tour the five core surfaces (Chat, Co-Writer, Book, Knowledge, Space) plus Memory and Settings.
-- **[Explore TutorBot](/docs/tutorbot/)** — Connect persistent AI tutors to Telegram, Slack, Feishu, Matrix, and more.
-- **[DeepTutor CLI](/docs/cli/)** — Drive every capability from the terminal, or hand it to an AI agent.
+- **[Get Started](/docs/get-started/)** — PyPI, From Source, Docker, and CLI-Only install paths.
+- **[Explore DeepTutor](/docs/explore/)** — Chat, Partners, Co-Writer, Book, Knowledge, Space, Memory, and Settings.
+- **[Partners & Channels](/docs/partners/)** — Connect persistent learning companions to WeChat, WeCom, QQ/NapCat, and other IM channels.
+- **[DeepTutor CLI](/docs/cli/)** — Drive capabilities, KBs, sessions, notebooks, memory, books, and partners from the terminal.
 - **[Providers](/docs/get-started/providers/)** — Set up LLM, embedding, and search providers.
 
 ## What is DeepTutor
 
-An open-source, agent-native learning companion. **Five modes** (Chat, Solve, Quiz, Research, Visualize) share one session, knowledge base, and citation history. **TutorBots** carry your context out to Telegram, Slack, Feishu, and other channels. A **three-layer Memory** with an inspectable workbench and a Memory Graph lets you audit *why* the system knows what it knows.
+DeepTutor is an open-source, agent-native learning companion. A shared runtime powers Chat, deeper capabilities, Partners, Book generation, Co-Writer editing, RAG, and three-layer Memory. Partners carry the same chat agent loop into IM channels while keeping their own soul, library, tools, and workspace.
 
 Built at HKU Data Intelligence Lab. Apache 2.0 license.
 

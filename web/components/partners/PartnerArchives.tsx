@@ -43,7 +43,8 @@ export default function PartnerArchives({
   const [loadingMessages, setLoadingMessages] = useState(false);
 
   const selected = useMemo(
-    () => sessions.find((session) => session.session_key === selectedKey) ?? null,
+    () =>
+      sessions.find((session) => session.session_key === selectedKey) ?? null,
     [sessions, selectedKey],
   );
 
@@ -53,7 +54,10 @@ export default function PartnerArchives({
       const next = await getPartnerSessions(partnerId);
       setSessions(next);
       setSelectedKey((current) => {
-        if (current && next.some((session) => session.session_key === current)) {
+        if (
+          current &&
+          next.some((session) => session.session_key === current)
+        ) {
           return current;
         }
         return next[0]?.session_key ?? "";
@@ -115,7 +119,9 @@ export default function PartnerArchives({
             title={t("Refresh")}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-40"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loadingSessions ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${loadingSessions ? "animate-spin" : ""}`}
+            />
           </button>
         </div>
 
@@ -170,7 +176,9 @@ export default function PartnerArchives({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h3 className="text-[13px] font-medium text-[var(--foreground)]">
-                    {selected.archived ? t("Archived conversation") : t("Current conversation")}
+                    {selected.archived
+                      ? t("Archived conversation")
+                      : t("Current conversation")}
                   </h3>
                   <p className="text-[11.5px] text-[var(--muted-foreground)]">
                     {formatTime(selected.updated_at)}
@@ -189,11 +197,18 @@ export default function PartnerArchives({
                 </p>
               ) : (
                 messages
-                  .filter((message) => message.role === "user" || message.role === "assistant")
+                  .filter(
+                    (message) =>
+                      message.role === "user" || message.role === "assistant",
+                  )
                   .map((message, index) => (
                     <div
                       key={`${message.timestamp ?? index}-${index}`}
-                      className={message.role === "user" ? "flex justify-end" : "flex justify-start"}
+                      className={
+                        message.role === "user"
+                          ? "flex justify-end"
+                          : "flex justify-start"
+                      }
                     >
                       <div
                         className={`max-w-[78%] whitespace-pre-wrap rounded-lg px-3 py-2 text-[13px] leading-relaxed ${

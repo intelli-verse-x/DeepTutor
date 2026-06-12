@@ -25,11 +25,18 @@ function ToggleRow({
 }) {
   return (
     <label className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--muted)]">
-      <input type="checkbox" checked={checked} onChange={onToggle} className="mt-0.5" />
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onToggle}
+        className="mt-0.5"
+      />
       <span className="min-w-0">
-        <span className="block text-[13px] text-[var(--foreground)]">{name}</span>
+        <span className="block text-[13px] text-[var(--foreground)]">
+          {name}
+        </span>
         {description && (
-          <span className="block truncate text-[11px] text-[var(--muted-foreground)]">
+          <span className="block truncate text-[11.5px] text-[var(--muted-foreground)]">
             {description}
           </span>
         )}
@@ -54,12 +61,20 @@ export default function ToolPicker({
   const { t } = useTranslation();
   if (!options) {
     return (
-      <p className="text-[12px] text-[var(--muted-foreground)]">{t("Loading tools…")}</p>
+      <p className="text-[13px] text-[var(--muted-foreground)]">
+        {t("Loading tools…")}
+      </p>
     );
   }
 
-  const toggle = (list: string[], name: string, setter: (next: string[]) => void) => {
-    setter(list.includes(name) ? list.filter((n) => n !== name) : [...list, name]);
+  const toggle = (
+    list: string[],
+    name: string,
+    setter: (next: string[]) => void,
+  ) => {
+    setter(
+      list.includes(name) ? list.filter((n) => n !== name) : [...list, name],
+    );
   };
 
   const mcpByServer = new Map<string, typeof options.mcp_tools>();
@@ -72,14 +87,16 @@ export default function ToolPicker({
     <div className="space-y-4">
       <div>
         <div className="mb-1.5 flex items-baseline justify-between">
-          <h4 className="text-[12px] font-medium text-[var(--muted-foreground)]">
+          <h4 className="text-[13px] font-medium text-[var(--muted-foreground)]">
             {t("System tools")}
           </h4>
-          <div className="flex gap-2 text-[11px]">
+          <div className="flex gap-2 text-[12px]">
             <button
               type="button"
               className="text-[var(--primary)] hover:underline"
-              onClick={() => onChangeEnabledTools(options.tools.map((tl) => tl.name))}
+              onClick={() =>
+                onChangeEnabledTools(options.tools.map((tl) => tl.name))
+              }
             >
               {t("All")}
             </button>
@@ -99,7 +116,9 @@ export default function ToolPicker({
               name={tool.name}
               description={tool.description}
               checked={enabledTools.includes(tool.name)}
-              onToggle={() => toggle(enabledTools, tool.name, onChangeEnabledTools)}
+              onToggle={() =>
+                toggle(enabledTools, tool.name, onChangeEnabledTools)
+              }
             />
           ))}
         </div>
@@ -108,14 +127,16 @@ export default function ToolPicker({
       {options.mcp_tools.length > 0 && (
         <div>
           <div className="mb-1.5 flex items-baseline justify-between">
-            <h4 className="text-[12px] font-medium text-[var(--muted-foreground)]">
+            <h4 className="text-[13px] font-medium text-[var(--muted-foreground)]">
               {t("MCP tools")}
             </h4>
-            <div className="flex gap-2 text-[11px]">
+            <div className="flex gap-2 text-[12px]">
               <button
                 type="button"
                 className="text-[var(--primary)] hover:underline"
-                onClick={() => onChangeMcpTools(options.mcp_tools.map((tl) => tl.name))}
+                onClick={() =>
+                  onChangeMcpTools(options.mcp_tools.map((tl) => tl.name))
+                }
               >
                 {t("All")}
               </button>
@@ -130,7 +151,7 @@ export default function ToolPicker({
           </div>
           {[...mcpByServer.entries()].map(([server, tools]) => (
             <div key={server} className="mb-2">
-              <p className="mb-0.5 px-2 font-mono text-[11px] text-[var(--muted-foreground)]">
+              <p className="mb-0.5 px-2 font-mono text-[11.5px] text-[var(--muted-foreground)]">
                 {server}
               </p>
               <div className="grid grid-cols-1 gap-0.5 sm:grid-cols-2">
@@ -140,7 +161,9 @@ export default function ToolPicker({
                     name={tool.name}
                     description={tool.description}
                     checked={mcpTools.includes(tool.name)}
-                    onToggle={() => toggle(mcpTools, tool.name, onChangeMcpTools)}
+                    onToggle={() =>
+                      toggle(mcpTools, tool.name, onChangeMcpTools)
+                    }
                   />
                 ))}
               </div>

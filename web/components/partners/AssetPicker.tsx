@@ -42,8 +42,8 @@ function ChipGroup({
 }) {
   return (
     <div>
-      <h4 className="mb-1.5 inline-flex items-center gap-1.5 text-[12px] font-medium text-[var(--muted-foreground)]">
-        <Icon className="h-3.5 w-3.5" />
+      <h4 className="mb-1.5 inline-flex items-center gap-1.5 text-[13px] font-medium text-[var(--muted-foreground)]">
+        <Icon className="h-4 w-4" />
         {title}
         {selected.length > 0 && (
           <span className="rounded-full bg-[var(--secondary)] px-1.5 text-[11px] font-medium text-[var(--primary)]">
@@ -52,9 +52,11 @@ function ChipGroup({
         )}
       </h4>
       {options.length === 0 ? (
-        <p className="text-[12px] text-[var(--muted-foreground)]">{emptyText}</p>
+        <p className="text-[13px] text-[var(--muted-foreground)]">
+          {emptyText}
+        </p>
       ) : (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {options.map((option) => {
             const active = selected.includes(option.id);
             return (
@@ -63,7 +65,7 @@ function ChipGroup({
                 type="button"
                 onClick={() => onToggle(option.id)}
                 title={option.hint}
-                className={`rounded-full border px-3 py-1 text-[12px] transition-colors ${
+                className={`rounded-full border px-3.5 py-1.5 text-[13px] transition-all duration-150 active:scale-[0.97] ${
                   active
                     ? "border-[var(--primary)] bg-[var(--secondary)] font-medium text-[var(--primary)]"
                     : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--ring)] hover:text-[var(--foreground)]"
@@ -145,7 +147,7 @@ export default function AssetPicker({
 
   if (loading) {
     return (
-      <p className="text-[12px] text-[var(--muted-foreground)]">
+      <p className="text-[13px] text-[var(--muted-foreground)]">
         {t("Loading your library…")}
       </p>
     );
@@ -163,11 +165,13 @@ export default function AssetPicker({
 
   const visible = (options: Option[], hidden?: string[]) =>
     hidden && hidden.length > 0
-      ? options.filter((o) => !hidden.includes(o.id) && !hidden.includes(o.label))
+      ? options.filter(
+          (o) => !hidden.includes(o.id) && !hidden.includes(o.label),
+        )
       : options;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <ChipGroup
         icon={Database}
         title={t("Knowledge bases")}
@@ -192,7 +196,7 @@ export default function AssetPicker({
         onToggle={(id) => toggle("notebooks", id)}
         emptyText={t("No notebooks available.")}
       />
-      <p className="text-[11px] text-[var(--muted-foreground)]">
+      <p className="text-[12px] text-[var(--muted-foreground)]">
         {t("Selected items are copied into the partner's private workspace.")}
       </p>
     </div>
