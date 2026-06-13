@@ -691,7 +691,7 @@ deeptutor skill install clawhub:git-release-notes@1.0.1
 
 ### 📮 Contact
 
-DeepTutor is an open-source project led by [Bingxi Zhao](https://github.com/pancacake) within the [HKUDS](https://github.com/HKUDS) Group, and it iterates in a fully open-source form, built together with the community. So far, we run no paid online products of any kind. Feel free to reach out at **bingxizhao39@gmail.com** for questions, ideas, or collaboration.
+DeepTutor is an open-source project led by [Bingxi Zhao](https://github.com/pancacake) within the [HKUDS](https://github.com/HKUDS) Group, and it iterates in a fully open-source form, built together with the community. So far, we **do not** have paid online products of any form. Feel free to reach out at **bingxizhao39@gmail.com** for questions, ideas, or collaboration.
 
 ### 🙏 Appreciation
 
