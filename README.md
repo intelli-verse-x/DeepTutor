@@ -171,8 +171,6 @@ DeepTutor is organized around an agent-native runtime: a shared ChatOrchestrator
 
 DeepTutor ships four installation paths. They all share one workspace layout: settings live in `data/user/settings/` under the directory you launch from (or under `DEEPTUTOR_HOME` / `deeptutor start --home` if you set one explicitly). For the full app, the recommended flow is **pick a workspace directory → install → `deeptutor init` → `deeptutor start`**.
 
-> ✨ **v1.4.4 is live.** `pip install -U deeptutor` picks up the latest stable. Pre-releases (when available) opt in with `pip install --pre -U deeptutor`.
-
 <details>
 <summary><b>Option 1 — Install From PyPI</b> · full local Web app + CLI, no clone required</summary>
 
@@ -392,10 +390,8 @@ cost of the office skills no longer being able to produce files.
 
 </details>
 
-### Configuration Reference
-
 <details>
-<summary><b>Config files under <code>data/user/settings/</code></b> — JSON/YAML reference</summary>
+<summary><b>Configuration reference</b> — config files under <code>data/user/settings/</code> (JSON/YAML)</summary>
 
 Everything under `data/user/settings/` is plain JSON/YAML. The **Settings** page in the browser is the recommended editor.
 
