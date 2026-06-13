@@ -29,7 +29,10 @@ import {
   stopPartner,
   type PartnerInfo,
 } from "@/lib/partners-api";
-import { downloadChatMarkdown, type ExportableMessage } from "@/lib/chat-export";
+import {
+  downloadChatMarkdown,
+  type ExportableMessage,
+} from "@/lib/chat-export";
 import PartnerAvatar from "@/components/partners/PartnerAvatar";
 import PartnerChat from "@/components/partners/PartnerChat";
 import PartnerChannels from "@/components/partners/PartnerChannels";

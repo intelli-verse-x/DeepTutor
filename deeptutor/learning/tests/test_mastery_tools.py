@@ -77,7 +77,9 @@ async def test_build_append_keeps_existing(path_id):
     result = await MasteryBuildTool().execute(
         _mastery_path_id=path_id,
         mode="append",
-        modules=[{"name": "Module 2", "knowledge_points": [{"name": "Adders", "type": "procedure"}]}],
+        modules=[
+            {"name": "Module 2", "knowledge_points": [{"name": "Adders", "type": "procedure"}]}
+        ],
     )
     payload = json.loads(result.content)
     assert payload["map"]["counts"]["total"] == 3  # 2 existing + 1 appended

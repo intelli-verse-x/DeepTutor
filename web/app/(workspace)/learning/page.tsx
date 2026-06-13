@@ -90,7 +90,12 @@ export default function MasteryPathPage() {
 
   const handleDelete = useCallback(
     async (pathId: string) => {
-      if (!window.confirm(tr("确定删除这条精通之路？", "Delete this mastery path?"))) return;
+      if (
+        !window.confirm(
+          tr("确定删除这条精通之路？", "Delete this mastery path?"),
+        )
+      )
+        return;
       await deleteProgress(pathId);
       if (selected === pathId) setSelected(null);
       await loadList();
@@ -123,10 +128,15 @@ export default function MasteryPathPage() {
         <header className="px-4 py-3 border-b border-[var(--border)]">
           <div className="flex items-center gap-2 text-[var(--foreground)]">
             <GraduationCap className="w-4 h-4" />
-            <h1 className="text-sm font-semibold">{tr("精通之路", "Mastery Path")}</h1>
+            <h1 className="text-sm font-semibold">
+              {tr("精通之路", "Mastery Path")}
+            </h1>
           </div>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            {tr("掌握式学习：硬门槛 + 间隔复习", "Mastery-based learning: hard gate + spaced review")}
+            {tr(
+              "掌握式学习：硬门槛 + 间隔复习",
+              "Mastery-based learning: hard gate + spaced review",
+            )}
           </p>
         </header>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -152,9 +162,12 @@ export default function MasteryPathPage() {
                     : "hover:bg-[var(--accent)]"
                 }`}
               >
-                <div className="truncate text-sm text-[var(--foreground)]">{path.name}</div>
+                <div className="truncate text-sm text-[var(--foreground)]">
+                  {path.name}
+                </div>
                 <div className="mt-0.5 text-xs text-[var(--muted-foreground)]">
-                  {path.kp_count} {tr("个知识点", "objectives")} · {path.avg_mastery_pct}%
+                  {path.kp_count} {tr("个知识点", "objectives")} ·{" "}
+                  {path.avg_mastery_pct}%
                 </div>
               </button>
             ))
@@ -192,7 +205,9 @@ export default function MasteryPathPage() {
             result={detail}
             zh={!!zh}
             tr={tr}
-            onContinue={() => selected && router.push(`/chat/${encodeURIComponent(selected)}`)}
+            onContinue={() =>
+              selected && router.push(`/chat/${encodeURIComponent(selected)}`)
+            }
             onRedo={() => selected && handleRedo(selected)}
             onDelete={() => selected && handleDelete(selected)}
           />
@@ -208,7 +223,11 @@ const STATUS_META: Record<
 > = {
   mastered: { cn: "已掌握", en: "Mastered", className: "text-green-500" },
   learning: { cn: "学习中", en: "Learning", className: "text-yellow-500" },
-  new: { cn: "未开始", en: "Not started", className: "text-[var(--muted-foreground)]" },
+  new: {
+    cn: "未开始",
+    en: "Not started",
+    className: "text-[var(--muted-foreground)]",
+  },
 };
 
 const ACTION_LABEL: Record<string, { cn: string; en: string }> = {
@@ -216,7 +235,10 @@ const ACTION_LABEL: Record<string, { cn: string; en: string }> = {
   practice: { cn: "练习直到达标", en: "Practice until the gate clears" },
   assess: { cn: "用自己的话解释", en: "Explain it in your own words" },
   review: { cn: "到期复习", en: "Due for review" },
-  answer_pending: { cn: "有待回答的问题", en: "A question is awaiting your answer" },
+  answer_pending: {
+    cn: "有待回答的问题",
+    en: "A question is awaiting your answer",
+  },
   complete: { cn: "已全部掌握 🎉", en: "All mastered 🎉" },
 };
 
@@ -246,7 +268,10 @@ function MapView({
   const pct = map.counts.total
     ? Math.round((map.counts.mastered / map.counts.total) * 100)
     : 0;
-  const action = ACTION_LABEL[next.action] ?? { cn: next.reason, en: next.reason };
+  const action = ACTION_LABEL[next.action] ?? {
+    cn: next.reason,
+    en: next.reason,
+  };
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-5">
@@ -255,7 +280,8 @@ function MapView({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
             <span>
-              {map.counts.mastered}/{map.counts.total} {tr("已掌握", "mastered")}
+              {map.counts.mastered}/{map.counts.total}{" "}
+              {tr("已掌握", "mastered")}
             </span>
             {map.due_reviews > 0 && (
               <span className="text-yellow-600">
@@ -293,7 +319,9 @@ function MapView({
         onClick={onContinue}
         className="mt-4 w-full text-left rounded-lg border border-[var(--border)] hover:border-[var(--primary)]/40 hover:bg-[var(--accent)] p-3 transition-colors cursor-pointer"
       >
-        <div className="text-xs text-[var(--muted-foreground)]">{tr("接下来", "Next")}</div>
+        <div className="text-xs text-[var(--muted-foreground)]">
+          {tr("接下来", "Next")}
+        </div>
         <div className="mt-0.5 text-sm font-medium text-[var(--foreground)]">
           {next.action === "complete"
             ? tr(action.cn, action.en)
@@ -309,7 +337,9 @@ function MapView({
         {map.modules.map((module) => (
           <div key={module.id}>
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-[var(--foreground)]">{module.name}</h3>
+              <h3 className="text-sm font-medium text-[var(--foreground)]">
+                {module.name}
+              </h3>
               <span className="text-xs text-[var(--muted-foreground)]">
                 {module.mastered}/{module.total}
               </span>
@@ -321,11 +351,15 @@ function MapView({
                   className="flex items-center gap-2 px-2 py-1 rounded-md text-sm"
                 >
                   <StatusIcon status={kp.status} />
-                  <span className="flex-1 truncate text-[var(--foreground)]">{kp.name}</span>
+                  <span className="flex-1 truncate text-[var(--foreground)]">
+                    {kp.name}
+                  </span>
                   <span className="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
                     {kp.type}
                   </span>
-                  <span className={`text-xs ${STATUS_META[kp.status].className}`}>
+                  <span
+                    className={`text-xs ${STATUS_META[kp.status].className}`}
+                  >
                     {zh ? STATUS_META[kp.status].cn : STATUS_META[kp.status].en}
                   </span>
                 </div>

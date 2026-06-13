@@ -100,7 +100,9 @@ export interface MasteryMapResult {
   map: MasteryMap;
 }
 
-export async function fetchMasteryMap(pathId: string): Promise<MasteryMapResult> {
+export async function fetchMasteryMap(
+  pathId: string,
+): Promise<MasteryMapResult> {
   const res = await apiFetch(
     apiUrl(`/api/v1/learning/progress/${encodeURIComponent(pathId)}/map`),
   );

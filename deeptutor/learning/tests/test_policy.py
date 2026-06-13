@@ -26,9 +26,7 @@ from deeptutor.learning.models import (
 
 def _progress(*kps: KnowledgePoint) -> LearningProgress:
     progress = LearningProgress(book_id="b1")
-    progress.modules = [
-        LearningModule(id="m1", name="M1", order=0, knowledge_points=list(kps))
-    ]
+    progress.modules = [LearningModule(id="m1", name="M1", order=0, knowledge_points=list(kps))]
     progress.current_module_id = "m1"
     for kp in kps:
         progress.knowledge_types[kp.id] = kp.type
