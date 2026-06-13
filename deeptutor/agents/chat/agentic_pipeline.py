@@ -76,7 +76,7 @@ FIRST on every turn, call `mastery_status`. It returns the next objective to wor
 Then act on the objective:
 - No objectives yet? Design a path from the learner's materials (use `rag` / `read_source` when materials are attached) and call `mastery_build`. Tag each knowledge point: memory (facts), procedure (step-by-step skills), concept (ideas to understand), design (open-ended judgement).
 - `probe` (untouched): briefly check whether the learner already knows it before teaching — let them test out, don't lecture what they have already mastered.
-- memory / procedure objectives: pose a concrete question with `mastery_quiz`, present it (use `ask_user` for a tight ask-and-answer loop), then score the learner's answer with `mastery_grade`. Keep working the same objective until `mastery_grade` reports `mastered: true`.
+- memory / procedure objectives: register the question + its answer with `mastery_quiz`, then ALWAYS present it with the `ask_user` tool so the learner answers on an interactive card — never write the choices as plain numbered text. For multiple choice, give each `ask_user` option a short label (A / B / C …) and set the matching label as `mastery_quiz`'s `expected_answer`; for open questions use `ask_user` free text. When the answer comes back, score it with `mastery_grade`. Keep working the same objective until `mastery_grade` reports `mastered: true`.
 - concept / design objectives: ask the learner to explain the idea in their own words, judge it, and record the result with `mastery_assess` (`passed: true` only when the explanation truly shows understanding).
 - `review`: a spaced-repetition item is due — quiz it again to refresh it.
 - `complete`: congratulate the learner and summarise what they have mastered.
@@ -92,7 +92,7 @@ _MASTERY_SYSTEM_ZH = """\
 然后针对该知识点行动：
 - 还没有任何知识点？根据学习者的材料设计一条路径（材料已挂载时用 `rag` / `read_source`），调用 `mastery_build`。给每个知识点标类型：memory（记忆/事实）、procedure（程序/步骤技能）、concept（概念/需理解）、design（设计/开放判断）。
 - `probe`（未触碰）：先简短探查学习者是否已经会了再教——允许其"测试通过"直接跳过，不要重复讲他已掌握的内容。
-- memory / procedure 类：用 `mastery_quiz` 出一道具体题目并呈现给学习者（紧凑问答用 `ask_user`），再用 `mastery_grade` 批改其作答。在 `mastery_grade` 返回 `mastered: true` 之前，持续打磨同一个知识点。
+- memory / procedure 类：先用 `mastery_quiz` 登记题目与答案，然后**始终用 `ask_user` 工具**把题目呈现成可点选的卡片让学习者作答——绝不要把选项写成纯文字的 1./2./3.。选择题给每个 `ask_user` 选项一个短标签（A / B / C …），并把正确标签设为 `mastery_quiz` 的 `expected_answer`；简答题用 `ask_user` 的自由输入。收到作答后用 `mastery_grade` 批改。在 `mastery_grade` 返回 `mastered: true` 之前，持续打磨同一个知识点。
 - concept / design 类：让学习者用自己的话解释该概念，你来判断，并用 `mastery_assess` 记录结果（只有解释确实体现理解时才 `passed: true`）。
 - `review`：有到期的间隔复习项——再考一次以巩固。
 - `complete`：祝贺学习者并总结其已掌握的内容。

@@ -471,7 +471,7 @@ class TurnRequest:
 | `tool_call` | A tool is being invoked | `content` (tool name), `metadata.args` |
 | `tool_result` | A tool returned | `content`, `metadata.tool` |
 | `error` | Something went wrong | `content` |
-| `done` | Turn complete | `metadata.session_id`, `metadata.turn_id` |
+| `done` | Turn complete | `session_id`, `turn_id` (top-level), `metadata.status` |
 
 ## See also
 

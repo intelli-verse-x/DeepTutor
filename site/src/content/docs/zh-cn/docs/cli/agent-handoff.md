@@ -49,7 +49,7 @@ deeptutor kb create linalg --docs-dir ./textbooks/
 SESSION_ID=$(deeptutor run deep_question "Linear algebra fundamentals" \
   --kb linalg \
   --config num_questions=4 --config difficulty=easy \
-  --format json | jq -r 'select(.type=="done") | .metadata.session_id')
+  --format json | jq -r 'select(.type=="done") | .session_id')
 
 deeptutor run deep_question "Linear algebra eigenvectors" \
   --kb linalg --session "$SESSION_ID" \
@@ -157,7 +157,7 @@ SESSION_ID=$(deeptutor run deep_research "Survey 2026 papers on RAG" \
   --tool web_search --kb papers \
   --config mode=report --config depth=standard \
   --format json | \
-  jq -r 'select(.type=="done") | .metadata.session_id')
+  jq -r 'select(.type=="done") | .session_id')
 
 # Step 2 —— 总结（同一 session，不同 capability）
 deeptutor run chat "Summarize the top three findings as bullet points" \
@@ -206,7 +206,7 @@ for line in proc.stdout:
         print(f"× Error: {event['content']}")
         break
     elif event["type"] == "done":
-        session_id = event["metadata"]["session_id"]
+        session_id = event["session_id"]
         break
 
 answer = "".join(final_content)
@@ -221,7 +221,7 @@ deeptutor run chat "Hello" --format json | \
 
 # 拿到 session id
 deeptutor run chat "Hello" --format json | \
-  jq -r 'select(.type=="done") | .metadata.session_id'
+  jq -r 'select(.type=="done") | .session_id'
 
 # 流式打印每个 stage 完成的瞬间
 deeptutor run deep_research "..." \

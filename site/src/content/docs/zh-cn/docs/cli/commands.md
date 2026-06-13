@@ -471,7 +471,7 @@ class TurnRequest:
 | `tool_call` | 正在调用某个 tool | `content`（tool 名）、`metadata.args` |
 | `tool_result` | tool 返回结果 | `content`、`metadata.tool` |
 | `error` | 出错 | `content` |
-| `done` | turn 完成 | `metadata.session_id`、`metadata.turn_id` |
+| `done` | turn 完成 | `session_id`、`turn_id`（顶层）、`metadata.status` |
 
 ## 另见
 

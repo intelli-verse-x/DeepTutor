@@ -138,9 +138,11 @@ class MasteryQuizTool(BaseTool):
                 "Pose a question for a MEMORY or PROCEDURE objective and register "
                 "its expected answer with the engine (so grading is deterministic "
                 "and you never re-state the answer later). After calling this, "
-                "present the question to the learner — via ask_user for a tight "
-                "loop, or as your reply — then call mastery_grade with their "
-                "answer. For CONCEPT / DESIGN objectives use mastery_assess instead."
+                "present the question with the ask_user tool so the learner answers "
+                "on an interactive card (for choices, give ask_user options short "
+                "labels like A/B/C and set the correct label as expected_answer); "
+                "then call mastery_grade with their answer. For CONCEPT / DESIGN "
+                "objectives use mastery_assess instead."
             ),
             parameters=[
                 ToolParameter(
@@ -221,8 +223,10 @@ class MasteryQuizTool(BaseTool):
                 "question": question,
                 "options": options,
                 "instruction": (
-                    "Present this question to the learner now, then call "
-                    "mastery_grade with their answer."
+                    "Present this question with the ask_user tool (use its options "
+                    "for multiple choice; the option labels must match the "
+                    "expected_answer you registered), then call mastery_grade with "
+                    "the learner's answer."
                 ),
             },
             meta_key="mastery_quiz",
