@@ -560,13 +560,12 @@ The **first registered user becomes admin** and owns model catalogs, provider cr
 
 </details>
 
----
-
 ## ⌨️ DeepTutor CLI — Agent-Native Interface
 
 One `deeptutor` binary, two ways in: an interactive **REPL** for people who live in the terminal, and structured **JSON** for other agents that drive DeepTutor as a tool. Same capabilities, tools, and knowledge bases either way.
 
-### Drive it yourself
+<details>
+<summary><b>Drive it yourself</b></summary>
 
 `deeptutor chat` opens an interactive REPL; `deeptutor run <capability> "<message>"` fires a single turn and exits. Both speak the same `--capability`, `--tool`, `--kb`, and `--config` flags.
 
@@ -580,7 +579,10 @@ deeptutor run deep_research "Survey 2026 papers on RAG" \
 
 Everything the Web app does is here too — knowledge bases (`kb`), sessions (`session`), partners (`partner`), skills (`skill`), notebooks, memory, and config. Full list below.
 
-### Let an agent drive it
+</details>
+
+<details>
+<summary><b>Let an agent drive it</b></summary>
 
 DeepTutor is built to be *operated by another agent*. Add `--format json` to any `run` and each turn streams **NDJSON — one event per line** (`content`, `tool_call`, `tool_result`, `done`, …), every line tagged with its `session_id`. Runs are headless-safe: an `ask_user` pause with no TTY auto-resolves with an empty reply instead of hanging.
 
@@ -596,6 +598,8 @@ deeptutor run deep_question "Quiz me on that survey" --session "$SID" --format j
 ```
 
 The repo ships a root [`SKILL.md`](SKILL.md) — a ~150-line handover doc that teaches any tool-using LLM the whole surface in one read. Hand it to Claude Code, Codex, or OpenCode (they pick up `SKILL.md` automatically), or wrap `deeptutor run` as a tool in a LangChain / AutoGen loop. Full recipes: [Agent Handoff](https://deeptutor.info/docs/cli/agent-handoff/).
+
+</details>
 
 <details>
 <summary><b>Command reference</b></summary>
@@ -620,24 +624,40 @@ The repo ships a root [`SKILL.md`](SKILL.md) — a ~150-line handover doc that t
 
 </details>
 
-The CLI-only distribution is present in `packaging/deeptutor-cli`; in this checkout it should be installed from source with `python -m pip install -e ./packaging/deeptutor-cli`. The public `deeptutor-cli` package is not currently available on PyPI, so the main Get Started section keeps the source-install path.
+<details>
+<summary><b>CLI-only distribution</b></summary>
+
+The CLI-only package lives in `packaging/deeptutor-cli`. In this checkout, install it from source:
+
+```bash
+python -m pip install -e ./packaging/deeptutor-cli
+```
+
+It isn't published to PyPI yet, so the main [Get Started](#-get-started) section keeps the source-install path.
+
+</details>
 
 ---
 
 ## 🧩 Ecosystem — Open to the Skills Community
 
-A DeepTutor skill follows the same open **Agent-Skills** format used across the wider agent ecosystem: a folder with a `SKILL.md` playbook (YAML frontmatter + markdown) and optional reference files. Because nothing about it is DeepTutor-specific, any community registry that speaks the same format becomes a first-class source for your skill library — no bespoke packaging, no lock-in.
+DeepTutor skills use the open **Agent-Skills** format, so any compatible community registry becomes a source for your library. [ClawHub](https://clawhub.ai/) ships wired in as the default hub.
 
-So installing a community skill is a single command. [ClawHub](https://clawhub.ai/) ships wired in as the default hub, and other compatible registries plug in through `settings/skill_hubs.json`:
+<details>
+<summary><b>How it works</b></summary>
+
+A DeepTutor skill is just a folder with a `SKILL.md` playbook (YAML frontmatter + markdown) and optional reference files — the same open format used across the wider agent ecosystem. Nothing about it is DeepTutor-specific, so any registry that speaks the format is a first-class source for your skill library — no bespoke packaging, no lock-in.
+
+Four commands cover the whole lifecycle:
 
 ```bash
-deeptutor skill search "git release notes"   # search a connected hub
-deeptutor skill install gh-release-notes     # fetch → verify → register (clawhub by default)
-deeptutor skill install some-hub:tool@1.2.0  # <hub>:<slug> picks the hub; @ pins a version
+deeptutor skill search "<query>"             # search a connected hub
+deeptutor skill install <slug>               # fetch → verify → register (clawhub by default)
+deeptutor skill install <hub>:<slug>@<ver>   # <hub>:<slug> picks the hub; @ pins a version
 deeptutor skill list                         # local skills with their hub provenance
 ```
 
-> Connecting more registries: a `type: "clawhub"` entry in `settings/skill_hubs.json` points at any compatible HTTP API, while `type: "command"` wraps whatever fetch CLI a registry ships — both feed the same import gate below.
+Add more registries in `settings/skill_hubs.json`: a `type: "clawhub"` entry points at any compatible HTTP API, while `type: "command"` wraps whatever fetch CLI a registry ships — both feed the same import gate.
 
 Whatever the source, every import passes the **same safety gate** before anything touches your workspace:
 
@@ -647,6 +667,27 @@ Whatever the source, every import passes the **same safety gate** before anythin
 - provenance — hub, version, verdict, and install time — is written to `.hub-lock.json` for audits and updates.
 
 In multi-user deployments, installing is admin-only: a new skill lands in the admin catalog and stays invisible to other users until a grant assigns it, so an admin can vet it before rolling it out.
+
+</details>
+
+<details>
+<summary><b>With ClawHub</b></summary>
+
+Say you want a skill that turns git history into release notes. Search the default hub, install the match, and confirm it landed:
+
+```bash
+deeptutor skill search "git release notes"   # → git-release-notes (Git Release Notes)
+deeptutor skill install git-release-notes    # fetch → verify → register
+deeptutor skill list                         # shows it with clawhub provenance
+```
+
+`git-release-notes` now lives in your skill library and the agent can call it like any other tool. To pin a version — or pull from another configured hub — use the fully-qualified form:
+
+```bash
+deeptutor skill install clawhub:git-release-notes@1.0.1
+```
+
+</details>
 
 ---
 ## 🌐 Community

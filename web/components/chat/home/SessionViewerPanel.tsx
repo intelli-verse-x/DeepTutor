@@ -475,8 +475,12 @@ function SessionViewerPanelInner(
     <div
       role="dialog"
       aria-hidden={!visible}
-      className={`fixed right-0 top-0 z-[30] flex h-full max-w-[92vw] flex-col border-l border-[var(--border)] bg-[var(--card)] shadow-2xl transition-transform ease-out ${
-        visible ? "translate-x-0" : "translate-x-full"
+      className={`fixed right-0 top-0 z-[30] flex h-full max-w-[92vw] flex-col border-l border-[var(--border)] bg-[var(--card)] transition-transform ease-out ${
+        // shadow-2xl only while visible — when closed, translate-x-full moves
+        // the box off-screen but its blurred shadow still bleeds ~38px back
+        // onto the viewport's right edge. Dropping the shadow off-screen kills
+        // that stray sliver.
+        visible ? "translate-x-0 shadow-2xl" : "translate-x-full"
       }`}
       style={{
         // Constant string (not a state value) so SSR and the first client
