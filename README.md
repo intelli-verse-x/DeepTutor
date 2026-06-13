@@ -404,15 +404,20 @@ Project-root `.env` is **not** read as an application config file. For a minimal
 Start with the main surfaces you will use day to day: Chat, Partners, Co-Writer, Book, Knowledge, Space, Memory, and Settings. The tour then covers Multi-User deployments for shared, isolated workspaces.
 
 <div align="center">
-<img src="assets/figs/system/system%20architecture.png" alt="DeepTutor system architecture" width="900">
+<img src="assets/figs/webui/chat.png" alt="DeepTutor chat workspace" width="900">
 </div>
 
 <details>
-<summary><b>💬 Chat — The Agent Loop You Actually Use</b></summary>
+<summary><b>🏗️ System architecture</b></summary>
 
 <div align="center">
-<img src="assets/figs/webui/chat.png" alt="DeepTutor chat workspace" width="900">
+<img src="assets/figs/system/system%20architecture.png" alt="DeepTutor system architecture" width="900">
 </div>
+
+</details>
+
+<details>
+<summary><b>💬 Chat — The Agent Loop You Actually Use</b></summary>
 
 Chat is the default capability and the place where most work begins. A single thread can talk normally, call tools, ground itself in selected knowledge bases, read attachments, write notebook records, and continue with the same source inventory across turns.
 
@@ -637,8 +642,6 @@ It isn't published to PyPI yet, so the main [Get Started](#-get-started) section
 
 </details>
 
----
-
 ## 🧩 Ecosystem — Open to the Skills Community
 
 DeepTutor skills use the open **Agent-Skills** format, so any compatible community registry becomes a source for your library. [ClawHub](https://clawhub.ai/) ships wired in as the default hub.
@@ -689,7 +692,6 @@ deeptutor skill install clawhub:git-release-notes@1.0.1
 
 </details>
 
----
 ## 🌐 Community
 
 ### 📮 Contact
