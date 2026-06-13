@@ -13,6 +13,7 @@ from deeptutor.core.context import Attachment, UnifiedContext
 from deeptutor.core.stream import StreamEvent, StreamEventType
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.tool_protocol import ToolResult
+from deeptutor.loop_plugins.mastery import MASTERY_TOOL_NAMES
 
 
 async def _collect_bus_events(bus: StreamBus) -> tuple[list[StreamEvent], asyncio.Task[Any]]:
@@ -405,6 +406,84 @@ async def test_tool_round_then_finish(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_context_checkpoint_folds_completed_tool_rounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _CheckpointRegistry(_Registry):
+        async def execute(self, name: str, **kwargs):
+            self.executed.append({"name": name, "kwargs": kwargs})
+            query = str(kwargs.get("query") or "")
+            return ToolResult(
+                content=f"noisy tool result for {query}",
+                success=True,
+                metadata={"_context_checkpoint": {"summary": f"checkpoint: {query}"}},
+            )
+
+    registry = _CheckpointRegistry()
+    client = _ScriptedChatClient(
+        [
+            [
+                _llm_chunk(content="Searching step one."),
+                _llm_chunk(
+                    tool_calls=[
+                        {
+                            "id": "call-1",
+                            "name": "web_search",
+                            "arguments": json.dumps({"query": "step one"}),
+                        }
+                    ]
+                ),
+            ],
+            [
+                _llm_chunk(content="Searching step two."),
+                _llm_chunk(
+                    tool_calls=[
+                        {
+                            "id": "call-2",
+                            "name": "web_search",
+                            "arguments": json.dumps({"query": "step two"}),
+                        }
+                    ]
+                ),
+            ],
+            [_llm_chunk(content="Final from checkpoints.")],
+        ]
+    )
+    pipeline = AgenticChatPipeline(language="en")
+    pipeline.registry = registry
+    monkeypatch.setattr(pipeline, "_compose_enabled_tools", lambda _context: ["web_search"])
+    monkeypatch.setattr(pipeline, "_build_openai_client", lambda: client)
+
+    events = await _run(
+        pipeline,
+        UnifiedContext(
+            session_id="s1",
+            user_message="Research this",
+            enabled_tools=["web_search"],
+        ),
+    )
+
+    assert client.call_count == 3
+    second_round = client.calls[1]["messages"]
+    assert any(
+        m.get("role") == "system" and "checkpoint: step one" in str(m.get("content"))
+        for m in second_round
+    )
+    assert not any(m.get("role") == "tool" for m in second_round)
+    assert not any("Searching step one." in str(m.get("content")) for m in second_round)
+    third_round = client.calls[2]["messages"]
+    checkpoint_text = "\n".join(
+        str(m.get("content") or "") for m in third_round if m.get("role") == "system"
+    )
+    assert "checkpoint: step one" in checkpoint_text
+    assert "checkpoint: step two" in checkpoint_text
+    assert not any(m.get("role") == "tool" for m in third_round)
+    assert not any("noisy tool result" in str(m.get("content")) for m in third_round)
+    result = _result(events)
+    assert result.metadata["response"] == "Final from checkpoints."
+
+
+@pytest.mark.asyncio
 async def test_ask_user_available_every_round(monkeypatch: pytest.MonkeyPatch) -> None:
     """The single loop offers the full tool belt — including ask_user — on
     every round; there is no respond stage that narrows tools to ask_user."""
@@ -607,6 +686,48 @@ def test_compose_enabled_tools_injects_rag_when_kb_selected(
     )
     assert "rag" in pipeline._compose_enabled_tools(context)
     assert "web_search" in pipeline._compose_enabled_tools(context)
+
+
+def test_compose_enabled_tools_mounts_mastery_plugin_only_in_mastery_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "deeptutor.services.memory.get_memory_store",
+        lambda: SimpleNamespace(read_raw=lambda *_args, **_kwargs: ""),
+    )
+    monkeypatch.setattr(
+        "deeptutor.services.notebook.get_notebook_manager",
+        lambda: SimpleNamespace(list_notebooks=lambda: []),
+    )
+    pipeline = AgenticChatPipeline.__new__(AgenticChatPipeline)
+    pipeline._deferred_loader = None
+    pipeline._exec_enabled = False
+    pipeline.registry = SimpleNamespace(
+        get_enabled=lambda selected: [SimpleNamespace(name=n) for n in selected]
+    )
+
+    ordinary = UnifiedContext(user_message="hi")
+    mastery = UnifiedContext(
+        user_message="teach me",
+        metadata={"mastery_mode": True, "mastery_path_id": "path-a"},
+    )
+
+    ordinary_tools = pipeline._compose_enabled_tools(ordinary)
+    mastery_tools = pipeline._compose_enabled_tools(mastery)
+    assert not set(MASTERY_TOOL_NAMES).intersection(ordinary_tools)
+    assert set(MASTERY_TOOL_NAMES).issubset(mastery_tools)
+
+
+def test_augment_tool_kwargs_injects_mastery_path_id() -> None:
+    pipeline = AgenticChatPipeline.__new__(AgenticChatPipeline)
+    context = UnifiedContext(
+        user_message="teach",
+        metadata={"mastery_mode": True, "mastery_path_id": "book-1"},
+    )
+
+    augmented = pipeline._augment_tool_kwargs("mastery_status", {}, context)
+
+    assert augmented["_mastery_path_id"] == "book-1"
 
 
 def test_augment_tool_kwargs_injects_geogebra_image() -> None:

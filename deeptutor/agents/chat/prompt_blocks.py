@@ -2,24 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from deeptutor.core.context import UnifiedContext
+from deeptutor.loop_plugins.protocol import PromptBlock
 from deeptutor.services.prompt.language import append_language_directive
-
-
-@dataclass(frozen=True, slots=True)
-class PromptBlock:
-    """One named prompt fragment.
-
-    Blocks are deliberately simple strings. The value is in naming and
-    ordering: runtime code can find, replace, omit, or budget one category
-    without editing a monolithic prompt.
-    """
-
-    name: str
-    content: str
 
 
 class ChatPromptAssembler:
@@ -38,7 +25,7 @@ class ChatPromptAssembler:
         deferred_tools_manifest: str = "",
         notebook_manifest: str = "",
         workspace_note: str = "",
-        mastery_note: str = "",
+        plugin_blocks: list[PromptBlock] | None = None,
         include_tool_manifest: bool = True,
     ) -> str:
         blocks = self.blocks(
@@ -48,7 +35,7 @@ class ChatPromptAssembler:
             deferred_tools_manifest=deferred_tools_manifest,
             notebook_manifest=notebook_manifest,
             workspace_note=workspace_note,
-            mastery_note=mastery_note,
+            plugin_blocks=plugin_blocks,
             include_tool_manifest=include_tool_manifest,
         )
         joined = "\n\n---\n\n".join(
@@ -65,7 +52,7 @@ class ChatPromptAssembler:
         deferred_tools_manifest: str = "",
         notebook_manifest: str = "",
         workspace_note: str = "",
-        mastery_note: str = "",
+        plugin_blocks: list[PromptBlock] | None = None,
         include_tool_manifest: bool = True,
     ) -> list[PromptBlock]:
         blocks: list[PromptBlock] = [
@@ -73,10 +60,9 @@ class ChatPromptAssembler:
             PromptBlock("runtime_policy", self._t("runtime_policy")),
             PromptBlock("loop", self._t("loop.system")),
         ]
-        # Mastery-tutor playbook sits high so it frames the whole turn when a
-        # mastery path is active; empty (and omitted) for ordinary chat.
-        if mastery_note:
-            blocks.append(PromptBlock("mastery_tutor", mastery_note))
+        # Plugin playbooks sit high so they frame the whole turn when active;
+        # empty blocks are omitted by ``system_prompt``'s join.
+        blocks.extend(plugin_blocks or [])
         if context.persona_context:
             blocks.append(PromptBlock("persona_style", context.persona_context))
         if context.memory_context:

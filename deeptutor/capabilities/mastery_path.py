@@ -21,7 +21,7 @@ from deeptutor.agents.chat.agentic_pipeline import AgenticChatPipeline
 from deeptutor.core.capability_protocol import BaseCapability, CapabilityManifest
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
-from deeptutor.tools.mastery_tool import MASTERY_TOOL_NAMES
+from deeptutor.loop_plugins.mastery import MASTERY_TOOL_NAMES
 
 _UNSAFE_ID_CHARS = re.compile(r"[^A-Za-z0-9_-]")
 

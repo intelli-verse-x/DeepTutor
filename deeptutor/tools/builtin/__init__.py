@@ -8,8 +8,8 @@ import logging
 from typing import Any
 
 from deeptutor.core.tool_protocol import BaseTool, ToolDefinition, ToolParameter, ToolResult
+from deeptutor.loop_plugins.mastery import MASTERY_TOOL_TYPES
 from deeptutor.tools.exec_tool import ExecTool
-from deeptutor.tools.mastery_tool import MASTERY_TOOL_TYPES
 from deeptutor.tools.prompting import load_prompt_hints
 
 logger = logging.getLogger(__name__)
@@ -1452,8 +1452,8 @@ BUILTIN_TOOL_TYPES: tuple[type[BaseTool], ...] = (
     GithubTool,
     AskUserTool,
     CronTool,
-    # Mastery Path tools — auto-mounted only when a path is active on the turn
-    # (see ToolMountFlags.has_mastery); the chat agent loop drives them.
+    # Mastery Path tools — globally registered so schemas/API stay stable;
+    # the chat loop plugin decides when to auto-mount them for a turn.
     *MASTERY_TOOL_TYPES,
 )
 

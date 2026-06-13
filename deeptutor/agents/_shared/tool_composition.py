@@ -25,7 +25,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from deeptutor.tools.builtin import BUILTIN_TOOL_NAMES, USER_TOGGLEABLE_TOOL_NAMES
-from deeptutor.tools.mastery_tool import MASTERY_TOOL_NAMES
 
 # Tools whose mounting is owned by the pipeline (auto-on under specific
 # context conditions), not by the user's composer toggles. Adding a tool
@@ -48,7 +47,7 @@ AUTO_MOUNTED_TOOLS: frozenset[str] = frozenset(
         "github",
         "cron",
     }
-).union(MASTERY_TOOL_NAMES)
+)
 
 
 def default_optional_tools(excluded: Iterable[str] = ()) -> list[str]:
@@ -85,7 +84,6 @@ class ToolMountFlags:
     has_deferred_tools: bool = False
     has_exec: bool = False
     has_code: bool = False
-    has_mastery: bool = False
 
 
 def compose_enabled_tools(
@@ -94,6 +92,7 @@ def compose_enabled_tools(
     requested_tools: list[str] | None,
     optional_whitelist: list[str],
     mount_flags: ToolMountFlags,
+    extra_auto_tools: Iterable[str] = (),
 ) -> list[str]:
     """Compose the per-turn enabled-tool list.
 
@@ -107,11 +106,11 @@ def compose_enabled_tools(
        if a source index exists, ``read_memory`` if memory has content,
        ``list_notebook`` + ``write_note`` if notebooks exist,
        ``read_skill`` if the turn carries a skills manifest).
-    3. Always-on auto-mounts (``web_fetch``, ``github``, ``ask_user``).
+    3. Plugin-owned auto-mounts supplied by the caller.
+    4. Always-on auto-mounts (``web_fetch``, ``github``, ``ask_user``).
 
-    The result is ordered (no dedup is applied — caller's prerequisite is
-    that ``optional_whitelist`` excludes ``AUTO_MOUNTED_TOOLS``, which
-    :func:`default_optional_tools` guarantees).
+    The result is ordered and deduplicated. ``optional_whitelist`` is still
+    expected to exclude ``AUTO_MOUNTED_TOOLS`` via :func:`default_optional_tools`.
     """
     composed: list[str] = [
         tool.name
@@ -135,14 +134,24 @@ def compose_enabled_tools(
         composed.append("exec")
     if mount_flags.has_code:
         composed.append("code_execution")
-    if mount_flags.has_mastery:
-        composed.extend(MASTERY_TOOL_NAMES)
+    composed.extend(str(name) for name in extra_auto_tools if str(name).strip())
     composed.append("write_memory")
     composed.append("web_fetch")
     composed.append("github")
     composed.append("ask_user")
     composed.append("cron")
-    return composed
+    return _ordered_unique(composed)
+
+
+def _ordered_unique(names: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        result.append(name)
+    return result
 
 
 def user_has_memory() -> bool:

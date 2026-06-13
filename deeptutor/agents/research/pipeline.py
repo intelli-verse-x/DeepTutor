@@ -837,11 +837,6 @@ class ResearchPipeline:
                 usage=self.usage,
                 stream_body_live=False,
                 eager_sub_trace=True,
-                # Reasoning models may emit a native ``<think>...</think>``
-                # planning pass without the requested ``THINK`` label. Treat
-                # that as a real THINK iteration so the next round can perform
-                # the tool call instead of burning the budget on label repair.
-                implicit_think_label=LABEL_THINK,
             )
         except Exception as exc:
             logger.exception("Research block %s failed: %s", block.block_id, exc)

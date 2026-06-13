@@ -31,6 +31,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from deeptutor.capabilities._shared import emit_capability_result
+from deeptutor.core.agentic.tool_dispatch import DispatchOutcome
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.trace import build_trace_metadata, merge_trace_metadata, new_call_id
@@ -162,13 +163,21 @@ class AgentLoop:
         state = AgentLoopState()
         async with self.stream.stage(LOOP_STAGE, source="chat"):
             seed_block = await self.pipeline._retrieve_kb_seed_block(self.context, self.stream)
+            plugin_seed = self.pipeline._plugin_pre_loop_seed(self.context)
+            seed_block = "\n\n".join(
+                block for block in (seed_block.strip(), plugin_seed.strip()) if block
+            )
             messages = self.pipeline._build_loop_messages(
                 context=self.context,
                 enabled_tools=self.enabled_tools,
                 kb_seed=seed_block,
                 include_tool_manifest=bool(self.tool_schemas),
             )
-            outcome = await self._run_loop(messages=messages, state=state)
+            outcome = await self._run_loop(
+                messages=messages,
+                state=state,
+                checkpoint_boundary=len(messages),
+            )
 
         if state.sources:
             await self.stream.sources(
@@ -200,6 +209,7 @@ class AgentLoop:
         *,
         messages: list[dict[str, Any]],
         state: AgentLoopState,
+        checkpoint_boundary: int,
     ) -> LoopOutcome:
         """Run rounds of one LLM call + tool dispatch over *messages*.
 
@@ -288,6 +298,12 @@ class AgentLoop:
                 # ``role=tool`` message; the next round sees them in-protocol.
                 continue
 
+            checkpoint_boundary = self._fold_context_checkpoint(
+                messages=messages,
+                dispatch=dispatch,
+                checkpoint_boundary=checkpoint_boundary,
+            )
+
             if dispatch.terminate:
                 payload = dispatch.terminate_payload or {}
                 await self.pipeline._emit_terminator_final_response(self.stream, payload)
@@ -298,6 +314,26 @@ class AgentLoop:
 
         # Round budget ran out while still requesting tools — force a finish.
         return await self._forced_finish(messages, state)
+
+    def _fold_context_checkpoint(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        dispatch: DispatchOutcome,
+        checkpoint_boundary: int,
+    ) -> int:
+        summary = _last_context_checkpoint_summary(dispatch)
+        if not summary:
+            return checkpoint_boundary
+        prefix = messages[:checkpoint_boundary]
+        prefix.append(
+            {
+                "role": "system",
+                "content": f"[Context checkpoint]\n{summary}",
+            }
+        )
+        messages[:] = prefix
+        return len(messages)
 
     async def _forced_finish(
         self,
@@ -588,6 +624,20 @@ def _message_content_chars(message: dict[str, Any]) -> int:
                 total += len(part)
         return total
     return 0
+
+
+def _last_context_checkpoint_summary(dispatch: DispatchOutcome) -> str:
+    summary = ""
+    for tool_message in dispatch.tool_messages:
+        tool_call_id = str(tool_message.get("tool_call_id") or "")
+        metadata = dispatch.tool_metadata_by_id.get(tool_call_id) or {}
+        checkpoint = metadata.get("_context_checkpoint")
+        if not isinstance(checkpoint, dict):
+            continue
+        candidate = str(checkpoint.get("summary") or "").strip()
+        if candidate:
+            summary = candidate
+    return summary
 
 
 def _error_text(exc: Exception) -> str:

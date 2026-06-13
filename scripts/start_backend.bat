@@ -2,7 +2,8 @@
 REM DeepTutor Backend Startup Script
 REM Activates virtual environment and starts the backend API server
 
-cd /d "%~dp0"
+REM Move to the project root (this script lives in scripts/)
+cd /d "%~dp0.."
 
 REM Set UTF-8 encoding for stdout to support emoji characters
 set PYTHONIOENCODING=utf-8
