@@ -15,6 +15,7 @@ import {
   HeartHandshake,
   LayoutGrid,
   Library,
+  Lock,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
@@ -27,12 +28,16 @@ import SessionList from "@/components/SessionList";
 import { VersionBadge } from "@/components/sidebar/VersionBadge";
 import type { SessionSummary } from "@/lib/session-api";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { useCapabilityAccess } from "@/components/access/CapabilityAccessContext";
+import type { Capability } from "@/lib/capability-routes";
 
 interface NavEntry {
   href: string;
   label: string;
   icon: LucideIcon;
   tooltipKey?: string;
+  /** Model capability this feature needs; locked when the user lacks it. */
+  requires?: Capability;
 }
 
 const PRIMARY_NAV: NavEntry[] = [
@@ -41,21 +46,32 @@ const PRIMARY_NAV: NavEntry[] = [
     label: "Chat",
     icon: MessageSquare,
     tooltipKey: "Chat tooltip",
+    requires: "llm",
   },
   {
     href: "/partners",
     label: "Partners",
     icon: HeartHandshake,
     tooltipKey: "Partners tooltip",
+    requires: "llm",
   },
   {
     href: "/co-writer",
     label: "Co-Writer",
     icon: PenLine,
     tooltipKey: "Co-Writer tooltip",
+    requires: "llm",
   },
-  { href: "/book", label: "Book", icon: Library, tooltipKey: "Book tooltip" },
   {
+    href: "/book",
+    label: "Book",
+    icon: Library,
+    tooltipKey: "Book tooltip",
+    requires: "llm",
+  },
+  {
+    // Knowledge stays reachable even without an embedding model so users can
+    // see existing knowledge bases; the page itself renders them locked.
     href: "/knowledge",
     label: "Knowledge",
     icon: BookOpen,
@@ -66,6 +82,7 @@ const PRIMARY_NAV: NavEntry[] = [
     label: "Mastery Path",
     icon: GraduationCap,
     tooltipKey: "Mastery Path tooltip",
+    requires: "llm",
   },
   {
     href: "/space",
@@ -115,8 +132,13 @@ export function SidebarShell({
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useTranslation();
+  const { has } = useCapabilityAccess();
   const { sidebarCollapsed: collapsed, setSidebarCollapsed: setCollapsed } =
     useAppShell();
+
+  const navLocked = (item: NavEntry) =>
+    item.requires ? !has(item.requires) : false;
+  const lockedTooltip = t("Locked — contact your administrator to get access.");
   const [recentsCollapsed, setRecentsCollapsed] = useState(false);
 
   // Hydrate Recents collapse from localStorage after first render to stay SSR-safe.
@@ -181,9 +203,35 @@ export function SidebarShell({
         <nav className="mt-1 flex w-full flex-col items-center gap-1 px-1.5">
           {PRIMARY_NAV.map((item) => {
             const active = pathname.startsWith(item.href);
-            const description = item.tooltipKey
-              ? t(item.tooltipKey)
-              : undefined;
+            const locked = navLocked(item);
+            const description = locked
+              ? lockedTooltip
+              : item.tooltipKey
+                ? t(item.tooltipKey)
+                : undefined;
+            if (locked) {
+              return (
+                <Tooltip
+                  key={item.href}
+                  label={t(item.label)}
+                  description={description}
+                  side="right"
+                >
+                  <div
+                    aria-label={`${t(item.label)} — ${lockedTooltip}`}
+                    aria-disabled
+                    className="relative flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-xl text-[var(--muted-foreground)]/40"
+                  >
+                    <item.icon size={18} strokeWidth={1.6} />
+                    <Lock
+                      size={10}
+                      strokeWidth={2}
+                      className="absolute bottom-1 right-1 text-[var(--muted-foreground)]/70"
+                    />
+                  </div>
+                </Tooltip>
+              );
+            }
             return (
               <Tooltip
                 key={item.href}
@@ -299,6 +347,27 @@ export function SidebarShell({
         <div className="space-y-px">
           {PRIMARY_NAV.map((item) => {
             const active = pathname.startsWith(item.href);
+            const locked = navLocked(item);
+            if (locked) {
+              return (
+                <Tooltip
+                  key={item.href}
+                  label={t(item.label)}
+                  description={lockedTooltip}
+                  side="right"
+                >
+                  <div
+                    aria-label={`${t(item.label)} — ${lockedTooltip}`}
+                    aria-disabled
+                    className="flex cursor-not-allowed items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] text-[var(--muted-foreground)]/40"
+                  >
+                    <item.icon size={16} strokeWidth={1.5} />
+                    <span>{t(item.label)}</span>
+                    <Lock size={13} strokeWidth={1.8} className="ml-auto" />
+                  </div>
+                </Tooltip>
+              );
+            }
             return (
               <Link
                 key={item.href}

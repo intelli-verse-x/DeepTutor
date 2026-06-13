@@ -96,6 +96,22 @@ def allowed_llm_options() -> dict[str, Any]:
     return {"active": None, "options": options}
 
 
+def has_capability_access(capability: str, user_id: str | None = None) -> bool:
+    """Whether the user has at least one usable model for ``capability``.
+
+    Admins are never gated — they manage the catalog directly. For ordinary
+    users this mirrors exactly what ``redacted_model_access`` exposes to the
+    frontend, so the server-side gate and the UI lock always agree.
+    """
+    user = get_current_user()
+    if user.is_admin:
+        return True
+    if user_id is None:
+        user_id = user.id
+    items = redacted_model_access(user_id).get(capability, []) or []
+    return any(item.get("available") for item in items)
+
+
 def apply_allowed_llm_selection(selection: dict[str, Any] | None) -> dict[str, Any] | None:
     """Allow only admin-granted LLM profile/model selections for ordinary users."""
     user = get_current_user()
