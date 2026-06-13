@@ -5,12 +5,14 @@
  * Header carries identity + run state; everything else lives in the tabs.
  */
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Archive,
+  BookmarkPlus,
+  Download,
   Loader2,
   MessageCircle,
   Play,
@@ -27,11 +29,16 @@ import {
   stopPartner,
   type PartnerInfo,
 } from "@/lib/partners-api";
+import { downloadChatMarkdown, type ExportableMessage } from "@/lib/chat-export";
 import PartnerAvatar from "@/components/partners/PartnerAvatar";
 import PartnerChat from "@/components/partners/PartnerChat";
 import PartnerChannels from "@/components/partners/PartnerChannels";
 import PartnerConfigure from "@/components/partners/PartnerConfigure";
 import PartnerArchives from "@/components/partners/PartnerArchives";
+import SaveToNotebookModal, {
+  type NotebookSaveMessage,
+  type NotebookSavePayload,
+} from "@/components/notebook/SaveToNotebookModal";
 
 type Tab = "chat" | "configure" | "channels" | "archive";
 
@@ -52,12 +59,72 @@ function PartnerDetail() {
   const [loading, setLoading] = useState(true);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const [toast, setToast] = useState("");
+  // Conversation transcripts lifted from the Chat / Archive tabs so the header
+  // can export whichever surface is active.
+  const [chatMessages, setChatMessages] = useState<ExportableMessage[]>([]);
+  const [archiveMessages, setArchiveMessages] = useState<ExportableMessage[]>(
+    [],
+  );
+  const [showSaveModal, setShowSaveModal] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 3500);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  const exportMessages = useMemo<ExportableMessage[]>(() => {
+    if (tab === "chat") return chatMessages;
+    if (tab === "archive") return archiveMessages;
+    return [];
+  }, [tab, chatMessages, archiveMessages]);
+
+  const canExport = exportMessages.length > 0;
+
+  const exportTitle = useMemo(() => {
+    const firstUser = exportMessages
+      .find((msg) => msg.role === "user")
+      ?.content.trim();
+    return firstUser?.slice(0, 80) || partner?.name || "Conversation";
+  }, [exportMessages, partner?.name]);
+
+  const savePayload = useMemo<NotebookSavePayload | null>(() => {
+    if (!partner || !canExport) return null;
+    return {
+      recordType: "tutorbot",
+      title: exportTitle,
+      // The transcript / userQuery are rebuilt inside the modal from the
+      // user's selected subset; these are just fallbacks.
+      userQuery: "",
+      output: "",
+      metadata: {
+        source: "partner",
+        partner_id: partnerId,
+        partner_name: partner.name,
+      },
+    };
+  }, [partner, canExport, exportTitle, partnerId]);
+
+  const saveMessages = useMemo<NotebookSaveMessage[]>(
+    () =>
+      exportMessages
+        .filter(
+          (msg) =>
+            msg.role === "user" ||
+            msg.role === "assistant" ||
+            msg.role === "system",
+        )
+        .map((msg) => ({
+          role: msg.role as NotebookSaveMessage["role"],
+          content: msg.content,
+        })),
+    [exportMessages],
+  );
+
+  const handleDownload = useCallback(() => {
+    if (!exportMessages.length) return;
+    downloadChatMarkdown(exportMessages, { title: exportTitle });
+  }, [exportMessages, exportTitle]);
 
   const load = useCallback(async () => {
     try {
@@ -195,6 +262,30 @@ function PartnerDetail() {
           ))}
         </nav>
 
+        {(tab === "chat" || tab === "archive") && (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowSaveModal(true)}
+              disabled={!canExport}
+              title={t("Save to Notebook")}
+              aria-label={t("Save to Notebook")}
+              className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <BookmarkPlus className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={!canExport}
+              title={t("Download chat history as Markdown")}
+              aria-label={t("Download Markdown")}
+              className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Download className="h-4 w-4" />
+            </button>
+          </>
+        )}
         <button
           type="button"
           onClick={() => void toggleRunning()}
@@ -230,11 +321,16 @@ function PartnerDetail() {
               emoji={partner.emoji}
               color={partner.color}
               avatar={partner.avatar}
+              onMessagesChange={setChatMessages}
             />
           </div>
         ) : tab === "archive" ? (
           <div className="mx-auto h-full max-w-5xl overflow-hidden px-5 py-5">
-            <PartnerArchives partnerId={partnerId} onToast={setToast} />
+            <PartnerArchives
+              partnerId={partnerId}
+              onToast={setToast}
+              onMessagesChange={setArchiveMessages}
+            />
           </div>
         ) : (
           <div className="mx-auto h-full max-w-3xl overflow-y-auto px-5 py-5">
@@ -250,6 +346,17 @@ function PartnerDetail() {
           </div>
         )}
       </div>
+
+      <SaveToNotebookModal
+        open={showSaveModal}
+        payload={savePayload}
+        messages={saveMessages}
+        onClose={() => setShowSaveModal(false)}
+        onSaved={() => {
+          setShowSaveModal(false);
+          setToast(t("Saved to notebook."));
+        }}
+      />
 
       {toast && (
         <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-[var(--foreground)] px-3.5 py-2 text-[12.5px] text-[var(--background)] shadow-lg">

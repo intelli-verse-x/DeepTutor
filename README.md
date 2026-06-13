@@ -34,7 +34,7 @@
 [![Feishu](https://img.shields.io/badge/Feishu-Group-00D4AA?style=flat-square&logo=feishu&logoColor=white)](./Communication.md)
 [![WeChat](https://img.shields.io/badge/WeChat-Group-07C160?style=flat-square&logo=wechat&logoColor=white)](https://github.com/HKUDS/DeepTutor/issues/78)
 
-[Features](#-key-features) · [Get Started](#-get-started) · [Explore](#-explore-deeptutor) · [CLI](#%EF%B8%8F-deeptutor-cli--agent-native-interface) · [Multi-User](#-multi-user--shared-deployments) · [Community](#-community)
+[Features](#-key-features) · [Get Started](#-get-started) · [Explore](#-explore-deeptutor) · [CLI](#%EF%B8%8F-deeptutor-cli--agent-native-interface) · [Community](#-community)
 
 </div>
 
@@ -147,23 +147,13 @@
 
 ## ✨ Key Features
 
-DeepTutor is organized around an agent-native runtime: a shared ChatOrchestrator routes every turn into capabilities, a ToolRegistry exposes single-shot tools when the model needs them, and a CapabilityRegistry lets deeper workflows take over the turn when the task needs structure.
+DeepTutor is an agent-native learning workspace: Chat, Solve, Quiz, Research, Visualize, and Mastery Path run on one extensible tutoring runtime.
 
-<div align="center">
-<img src="assets/figs/system/system%20architecture.png" alt="DeepTutor system architecture" width="900">
-</div>
-
-**One learning workspace**
-
-- **Chat as the default loop** — casual tutoring, source-grounded Q&A, Deep Solve, Deep Question, Deep Research, Visualize, and Auto Mode all share the same session context and source inventory.
-- **Learning surfaces that stay connected** — Co-Writer drafts, Book pages, Knowledge Bases, Space assets, and Memory are separate workspaces, but they feed the same agent runtime instead of becoming isolated apps.
-- **Partners for persistent companionship** — IM-connected companions now run on the same chat agent loop as the main product, with their own synthetic workspace and assigned library.
-
-**Tools, memory, and control**
-
-- **Composable tools** — RAG, source reading, memory read/write, notebooks, URL fetch, GitHub lookup, ask-user pauses, sandboxed execution, and optional brainstorm/web/paper/reason tools can be mounted according to context and settings.
-- **Three-layer memory** — L1 traces, L2 per-surface summaries, and L3 cross-surface synthesis make personalization inspectable rather than hidden behind a black box.
-- **Unified settings and CLI** — model catalogs, embeddings, search, network, MCP servers, tools, capabilities, and deployment settings are editable from the web UI and scriptable from `deeptutor`.
+- **Multiple learning modes, one tutor runtime** — move between flexible chat, step-by-step solving, auto-validated quiz generation, multi-agent research, visual explanation, and mastery-based tutoring without switching systems.
+- **Connected learning workspace** — Knowledge Bases, Book pages, Co-Writer drafts, Space assets, notebooks, and Memory give the tutor reusable context instead of scattering learning materials across isolated tools.
+- **Extensible tool and skill ecosystem** — DeepTutor can use built-in tools, MCP tools, built-in skills, and community skills from ClawHub, so the tutor can grow with new workflows instead of being limited to a fixed feature set.
+- **Inspectable long-term memory** — L1 traces, L2 surface summaries, and L3 cross-surface synthesis make personalization visible, editable, and traceable.
+- **Persistent Partners** — IM-connected companions run on the same DeepTutor agent loop, each with its own soul, channels, workspace, and assigned library.
 
 ---
 
@@ -413,6 +403,10 @@ Project-root `.env` is **not** read as an application config file. For a minimal
 
 The README tour follows the product surfaces in the order you will most often meet them: Chat, Partner, Co-Writer, Book, Knowledge, Space, Memory, and Settings. The screenshots below come from the reorganized `assets/figs` tree; archived legacy images are intentionally not used here.
 
+<div align="center">
+<img src="assets/figs/system/system%20architecture.png" alt="DeepTutor system architecture" width="900">
+</div>
+
 <details>
 <summary><b>💬 Chat — The Agent Loop You Actually Use</b></summary>
 
@@ -457,6 +451,10 @@ The channel layer is schema-driven and can connect to IM platforms such as Feish
 
 <details>
 <summary><b>✍️ Co-Writer — Selection-Aware Markdown Drafting</b></summary>
+
+<div align="center">
+<img src="assets/figs/webui/cowriter.png" alt="DeepTutor Co-Writer workspace" width="900">
+</div>
 
 Co-Writer is a split-view Markdown workspace for reports, tutorials, notes, and long-form learning artifacts. Documents autosave, render a live preview, and can be saved back into notebooks when the draft becomes reusable context.
 
@@ -537,6 +535,31 @@ Most settings use a draft-and-apply flow so users can test providers before comm
 
 </details>
 
+<details>
+<summary><b>👥 Multi-User — Shared Deployments</b> · optional auth, isolated per-user workspaces</summary>
+
+<div align="center">
+<img src="assets/figs/webui/multi-user.png" alt="DeepTutor multi-user admin workspace" width="900">
+</div>
+
+Authentication is **off by default** — DeepTutor runs single-user. Turn it on and one `data/` tree hosts an admin workspace, isolated per-user workspaces, and partner workspaces side by side:
+
+```text
+data/
+├── user/                    # Admin workspace + global settings
+├── users/<uid>/             # Per-user scope: chat history, memory, notebooks, KBs
+├── partners/<id>/workspace/ # Partner (synthetic-user) scope
+└── system/                  # auth/users.json · grants/<uid>.json · audit/usage.jsonl
+```
+
+The **first registered user becomes admin** and owns model catalogs, provider credentials, shared knowledge bases, skills, and per-user grants. Everyone else gets an isolated workspace and a redacted Settings page — admin-assigned models, KBs, and skills show up as scoped, read-only options, never as raw API keys.
+
+**Enable it:** turn auth on in `data/user/settings/auth.json`, restart `deeptutor start`, register the first admin at `/register`, then add users from `/admin/users` and assign models, KBs, skills, tool/MCP policy, and code-execution access through grants.
+
+> PocketBase stays a single-user integration — keep `integrations.pocketbase_url` blank for multi-user deployments unless you've wired up an external user store.
+
+</details>
+
 ---
 
 ## ⌨️ DeepTutor CLI — Agent-Native Interface
@@ -575,37 +598,6 @@ deeptutor kb create calculus --doc textbook.pdf
 </details>
 
 The CLI-only distribution is present in `packaging/deeptutor-cli`; in this checkout it should be installed from source with `python -m pip install -e ./packaging/deeptutor-cli`. The public `deeptutor-cli` package is not currently available on PyPI, so the main Get Started section keeps the source-install path.
-
----
-
-## 👥 Multi-User — Shared Deployments
-
-<div align="center">
-<img src="assets/figs/webui/multi-user.png" alt="DeepTutor multi-user admin workspace" width="900">
-</div>
-
-Authentication is optional and off by default. When enabled, DeepTutor becomes a shared deployment with one admin workspace, per-user workspaces, partner workspaces, and system state under one `data/` tree.
-
-```text
-data/
-├── user/                         # Admin workspace and settings
-├── users/<uid>/                  # Non-admin user scope
-│   ├── user/chat_history.db
-│   ├── user/settings/interface.json
-│   ├── user/workspace/{chat,co-writer,book,memory,notebook,...}
-│   └── knowledge_bases/...
-├── partners/<id>/workspace/      # Partner synthetic-user scope
-└── system/
-    ├── auth/users.json
-    ├── grants/<uid>.json
-    └── audit/usage.jsonl
-```
-
-The first registered user becomes admin and can configure model catalogs, provider credentials, knowledge bases, skills, and user grants. Non-admin users get isolated chat history, memory, notebooks, personal knowledge bases, and a redacted Settings page; admin-assigned resources appear as scoped, read-only options rather than exposing API keys or provider internals.
-
-For a local trial, set `data/user/settings/auth.json` to enable auth, restart `deeptutor start`, register the first admin at `/register`, then create users from `/admin/users` and assign models, KBs, skills, tool policy, MCP policy, and code-execution access through grants.
-
-PocketBase mode remains a single-user integration in this tree; multi-user deployments should keep `integrations.pocketbase_url` blank and use the default JSON/SQLite auth and session stores unless an external user store has been explicitly designed for the deployment.
 
 ---
 

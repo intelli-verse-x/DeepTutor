@@ -17,6 +17,7 @@ import dynamic from "next/dynamic";
 import { Paperclip } from "lucide-react";
 import { wsUrl } from "@/lib/api";
 import { getPartnerHistory } from "@/lib/partners-api";
+import type { ExportableMessage } from "@/lib/chat-export";
 import type { StreamEvent } from "@/lib/unified-ws";
 import { docIconFor, formatBytes, isSvgFilename } from "@/lib/doc-attachments";
 import {
@@ -157,12 +158,17 @@ export default function PartnerChat({
   emoji,
   color,
   avatar,
+  onMessagesChange,
 }: {
   partnerId: string;
   partnerName: string;
   emoji?: string;
   color?: string;
   avatar?: string;
+  /** Lifts the settled conversation up so the page header can export it.
+   *  Fires only on discrete message events (send / turn done / clear), not
+   *  per streamed token — the live `draft` is intentionally excluded. */
+  onMessagesChange?: (messages: ExportableMessage[]) => void;
 }) {
   const { t } = useTranslation();
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -298,6 +304,21 @@ export default function PartnerChat({
       wsRef.current = null;
     };
   }, [partnerId, scrollToBottom]);
+
+  // Report the settled transcript to the parent for header export controls.
+  useEffect(() => {
+    onMessagesChange?.(
+      messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+        attachments: msg.attachments?.map((a) => ({
+          type: a.type,
+          filename: a.filename,
+          mime_type: a.mimeType,
+        })),
+      })),
+    );
+  }, [messages, onMessagesChange]);
 
   const handleSend = useCallback(
     (content: string, attachments: PartnerPendingAttachment[]) => {

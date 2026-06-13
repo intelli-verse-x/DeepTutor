@@ -8,6 +8,7 @@ import {
   getPartnerSessions,
   type PartnerSessionInfo,
 } from "@/lib/partners-api";
+import type { ExportableMessage } from "@/lib/chat-export";
 
 interface HistoryMessage {
   role: string;
@@ -31,9 +32,13 @@ function formatTime(value?: string) {
 export default function PartnerArchives({
   partnerId,
   onToast,
+  onMessagesChange,
 }: {
   partnerId: string;
   onToast: (message: string) => void;
+  /** Lifts the selected conversation up so the page header can export it.
+   *  Empty array when nothing is selected (or while loading). */
+  onMessagesChange?: (messages: ExportableMessage[]) => void;
 }) {
   const { t } = useTranslation();
   const [sessions, setSessions] = useState<PartnerSessionInfo[]>([]);
@@ -97,6 +102,20 @@ export default function PartnerArchives({
       cancelled = true;
     };
   }, [partnerId, selectedKey, onToast, t]);
+
+  // Report the selected conversation up for header export controls.
+  useEffect(() => {
+    if (!onMessagesChange) return;
+    if (!selectedKey || loadingMessages) {
+      onMessagesChange([]);
+      return;
+    }
+    onMessagesChange(
+      messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({ role: m.role, content: m.content })),
+    );
+  }, [messages, selectedKey, loadingMessages, onMessagesChange]);
 
   return (
     <div className="grid h-full min-h-0 grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
