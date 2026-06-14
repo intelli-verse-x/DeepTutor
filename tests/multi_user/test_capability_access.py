@@ -1,15 +1,11 @@
-"""Tests for capability-based access: has_capability_access + require_llm_access.
+"""Tests for capability-based access: has_capability_access.
 
 As of the multi-user release only the LLM capability is grantable per user, so
-gating is LLM-only; embedding/search are shared admin infrastructure.
+gating is LLM-only; embedding/search are shared admin infrastructure. The same
+helper backs the turn-runtime gate and the frontend lock, so they always agree.
 """
 
-import asyncio
-
-from fastapi import HTTPException
-import pytest
-
-from deeptutor.multi_user import access_guards, model_access
+from deeptutor.multi_user import model_access
 from deeptutor.multi_user.context import reset_current_user, set_current_user
 from deeptutor.multi_user.models import CurrentUser, UserScope
 
@@ -31,9 +27,6 @@ def make_user(tmp_path, role="user"):
 def _fake_access(llm=None):
     """Build a redacted_model_access return value with the given llm bucket."""
     return lambda _user_id=None: {"llm": list(llm or [])}
-
-
-# ── has_capability_access ────────────────────────────────────────────────
 
 
 def test_admin_always_has_access(tmp_path, monkeypatch):
@@ -81,44 +74,5 @@ def test_user_with_empty_grant_has_no_access(tmp_path, monkeypatch):
     token = set_current_user(make_user(tmp_path, role="user"))
     try:
         assert model_access.has_capability_access("llm") is False
-    finally:
-        reset_current_user(token)
-
-
-# ── require_llm_access guard ─────────────────────────────────────────────
-
-
-def test_guard_raises_typed_403_when_missing(tmp_path, monkeypatch):
-    monkeypatch.setattr(model_access, "redacted_model_access", _fake_access())
-    token = set_current_user(make_user(tmp_path, role="user"))
-    try:
-        with pytest.raises(HTTPException) as exc:
-            asyncio.run(access_guards.require_llm_access(None))
-        assert exc.value.status_code == 403
-        assert exc.value.detail["code"] == "NO_MODEL_ACCESS"
-        assert exc.value.detail["capability"] == "llm"
-    finally:
-        reset_current_user(token)
-
-
-def test_guard_passes_when_capability_available(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        model_access,
-        "redacted_model_access",
-        _fake_access(llm=[{"profile_id": "p", "model_id": "m", "available": True}]),
-    )
-    token = set_current_user(make_user(tmp_path, role="user"))
-    try:
-        # Should not raise.
-        assert asyncio.run(access_guards.require_llm_access(None)) is None
-    finally:
-        reset_current_user(token)
-
-
-def test_guard_passes_for_admin(tmp_path, monkeypatch):
-    monkeypatch.setattr(model_access, "redacted_model_access", _fake_access())
-    token = set_current_user(make_user(tmp_path, role="admin"))
-    try:
-        assert asyncio.run(access_guards.require_llm_access(None)) is None
     finally:
         reset_current_user(token)

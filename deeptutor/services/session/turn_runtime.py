@@ -721,19 +721,26 @@ class TurnRuntimeManager:
             # configured from admin runtime settings). Admin keeps the existing behavior
             # (None llm_selection → default config from admin scope).
             from deeptutor.multi_user.context import get_current_user
-            from deeptutor.multi_user.model_access import redacted_model_access
+            from deeptutor.multi_user.model_access import (
+                has_capability_access,
+                redacted_model_access,
+            )
 
             current_user = get_current_user()
             if not current_user.is_admin:
+                # Single gate, shared with the frontend lock and any HTTP
+                # surface: no usable LLM grant → a clear terminal error here
+                # instead of a silent fall-through to the global client.
+                if not has_capability_access("llm"):
+                    raise RuntimeError(
+                        "No LLM model is assigned to your account. Please contact an administrator."
+                    )
+                # Pin the first granted-and-available model as the selection.
                 assigned_llms = [
                     item
                     for item in redacted_model_access(current_user.id).get("llm", [])
                     if item.get("available")
                 ]
-                if not assigned_llms:
-                    raise RuntimeError(
-                        "No LLM model is assigned to your account. Please contact an administrator."
-                    )
                 llm_selection = {
                     "profile_id": assigned_llms[0].get("profile_id"),
                     "model_id": assigned_llms[0].get("model_id"),

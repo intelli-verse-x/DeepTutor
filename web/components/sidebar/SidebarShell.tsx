@@ -70,8 +70,8 @@ const PRIMARY_NAV: NavEntry[] = [
     requires: "llm",
   },
   {
-    // Knowledge stays reachable even without an embedding model so users can
-    // see existing knowledge bases; the page itself renders them locked.
+    // Knowledge needs no per-user model grant (embedding/search are shared
+    // admin infrastructure), so it stays reachable and is never gated.
     href: "/knowledge",
     label: "Knowledge",
     icon: BookOpen,

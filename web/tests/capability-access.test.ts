@@ -20,6 +20,16 @@ test("capabilityForPath matches nested routes by prefix", () => {
   assert.equal(capabilityForPath("/learning/book-1"), "llm");
 });
 
+test("capabilityForPath matches on a segment boundary, not a bare prefix", () => {
+  // A sibling route must never be swallowed by a shorter gated prefix.
+  assert.equal(capabilityForPath("/booket"), null);
+  assert.equal(capabilityForPath("/chatter"), null);
+  assert.equal(capabilityForPath("/playgrounds-xyz"), null);
+  // The gated route itself and its children still match.
+  assert.equal(capabilityForPath("/book"), "llm");
+  assert.equal(capabilityForPath("/book/123"), "llm");
+});
+
 test("capabilityForPath returns null for ungated routes", () => {
   // Knowledge is ungated: embedding is shared admin infra, not per-user.
   assert.equal(capabilityForPath("/knowledge"), null);

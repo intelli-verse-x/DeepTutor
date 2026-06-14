@@ -27,9 +27,15 @@ export const ROUTE_CAPABILITIES: ReadonlyArray<{
   { prefix: "/playground", capability: "llm" },
 ];
 
-/** Returns the capability required for a pathname, or null if none is needed. */
+/**
+ * Returns the capability required for a pathname, or null if none is needed.
+ * Matches on a path-segment boundary (exact, or prefix followed by "/") so a
+ * sibling route like "/booket" can never be swallowed by the "/book" prefix.
+ */
 export function capabilityForPath(pathname: string): Capability | null {
-  const match = ROUTE_CAPABILITIES.find((r) => pathname.startsWith(r.prefix));
+  const match = ROUTE_CAPABILITIES.find(
+    (r) => pathname === r.prefix || pathname.startsWith(`${r.prefix}/`),
+  );
   return match ? match.capability : null;
 }
 
