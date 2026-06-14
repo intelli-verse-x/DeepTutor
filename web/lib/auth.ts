@@ -45,6 +45,9 @@ export async function login(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
+      // A 401 here means "wrong credentials", not an expired session — handle it
+      // inline as a form error instead of triggering the global login redirect.
+      skipAuthRedirect: true,
     });
 
     if (res.ok) return { ok: true };
@@ -88,6 +91,9 @@ export async function register(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
+      // Registration validation failures (e.g. 400/401) should surface inline
+      // rather than bounce the user through the global login redirect.
+      skipAuthRedirect: true,
     });
 
     const data = await res.json().catch(() => ({}));
