@@ -47,24 +47,10 @@ def build_openai_client(config: LLMClientConfig) -> Any:
     """Construct an ``AsyncOpenAI`` / ``AsyncAzureOpenAI`` client."""
     default_headers = config.extra_headers or None
     spec = find_by_name(config.binding)
-    if spec and spec.backend == "anthropic":
-        from deeptutor.services.llm.provider_core import AnthropicProvider
-
-        anthropic_provider = AnthropicProvider(
-            api_key=config.api_key,
-            api_base=config.base_url or spec.default_api_base or None,
-            default_model=config.model or "claude-sonnet-4-20250514",
-            extra_headers=config.extra_headers,
-            supports_prompt_caching=spec.supports_prompt_caching,
-        )
-        return _AnthropicOpenAIAdapter(anthropic_provider)
-    if spec and spec.backend == "openai_codex":
-        from deeptutor.services.llm.provider_core import OpenAICodexProvider
-
-        oauth_provider = OpenAICodexProvider(
-            default_model=config.model or "openai-codex/gpt-5.1-codex",
-        )
-        return _AnthropicOpenAIAdapter(oauth_provider)
+    if spec:
+        native_adapter = _build_native_provider_adapter(config, spec)
+        if native_adapter is not None:
+            return native_adapter
 
     http_client = None
     if load_system_settings()["disable_ssl_verify"]:
@@ -85,8 +71,37 @@ def build_openai_client(config: LLMClientConfig) -> Any:
     )
 
 
-class _AnthropicOpenAIAdapter:
-    """OpenAI chat-completions facade backed by the native Anthropic provider."""
+def _build_native_provider_adapter(config: LLMClientConfig, spec: Any) -> Any | None:
+    if spec.backend == "anthropic":
+        from deeptutor.services.llm.provider_core import AnthropicProvider
+
+        anthropic_provider = AnthropicProvider(
+            api_key=config.api_key,
+            api_base=config.base_url or spec.default_api_base or None,
+            default_model=config.model or "claude-sonnet-4-20250514",
+            extra_headers=config.extra_headers,
+            supports_prompt_caching=spec.supports_prompt_caching,
+        )
+        return _ProviderOpenAIAdapter(anthropic_provider)
+    if spec.backend == "openai_codex":
+        from deeptutor.services.llm.provider_core import OpenAICodexProvider
+
+        oauth_provider = OpenAICodexProvider(
+            default_model=config.model or "openai-codex/gpt-5.1-codex",
+        )
+        return _ProviderOpenAIAdapter(oauth_provider)
+    if spec.backend == "github_copilot":
+        from deeptutor.services.llm.provider_core import GitHubCopilotProvider
+
+        copilot_provider = GitHubCopilotProvider(
+            default_model=config.model or "github-copilot/gpt-4.1",
+        )
+        return _ProviderOpenAIAdapter(copilot_provider)
+    return None
+
+
+class _ProviderOpenAIAdapter:
+    """OpenAI chat-completions facade backed by a native provider."""
 
     def __init__(self, provider: Any):
         self._provider = provider
@@ -106,7 +121,7 @@ class _AnthropicOpenAIAdapter:
         kwargs.pop("stream_options", None)
 
         if stream:
-            return _AnthropicOpenAIStream(
+            return _ProviderOpenAIStream(
                 provider=self._provider,
                 messages=messages,
                 tools=tools,
@@ -145,7 +160,7 @@ class _AnthropicOpenAIAdapter:
         )
 
 
-class _AnthropicOpenAIStream:
+class _ProviderOpenAIStream:
     def __init__(
         self,
         *,
@@ -172,7 +187,7 @@ class _AnthropicOpenAIStream:
         self._task: asyncio.Task[None] | None = None
         self._emitted_content = False
 
-    def __aiter__(self) -> "_AnthropicOpenAIStream":
+    def __aiter__(self) -> "_ProviderOpenAIStream":
         if self._queue is None:
             self._queue = asyncio.Queue()
             self._task = asyncio.create_task(self._run())
@@ -227,6 +242,10 @@ class _AnthropicOpenAIStream:
             await self._queue.put(exc)
         finally:
             await self._queue.put(None)
+
+
+_AnthropicOpenAIAdapter = _ProviderOpenAIAdapter
+_AnthropicOpenAIStream = _ProviderOpenAIStream
 
 
 def _openai_tool_call(tool_call: Any, *, index: int) -> Any:

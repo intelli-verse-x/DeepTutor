@@ -4,7 +4,7 @@ import pytest
 
 from deeptutor.core.agentic.client import (
     LLMClientConfig,
-    _AnthropicOpenAIAdapter,
+    _ProviderOpenAIAdapter,
     build_completion_kwargs,
     build_openai_client,
     can_use_native_tool_calling,
@@ -108,7 +108,7 @@ def test_build_openai_client_routes_anthropic_backend_through_adapter(monkeypatc
         )
     )
 
-    assert isinstance(client, _AnthropicOpenAIAdapter)
+    assert isinstance(client, _ProviderOpenAIAdapter)
     assert captured["api_key"] == "sk-test"
     assert captured["api_base"] == "https://anthropic.example/v1"
     assert captured["default_model"] == "claude-test"
@@ -136,8 +136,33 @@ def test_build_openai_client_routes_oauth_backend_through_adapter(monkeypatch) -
         )
     )
 
-    assert isinstance(client, _AnthropicOpenAIAdapter)
+    assert isinstance(client, _ProviderOpenAIAdapter)
     assert captured["default_model"] == "openai-codex/gpt-5.5"
+
+
+def test_build_openai_client_routes_github_copilot_backend_through_adapter(monkeypatch) -> None:
+    captured = {}
+
+    class FakeProvider:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "deeptutor.services.llm.provider_core.GitHubCopilotProvider",
+        FakeProvider,
+    )
+
+    client = build_openai_client(
+        LLMClientConfig(
+            binding="github_copilot",
+            model="github-copilot/gpt-4.1",
+            api_key=None,
+            base_url="https://api.githubcopilot.com",
+        )
+    )
+
+    assert isinstance(client, _ProviderOpenAIAdapter)
+    assert captured["default_model"] == "github-copilot/gpt-4.1"
 
 
 def test_anthropic_backend_can_use_native_tool_calling() -> None:
@@ -165,7 +190,7 @@ async def test_anthropic_adapter_streams_openai_style_chunks() -> None:
                 usage={"prompt_tokens": 2, "completion_tokens": 3, "total_tokens": 5},
             )
 
-    client = _AnthropicOpenAIAdapter(FakeProvider())
+    client = _ProviderOpenAIAdapter(FakeProvider())
     stream = await client.chat.completions.create(
         model="claude-test",
         messages=[{"role": "user", "content": "hello"}],
@@ -202,7 +227,7 @@ async def test_anthropic_adapter_emits_final_tool_call_delta() -> None:
                 finish_reason="tool_calls",
             )
 
-    client = _AnthropicOpenAIAdapter(FakeProvider())
+    client = _ProviderOpenAIAdapter(FakeProvider())
     stream = await client.chat.completions.create(
         model="claude-test",
         messages=[{"role": "user", "content": "read"}],
