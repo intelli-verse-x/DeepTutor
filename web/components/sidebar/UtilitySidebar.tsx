@@ -90,12 +90,12 @@ export default function UtilitySidebar() {
       onSelectSession={handleSelectSession}
       onRenameSession={handleRenameSession}
       onDeleteSession={handleDeleteSession}
-      footerSlot={
+      footerSlot={(collapsed) => (
         <>
-          <AdminLink />
-          <LogoutButton />
+          <AdminLink collapsed={collapsed} />
+          <LogoutButton collapsed={collapsed} />
         </>
-      }
+      )}
     />
   );
 }
