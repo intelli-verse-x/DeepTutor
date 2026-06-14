@@ -1,6 +1,14 @@
-import { apiFetch, apiUrl } from "@/lib/api";
+import { apiFetch, apiUrl, parseAuthEnabled } from "@/lib/api";
 
-export const AUTH_ENABLED = process.env.NEXT_PUBLIC_AUTH_ENABLED === "true";
+// ``NEXT_PUBLIC_AUTH_ENABLED`` is inlined at build time and, in the Docker
+// image, baked as the ``__NEXT_PUBLIC_AUTH_ENABLED_PLACEHOLDER__`` token that
+// ``start-frontend.sh`` rewrites on container start. ``parseAuthEnabled``
+// evaluates it at runtime (not a ``=== "true"`` literal comparison) so the
+// minifier cannot constant-fold the check and strip the placeholder, which
+// would permanently break the runtime rewrite. See lib/api.ts.
+export const AUTH_ENABLED = parseAuthEnabled(
+  process.env.NEXT_PUBLIC_AUTH_ENABLED,
+);
 
 export interface AuthStatus {
   enabled: boolean;
