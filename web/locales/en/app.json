@@ -720,6 +720,7 @@
   "Select provider...": "Select provider...",
   "Perplexity requires API key. It will fail hard without credentials.": "Perplexity requires API key. It will fail hard without credentials.",
   "Supported provider.": "Supported provider.",
+  "Required — without it, search falls back to DuckDuckGo.": "Required — without it, search falls back to DuckDuckGo.",
   "Deprecated provider. Switch to brave/tavily/jina/searxng/duckduckgo/perplexity.": "Deprecated provider. Switch to brave/tavily/jina/searxng/duckduckgo/perplexity.",
   "Unsupported provider. Use brave/tavily/jina/searxng/duckduckgo/perplexity.": "Unsupported provider. Use brave/tavily/jina/searxng/duckduckgo/perplexity.",
   "API Version": "API Version",

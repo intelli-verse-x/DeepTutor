@@ -724,6 +724,7 @@
   "Select provider...": "选择提供商...",
   "Perplexity requires API key. It will fail hard without credentials.": "Perplexity 需要 API 密钥，缺少凭证将无法使用。",
   "Supported provider.": "受支持的提供商。",
+  "Required — without it, search falls back to DuckDuckGo.": "必填——缺少它，搜索将回退到 DuckDuckGo。",
   "Deprecated provider. Switch to brave/tavily/jina/searxng/duckduckgo/perplexity.": "已弃用的提供商。请切换到 brave/tavily/jina/searxng/duckduckgo/perplexity。",
   "Unsupported provider. Use brave/tavily/jina/searxng/duckduckgo/perplexity.": "不受支持的提供商。请使用 brave/tavily/jina/searxng/duckduckgo/perplexity。",
   "API Version": "API 版本",
