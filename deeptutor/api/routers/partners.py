@@ -61,7 +61,11 @@ async def _get_start_lock(partner_id: str) -> asyncio.Lock:
         return lock
 
 
-async def _ensure_running_partner(partner_id: str) -> PartnerInstance:
+async def _ensure_running_partner(
+    partner_id: str,
+    *,
+    allow_stopped: bool = False,
+) -> PartnerInstance:
     mgr = get_partner_manager()
     instance = mgr.get_partner(partner_id)
     if instance and instance.running:
@@ -70,12 +74,16 @@ async def _ensure_running_partner(partner_id: str) -> PartnerInstance:
     config = mgr.load_config(partner_id)
     if config is None:
         raise HTTPException(status_code=404, detail=t("api.partner_not_found"))
+    if not allow_stopped and not mgr.auto_start_enabled(partner_id, default=False):
+        raise HTTPException(status_code=409, detail=t("api.partner_stopped_start_required"))
 
     lock = await _get_start_lock(partner_id)
     async with lock:
         instance = mgr.get_partner(partner_id)
         if instance and instance.running:
             return instance
+        if not allow_stopped and not mgr.auto_start_enabled(partner_id, default=False):
+            raise HTTPException(status_code=409, detail=t("api.partner_stopped_start_required"))
         try:
             return await mgr.start_partner(partner_id, config)
         except RuntimeError as exc:
@@ -440,7 +448,7 @@ async def create_partner(payload: CreatePartnerRequest):
         enabled_tools=payload.enabled_tools,
         mcp_tools=payload.mcp_tools,
     )
-    mgr.save_config(partner_id, config, auto_start=True)
+    mgr.save_config(partner_id, config, auto_start=bool(payload.start))
     write_soul(partner_id, soul_content)
 
     provisioning: dict[str, Any] = {"copied": {}, "errors": []}
@@ -584,7 +592,7 @@ async def update_partner(partner_id: str, payload: UpdatePartnerRequest):
 
 @router.post("/{partner_id}/start")
 async def start_partner(partner_id: str):
-    instance = await _ensure_running_partner(partner_id)
+    instance = await _ensure_running_partner(partner_id, allow_stopped=True)
     return instance.to_dict(mask_secrets=True)
 
 
@@ -914,29 +922,15 @@ async def partner_chat_ws(ws: WebSocket, partner_id: str):
             disconnected.set()
             return False
 
-    mgr = get_partner_manager()
-    instance = mgr.get_partner(partner_id)
-
     await ws.accept()
-
-    if not instance or not instance.running:
-        config = mgr.load_config(partner_id)
-        if config is None:
-            message = t("api.partner_not_found")
-            await _safe_send({"type": "error", "content": message})
-            await ws.close(code=4004, reason=message)
-            return
-        lock = await _get_start_lock(partner_id)
-        async with lock:
-            instance = mgr.get_partner(partner_id)
-            if not instance or not instance.running:
-                try:
-                    instance = await mgr.start_partner(partner_id, config)
-                except Exception:
-                    logger.exception("Failed to auto-start partner '%s' for websocket", partner_id)
-                    await _safe_send({"type": "error", "content": "Failed to start partner"})
-                    await ws.close(code=1011, reason="Failed to start partner")
-                    return
+    try:
+        instance = await _ensure_running_partner(partner_id)
+    except HTTPException as exc:
+        message = str(exc.detail)
+        await _safe_send({"type": "error", "content": message})
+        code = 4004 if exc.status_code == 404 else 4003
+        await ws.close(code=code, reason=message[:120])
+        return
 
     logger.info("WebSocket connected for partner '%s'", partner_id)
 

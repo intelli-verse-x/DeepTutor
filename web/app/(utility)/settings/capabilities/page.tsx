@@ -48,7 +48,7 @@ interface QuestionExtras {
 }
 
 interface SolveExtras {
-  max_iterations_per_step: number;
+  max_rounds: number;
   max_replans: number;
 }
 
@@ -75,7 +75,7 @@ function isValidCapabilitiesDTO(
     typeof chat.max_rounds === "number" &&
     !!chat.stage_budgets &&
     !!solve &&
-    typeof solve.max_iterations_per_step === "number" &&
+    typeof solve.max_rounds === "number" &&
     typeof solve.max_replans === "number" &&
     !!v.research &&
     !!v.question
@@ -285,7 +285,7 @@ export default function CapabilitiesSettingsPage() {
       <SettingsPageHeader
         title={t("Capabilities")}
         description={t(
-          "Per-capability LLM parameters and runtime knobs. Values are persisted to data/user/settings/agents.yaml (LLM params) and data/user/settings/main.yaml (runtime knobs).",
+          "Per-capability LLM parameters and runtime knobs.",
         )}
       />
 
@@ -338,7 +338,7 @@ export default function CapabilitiesSettingsPage() {
       <SettingSection
         title={t("Solve")}
         description={t(
-          "Deep solve pipeline: chained THINK / TOOL / FINISH / REPLAN loop.",
+          "Deep solve runs as one agent loop with a plan / finish-step / replan spine.",
         )}
       >
         <NumberRow
@@ -359,12 +359,12 @@ export default function CapabilitiesSettingsPage() {
           step={100}
         />
         <NumberRow
-          label={t("Max iterations per step")}
+          label={t("Max rounds")}
           help={t(
-            "Cap on the THINK / TOOL inner loop within a single plan step.",
+            "Total LLM-round budget for one solve turn (plan, tool calls and finishing all count).",
           )}
-          value={settings.solve.max_iterations_per_step}
-          onChange={(n) => patchSolveExtras({ max_iterations_per_step: n })}
+          value={settings.solve.max_rounds}
+          onChange={(n) => patchSolveExtras({ max_rounds: n })}
           min={1}
           max={50}
         />

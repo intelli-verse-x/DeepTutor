@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 try:
     from fastapi import FastAPI
@@ -220,6 +221,27 @@ class TestHistory:
 
 
 class TestChatAttachments:
+    def test_chat_does_not_auto_start_stopped_partner(self, client):
+        assert _create(client, start=True).status_code == 200
+        assert client.post("/api/v1/partners/ada/stop").status_code == 200
+
+        res = client.post("/api/v1/partners/ada/chat", json={"content": "hello"})
+
+        assert res.status_code == 409
+        from deeptutor.core.i18n import t
+
+        assert res.json()["detail"] == t("api.partner_stopped_start_required")
+
+    def test_create_start_false_disables_auto_start(self, client, isolated_root):
+        assert _create(client, start=False).status_code == 200
+
+        data = yaml.safe_load(
+            (isolated_root / "partners" / "ada" / "config.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert data["auto_start"] is False
+
     def test_materialize_partner_attachment_writes_partner_media(self, isolated_root):
         from deeptutor.api.routers.partners import (
             ChatAttachmentRequest,

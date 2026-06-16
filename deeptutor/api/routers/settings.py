@@ -65,7 +65,20 @@ DEFAULT_UI_SETTINGS = {
     # and the user hasn't seen yet) are ignored on read; missing names from a
     # legacy file fall back to the default (all on).
     "enabled_optional_tools": list(USER_TOGGLEABLE_TOOL_NAMES),
+    # When true, chat auto-plays each assistant reply via TTS. Per-user UI
+    # preference (not catalog); the chat surface also keeps a per-session
+    # override on top of this global default.
+    "voice_autoplay": False,
+    # Seconds the chat UI waits for any turn event before declaring the
+    # connection timed out. Bumped from 60 → 180 so slow tools (image/video
+    # generation) don't trip it; user-adjustable in Settings > Network.
+    "chat_response_timeout": 180,
 }
+
+# Bounds for the chat idle timeout (seconds): long enough for video renders,
+# capped so a typo can't wedge a turn open forever.
+CHAT_RESPONSE_TIMEOUT_MIN = 30
+CHAT_RESPONSE_TIMEOUT_MAX = 1800
 
 
 class SidebarNavOrder(BaseModel):
@@ -78,6 +91,16 @@ class UISettings(BaseModel):
     language: Literal["zh", "en"] = "en"
     sidebar_description: Optional[str] = None
     sidebar_nav_order: Optional[SidebarNavOrder] = None
+
+
+class VoiceAutoplayUpdate(BaseModel):
+    voice_autoplay: bool
+
+
+class ChatResponseTimeoutUpdate(BaseModel):
+    chat_response_timeout: int = Field(
+        ge=CHAT_RESPONSE_TIMEOUT_MIN, le=CHAT_RESPONSE_TIMEOUT_MAX
+    )
 
 
 class ThemeUpdate(BaseModel):
@@ -136,6 +159,9 @@ class MinerUSettingsUpdate(BaseModel):
     enable_formula: bool = True
     enable_table: bool = True
     is_ocr: bool = False
+    # Off by default → a local parse fails fast rather than silently pulling
+    # multi-GB model weights on first run.
+    allow_local_model_download: bool = False
 
 
 class MinerUModelDownloadPayload(BaseModel):
@@ -145,6 +171,27 @@ class MinerUModelDownloadPayload(BaseModel):
     source: Literal["huggingface", "modelscope"] = "huggingface"
     endpoint: str = ""
     local_cli_path: str = ""
+
+
+class DocumentParsingUpdate(BaseModel):
+    """Document-parsing settings update (the multi-engine control panel).
+
+    ``engine`` (when provided) switches the active parse engine. ``engines``
+    carries partial per-engine updates merged over the stored slices. For the
+    MinerU engine, ``api_token`` stays tri-state: omit it (or send ``None``) to
+    keep the stored token, ``""`` clears it, a non-empty string replaces it.
+    The MinerU engine's own knobs can also be edited via the legacy
+    ``/mineru`` endpoints; both preserve the other engines' settings.
+    """
+
+    engine: Optional[str] = None
+    engines: Optional[dict[str, dict]] = None
+
+
+class DocumentParsingTest(BaseModel):
+    """Readiness test for one engine (defaults to the active engine)."""
+
+    engine: Optional[str] = None
 
 
 def _invalidate_runtime_caches() -> None:
@@ -229,7 +276,13 @@ def _require_settings_admin() -> None:
 
 def _provider_choices() -> dict[str, list[dict[str, str]]]:
     """Build dropdown options for provider selection, keyed by service type."""
-    from deeptutor.services.config.provider_runtime import EMBEDDING_PROVIDERS
+    from deeptutor.services.config.provider_runtime import (
+        EMBEDDING_PROVIDERS,
+        IMAGEGEN_PROVIDERS,
+        STT_PROVIDERS,
+        TTS_PROVIDERS,
+        VIDEOGEN_PROVIDERS,
+    )
     from deeptutor.services.provider_registry import PROVIDERS
 
     llm = sorted(
@@ -272,7 +325,64 @@ def _provider_choices() -> dict[str, list[dict[str, str]]]:
         {"value": "perplexity", "label": "Perplexity", "base_url": ""},
         {"value": "serper", "label": "Serper", "base_url": ""},
     ]
-    return {"llm": llm, "embedding": embedding, "search": search}
+    tts = sorted(
+        [
+            {
+                "value": name,
+                "label": spec.label,
+                "base_url": spec.default_api_base,
+                "default_model": spec.default_model,
+                "default_voice": spec.default_voice,
+            }
+            for name, spec in TTS_PROVIDERS.items()
+        ],
+        key=lambda p: p["label"].lower(),
+    )
+    stt = sorted(
+        [
+            {
+                "value": name,
+                "label": spec.label,
+                "base_url": spec.default_api_base,
+                "default_model": spec.default_model,
+            }
+            for name, spec in STT_PROVIDERS.items()
+        ],
+        key=lambda p: p["label"].lower(),
+    )
+    imagegen = sorted(
+        [
+            {
+                "value": name,
+                "label": spec.label,
+                "base_url": spec.default_api_base,
+                "default_model": spec.default_model,
+            }
+            for name, spec in IMAGEGEN_PROVIDERS.items()
+        ],
+        key=lambda p: p["label"].lower(),
+    )
+    videogen = sorted(
+        [
+            {
+                "value": name,
+                "label": spec.label,
+                "base_url": spec.default_api_base,
+                "default_model": spec.default_model,
+            }
+            for name, spec in VIDEOGEN_PROVIDERS.items()
+        ],
+        key=lambda p: p["label"].lower(),
+    )
+    return {
+        "llm": llm,
+        "embedding": embedding,
+        "search": search,
+        "tts": tts,
+        "stt": stt,
+        "imagegen": imagegen,
+        "videogen": videogen,
+    }
 
 
 def _api_base_source(system: dict[str, Any]) -> str:
@@ -378,7 +488,7 @@ def _mineru_settings_payload() -> dict[str, Any]:
     install status at config time instead of failing at parse time; the
     definitive ``--version`` check runs behind the explicit Test button.
     """
-    from deeptutor.tools.question.mineru_backend import local_cli_probe
+    from deeptutor.services.parsing.engines.mineru.backend import local_cli_probe
 
     service = get_runtime_settings_service()
     settings = service.load_mineru(include_process_overrides=True)
@@ -387,6 +497,56 @@ def _mineru_settings_payload() -> dict[str, Any]:
         "settings": public,
         "api_token_set": bool(settings.get("api_token")),
         "local_cli": local_cli_probe(str(settings.get("local_cli_path") or "")),
+    }
+
+
+def _document_parsing_payload() -> dict[str, Any]:
+    """State for the Document Parsing settings page: active engine, all engine
+    slices (MinerU token redacted), engine availability, and per-engine
+    readiness (so the UI can surface the "models not downloaded" gate)."""
+    from deeptutor.services.parsing.engines.factory import (
+        get_parser,
+        list_engines,
+    )
+    from deeptutor.services.parsing.engines.mineru.backend import local_cli_probe
+
+    service = get_runtime_settings_service()
+    full = service.load_document_parsing(include_process_overrides=True)
+    engines = full.get("engines", {})
+
+    redacted: dict[str, Any] = {}
+    for name, slice_ in engines.items():
+        clean = dict(slice_)
+        clean.pop("api_token", None)
+        redacted[name] = clean
+
+    readiness: dict[str, Any] = {}
+    available = list_engines()
+    for entry in available:
+        if not entry["available"]:
+            continue
+        try:
+            parser = get_parser(entry["id"])
+            report = parser.is_ready(parser.resolve_config())
+            readiness[entry["id"]] = {
+                "ready": report.ready,
+                "reason": report.reason,
+                "message": report.message,
+            }
+        except Exception:  # pragma: no cover - defensive
+            continue
+
+    mineru_slice = engines.get("mineru", {})
+    return {
+        "engine": full.get("engine"),
+        "engines": redacted,
+        "available_engines": available,
+        "readiness": readiness,
+        # MinerU-specific UI state (token presence + CLI probe).
+        "mineru": {
+            "api_token_set": bool(mineru_slice.get("api_token")),
+            "local_cli": local_cli_probe(str(mineru_slice.get("local_cli_path") or "")),
+        },
     }
 
 
@@ -418,9 +578,60 @@ async def update_mineru_settings(payload: MinerUSettingsUpdate):
             "enable_formula": payload.enable_formula,
             "enable_table": payload.enable_table,
             "is_ocr": payload.is_ocr,
+            "allow_local_model_download": payload.allow_local_model_download,
         }
     )
     return _mineru_settings_payload()
+
+
+@router.get("/document-parsing")
+async def get_document_parsing_settings():
+    _require_settings_admin()
+    return _document_parsing_payload()
+
+
+@router.put("/document-parsing")
+async def update_document_parsing_settings(payload: DocumentParsingUpdate):
+    _require_settings_admin()
+    service = get_runtime_settings_service()
+    full = service.load_document_parsing(include_process_overrides=False)
+    engines = {name: dict(slice_) for name, slice_ in full.get("engines", {}).items()}
+
+    for name, update in (payload.engines or {}).items():
+        if name not in engines:
+            continue
+        merged = dict(update or {})
+        # MinerU token tri-state: omitted / None keeps the stored token.
+        if name == "mineru" and merged.get("api_token") is None:
+            merged.pop("api_token", None)
+        engines[name].update(merged)
+
+    new_engine = payload.engine or full.get("engine")
+    service.save_document_parsing({"engine": new_engine, "engines": engines})
+    return _document_parsing_payload()
+
+
+@router.post("/document-parsing/test")
+async def test_document_parsing(payload: DocumentParsingTest):
+    """Readiness test for an engine. For MinerU's deeper checks (live cloud
+    token / CLI ``--version``) the UI uses ``/mineru/test``; this generic test
+    covers engine availability + model readiness for all engines."""
+    _require_settings_admin()
+    from deeptutor.services.parsing.engines.factory import get_parser, is_engine_available
+
+    service = get_runtime_settings_service()
+    engine = payload.engine or service.load_document_parsing().get("engine") or ""
+    if not is_engine_available(engine):
+        return {"ok": False, "message": f"The '{engine}' parsing engine isn't installed."}
+    try:
+        parser = get_parser(engine)
+        report = parser.is_ready(parser.resolve_config())
+    except Exception as exc:  # noqa: BLE001 - surface as a test result
+        return {"ok": False, "message": str(exc)}
+    return {
+        "ok": report.ready,
+        "message": report.message or ("Ready to parse." if report.ready else "Not ready."),
+    }
 
 
 @router.post("/mineru/models/download")
@@ -431,7 +642,7 @@ async def start_mineru_models_download(payload: MinerUModelDownloadPayload):
     endpoint. Only one download runs at a time (process-wide singleton).
     """
     _require_settings_admin()
-    from deeptutor.tools.question.mineru_models import (
+    from deeptutor.services.parsing.engines.mineru.models import (
         get_model_download_manager,
         resolve_models_downloader,
     )
@@ -462,7 +673,7 @@ async def start_mineru_models_download(payload: MinerUModelDownloadPayload):
 @router.get("/mineru/models/download/status")
 async def mineru_models_download_status(cursor: int = 0):
     _require_settings_admin()
-    from deeptutor.tools.question.mineru_models import get_model_download_manager
+    from deeptutor.services.parsing.engines.mineru.models import get_model_download_manager
 
     return get_model_download_manager().status(cursor)
 
@@ -470,7 +681,7 @@ async def mineru_models_download_status(cursor: int = 0):
 @router.post("/mineru/models/download/cancel")
 async def cancel_mineru_models_download():
     _require_settings_admin()
-    from deeptutor.tools.question.mineru_models import get_model_download_manager
+    from deeptutor.services.parsing.engines.mineru.models import get_model_download_manager
 
     return get_model_download_manager().cancel()
 
@@ -483,11 +694,14 @@ async def test_mineru_connection(payload: MinerUSettingsUpdate):
     the user can verify before saving; falls back to the stored token when the
     secret field is untouched."""
     _require_settings_admin()
-    from deeptutor.tools.question.mineru_cloud import verify_credentials
-    from deeptutor.tools.question.mineru_config import MinerUConfig, MinerUError
+    from deeptutor.services.parsing.engines.mineru.cloud import verify_credentials
+    from deeptutor.services.parsing.engines.mineru.config import MinerUConfig, MinerUError
 
     if payload.mode == "local":
-        from deeptutor.tools.question.mineru_backend import local_cli_probe, local_cli_version
+        from deeptutor.services.parsing.engines.mineru.backend import (
+            local_cli_probe,
+            local_cli_version,
+        )
 
         probe = local_cli_probe(payload.local_cli_path)
         if not probe["found"]:
@@ -615,6 +829,33 @@ async def update_language(update: LanguageUpdate):
     current_ui["language"] = update.language
     save_ui_settings(current_ui)
     return {"language": update.language}
+
+
+@router.put("/voice-autoplay")
+async def update_voice_autoplay(update: VoiceAutoplayUpdate):
+    """Persist the global default for auto-playing chat replies via TTS.
+
+    A personal UI preference (any authenticated user); the chat surface layers
+    a per-session override on top of this value.
+    """
+    current_ui = load_ui_settings()
+    current_ui["voice_autoplay"] = update.voice_autoplay
+    save_ui_settings(current_ui)
+    return {"voice_autoplay": update.voice_autoplay}
+
+
+@router.put("/chat-response-timeout")
+async def update_chat_response_timeout(update: ChatResponseTimeoutUpdate):
+    """Persist how long the chat UI waits for a turn event before timing out.
+
+    A personal UI preference (any authenticated user). Slow tools like image /
+    video generation can take longer than the old 60s default, so this is
+    user-adjustable; the chat surface reads it client-side.
+    """
+    current_ui = load_ui_settings()
+    current_ui["chat_response_timeout"] = update.chat_response_timeout
+    save_ui_settings(current_ui)
+    return {"chat_response_timeout": update.chat_response_timeout}
 
 
 @router.put("/ui")

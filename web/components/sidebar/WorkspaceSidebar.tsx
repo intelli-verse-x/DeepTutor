@@ -78,12 +78,12 @@ export default function WorkspaceSidebar() {
   const handleNewChat = useCallback(() => {
     cancelStreamingTurn();
     newSession();
-    router.push("/chat");
+    router.push("/home");
   }, [cancelStreamingTurn, newSession, router]);
 
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
-      router.push(`/chat/${sessionId}`);
+      router.push(`/home/${sessionId}`);
     },
     [router],
   );
@@ -116,7 +116,7 @@ export default function WorkspaceSidebar() {
       if (selectedSessionId === sessionId) {
         cancelStreamingTurn();
         newSession();
-        router.push("/chat");
+        router.push("/home");
       }
     },
     [cancelStreamingTurn, newSession, router, selectedSessionId, t],

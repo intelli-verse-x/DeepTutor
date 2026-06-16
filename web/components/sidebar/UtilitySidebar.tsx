@@ -43,7 +43,7 @@ export default function UtilitySidebar() {
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
       setActiveSessionId(sessionId);
-      router.push(`/chat/${sessionId}`);
+      router.push(`/home/${sessionId}`);
     },
     [router, setActiveSessionId],
   );

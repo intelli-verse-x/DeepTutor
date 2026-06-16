@@ -40,7 +40,7 @@ from deeptutor.agents._shared.tool_composition import (
     user_has_memory,
     user_has_notebooks,
 )
-from deeptutor.capabilities._shared import emit_capability_result
+from deeptutor.agents._shared.capability_result import emit_capability_result
 from deeptutor.core.agentic import (
     DispatchOutcome,
     LabeledStepResult,

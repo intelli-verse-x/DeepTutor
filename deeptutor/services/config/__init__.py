@@ -25,7 +25,10 @@ from .runtime_settings import (
     export_runtime_settings_to_env,
     get_runtime_settings_service,
     load_auth_settings,
+    load_graphrag_settings,
     load_integrations_settings,
+    load_lightrag_settings,
+    load_llamaindex_settings,
     load_mineru_settings,
     load_system_settings,
 )
@@ -70,7 +73,10 @@ __all__ = [
     "export_runtime_settings_to_env",
     "get_runtime_settings_service",
     "load_auth_settings",
+    "load_graphrag_settings",
     "load_integrations_settings",
+    "load_lightrag_settings",
+    "load_llamaindex_settings",
     "load_mineru_settings",
     "load_system_settings",
 ]

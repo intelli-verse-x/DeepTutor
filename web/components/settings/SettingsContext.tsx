@@ -19,7 +19,14 @@ import { setTheme as applyThemePreference } from "@/lib/theme";
 
 // ─── Domain types ─────────────────────────────────────────────────────────
 
-export type ServiceName = "llm" | "embedding" | "search";
+export type ServiceName =
+  | "llm"
+  | "embedding"
+  | "search"
+  | "tts"
+  | "stt"
+  | "imagegen"
+  | "videogen";
 
 export type CatalogModel = {
   id: string;
@@ -31,6 +38,21 @@ export type CatalogModel = {
   context_window?: string;
   context_window_source?: string;
   context_window_detected_at?: string;
+  // Voice (TTS): free-form provider/model-specific voice string, e.g.
+  // "alloy", "autumn", "model:voice". `response_format` is the TTS output
+  // codec (mp3/wav/...) and is reused by imagegen ("url"/"b64_json").
+  // `language` is an optional STT hint.
+  voice?: string;
+  response_format?: string;
+  language?: string;
+  // Image generation: pixel size (e.g. "1024x1024"), quality, and style.
+  size?: string;
+  quality?: string;
+  style?: string;
+  // Video generation: aspect ratio (e.g. "16:9"), duration (seconds), resolution.
+  aspect_ratio?: string;
+  duration?: string;
+  resolution?: string;
 };
 
 export type LlmContextWindowDetection = {
@@ -68,6 +90,10 @@ export type Catalog = {
     llm: CatalogService;
     embedding: CatalogService;
     search: CatalogService;
+    tts: CatalogService;
+    stt: CatalogService;
+    imagegen: CatalogService;
+    videogen: CatalogService;
   };
 };
 
@@ -81,6 +107,8 @@ export type ProviderOption = {
   label: string;
   base_url?: string;
   default_dim?: string;
+  default_model?: string;
+  default_voice?: string;
 };
 
 export type SystemStatus = {
@@ -120,75 +148,53 @@ export type TourStep = {
   descKey: string;
 };
 
-// Tour step order MUST match the sidebar order in
-// ``web/lib/settings-items.ts`` so navigating the tour walks the user
-// down the same list they see on the left.
+// Tour step order broadly follows the category order in
+// ``web/lib/settings-nav.ts`` so the guided walk moves through the hub's
+// sections top to bottom. Each step names the route it lives on (the Status
+// step targets the resident module on the hub itself); the overlay resolves
+// the ``data-tour`` target after the page renders.
 export const TOUR_STEPS: TourStep[] = [
   {
-    target: "tour-appearance",
-    route: "/settings/appearance",
-    titleKey: "settingsTour.appearance.title",
-    descKey: "settingsTour.appearance.desc",
-  },
-  {
     target: "tour-status",
-    route: "/settings/status",
+    route: "/settings",
     titleKey: "settingsTour.status.title",
     descKey: "settingsTour.status.desc",
   },
   {
-    target: "tour-network",
-    route: "/settings/network",
+    target: "tour-cat-appearance",
+    route: "/settings",
+    titleKey: "settingsTour.appearance.title",
+    descKey: "settingsTour.appearance.desc",
+  },
+  {
+    target: "tour-cat-network",
+    route: "/settings",
     titleKey: "settingsTour.network.title",
     descKey: "settingsTour.network.desc",
   },
   {
-    target: "tour-llm",
-    route: "/settings/llm",
-    titleKey: "settingsTour.llm.title",
-    descKey: "settingsTour.llm.desc",
+    target: "tour-cat-models",
+    route: "/settings",
+    titleKey: "settingsTour.models.title",
+    descKey: "settingsTour.models.desc",
   },
   {
-    target: "tour-embedding",
-    route: "/settings/embedding",
-    titleKey: "settingsTour.embedding.title",
-    descKey: "settingsTour.embedding.desc",
+    target: "tour-cat-knowledge",
+    route: "/settings",
+    titleKey: "settingsTour.knowledge.title",
+    descKey: "settingsTour.knowledge.desc",
   },
   {
-    target: "tour-search",
-    route: "/settings/search",
-    titleKey: "settingsTour.search.title",
-    descKey: "settingsTour.search.desc",
+    target: "tour-cat-chat",
+    route: "/settings",
+    titleKey: "settingsTour.chat.title",
+    descKey: "settingsTour.chat.desc",
   },
   {
-    target: "tour-capabilities",
-    route: "/settings/capabilities",
-    titleKey: "settingsTour.capabilities.title",
-    descKey: "settingsTour.capabilities.desc",
-  },
-  {
-    target: "tour-memory",
-    route: "/settings/memory",
+    target: "tour-cat-memory",
+    route: "/settings",
     titleKey: "settingsTour.memory.title",
     descKey: "settingsTour.memory.desc",
-  },
-  {
-    target: "tour-mcp",
-    route: "/settings/mcp",
-    titleKey: "settingsTour.mcp.title",
-    descKey: "settingsTour.mcp.desc",
-  },
-  {
-    target: "tour-tools",
-    route: "/settings/tools",
-    titleKey: "settingsTour.tools.title",
-    descKey: "settingsTour.tools.desc",
-  },
-  {
-    target: "tour-actions",
-    route: "/settings/llm",
-    titleKey: "settingsTour.apply.title",
-    descKey: "settingsTour.apply.desc",
   },
 ];
 
@@ -196,6 +202,21 @@ export const TOUR_STEPS: TourStep[] = [
 
 export function cloneCatalog(catalog: Catalog): Catalog {
   return JSON.parse(JSON.stringify(catalog)) as Catalog;
+}
+
+/** TTS/STT share the catalog shape but configure audio providers. */
+export function voiceService(service: ServiceName): boolean {
+  return service === "tts" || service === "stt";
+}
+
+/** imagegen/videogen share the catalog shape but configure media generation. */
+export function generationService(service: ServiceName): boolean {
+  return service === "imagegen" || service === "videogen";
+}
+
+/** Services whose model entry should prefill from the provider's default model. */
+function prefillsDefaultModel(service: ServiceName): boolean {
+  return voiceService(service) || generationService(service);
 }
 
 export function defaultCatalog(): Catalog {
@@ -209,6 +230,10 @@ export function defaultCatalog(): Catalog {
         profiles: [],
       },
       search: { active_profile_id: null, profiles: [] },
+      tts: { active_profile_id: null, active_model_id: null, profiles: [] },
+      stt: { active_profile_id: null, active_model_id: null, profiles: [] },
+      imagegen: { active_profile_id: null, active_model_id: null, profiles: [] },
+      videogen: { active_profile_id: null, active_model_id: null, profiles: [] },
     },
   };
 }
@@ -371,7 +396,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [catalogEditable, setCatalogEditable] = useState<boolean | null>(null);
   const [providers, setProviders] = useState<
     Record<ServiceName, ProviderOption[]>
-  >({ llm: [], embedding: [], search: [] });
+  >({
+    llm: [],
+    embedding: [],
+    search: [],
+    tts: [],
+    stt: [],
+    imagegen: [],
+    videogen: [],
+  });
   const [toast, setToast] = useState("");
   const [saving, setSaving] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -547,11 +580,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         const defaultProvider = service === "search" ? "brave" : undefined;
         const providerKey =
           service === "search" ? defaultProvider : defaultBinding;
+        const providerOption = (providers[service] || []).find(
+          (p) => p.value === providerKey,
+        );
         const providerLabel =
-          (providers[service] || []).find((p) => p.value === providerKey)
-            ?.label ??
-          providerKey ??
-          "New Profile";
+          providerOption?.label ?? providerKey ?? "New Profile";
         const profile: CatalogProfile = {
           id: profileId,
           name: providerLabel,
@@ -570,11 +603,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           profile.models.push({
             id: modelId,
             name: modelName,
-            model: "",
+            model: prefillsDefaultModel(service)
+              ? (providerOption?.default_model ?? "")
+              : "",
             ...(service === "embedding"
               ? {
                   dimension: embeddingDefaultDim(),
                   send_dimensions: true,
+                }
+              : {}),
+            ...(service === "tts"
+              ? {
+                  voice: providerOption?.default_voice ?? "",
+                  response_format: "mp3",
                 }
               : {}),
           });
@@ -613,23 +654,34 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             (item) => item.id === target.active_profile_id,
           ) ?? null;
         if (!profile) return;
+        const providerOption = (providers[service] || []).find(
+          (p) => p.value === profile.binding,
+        );
         const modelId = `${service}-model-${Date.now()}`;
         const modelName = nextModelName(profile.models, language);
         profile.models.push({
           id: modelId,
           name: modelName,
-          model: "",
+          model: prefillsDefaultModel(service)
+            ? (providerOption?.default_model ?? "")
+            : "",
           ...(service === "embedding"
             ? {
                 dimension: embeddingDefaultDim(profile.binding),
                 send_dimensions: true,
               }
             : {}),
+          ...(service === "tts"
+            ? {
+                voice: providerOption?.default_voice ?? "",
+                response_format: "mp3",
+              }
+            : {}),
         });
         target.active_model_id = modelId;
       });
     },
-    [embeddingDefaultDim, language, mutateCatalog],
+    [embeddingDefaultDim, language, mutateCatalog, providers],
   );
 
   const removeActiveModel = useCallback(
@@ -772,7 +824,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         const statusResponse = await apiFetch(apiUrl("/api/v1/system/status"));
         setStatus((await statusResponse.json()) as SystemStatus);
       }
-      setToast(t("Applied to runtime settings"));
+      setToast(t("All changes saved"));
     } finally {
       setApplying(false);
     }

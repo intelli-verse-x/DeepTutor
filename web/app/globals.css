@@ -588,6 +588,33 @@
   animation: fade-in 0.35s ease-out forwards;
 }
 
+/* Picker chrome: a soft scrim fade + a small spring-in for the card, so
+   modal pickers feel placed rather than popped. */
+@keyframes dt-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-overlay-in {
+  animation: dt-overlay-in 160ms ease-out;
+}
+@keyframes dt-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-pop-in {
+  animation: dt-pop-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 /* Streaming "breathing" label — used above the trace panel to surface that
    the assistant is still working. Cycles between full and dim opacity with
    a slow ease, mirroring Claude desktop's reasoning indicator. */
@@ -624,6 +651,19 @@
   transform-origin: center;
   transform-box: fill-box;
   will-change: transform;
+}
+
+/* While a fullscreen picker/modal is open, freeze ambient background
+   animations (sidebar "running session" pulse, breathing titles, pulsing
+   marks). They live behind the modal's frosted `backdrop-filter`; their
+   per-frame repaints were being re-sampled by the blur, reading as a constant
+   shimmer behind the scrim. `paused` holds them at their current frame (no
+   jump) and they resume on close. */
+body[data-picker-open] .dt-breathing-text,
+body[data-picker-open] .session-pulse,
+body[data-picker-open] .dt-session-icon-running,
+body[data-picker-open] .dt-mark-pulse {
+  animation-play-state: paused !important;
 }
 
 /* Capability menu pop-up — the dropdown blooms out of the chip itself

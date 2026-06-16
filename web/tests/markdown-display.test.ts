@@ -88,6 +88,28 @@ test("normalizeMarkdownForDisplay keeps bracketed vectors inside weighted math",
   assert.equal(normalizeMarkdownForDisplay(input), input);
 });
 
+test("normalizeMarkdownForDisplay keeps number arrays in prose untouched", () => {
+  const input = "线性卷积结果 [1, 5, 9, 5, 3, 2, 7] 与 [8, 5, 3, 6]。";
+  assert.equal(normalizeMarkdownForDisplay(input), input);
+});
+
+test("normalizeMarkdownForDisplay keeps number arrays inside inline math", () => {
+  const input = "序列 $x = [1, 5, 9, 5, 3, 2, 7]$ 与 $h = [8, 5, 3, 6]$。";
+  assert.equal(normalizeMarkdownForDisplay(input), input);
+});
+
+test("normalizeMarkdownForDisplay still linkifies small distinct numeric citation groups", () => {
+  assert.equal(
+    normalizeMarkdownForDisplay("See [1, 3] for details."),
+    'See [1, 3](#references "citation") for details.',
+  );
+});
+
+test("normalizeMarkdownForDisplay keeps backticked number arrays as code", () => {
+  const input = "Result `[1, 5, 9, 5, 3, 2, 7]` here.";
+  assert.equal(normalizeMarkdownForDisplay(input), input);
+});
+
 test("normalizeMarkdownForDisplay unwraps explicit citation code spans outside code", () => {
   assert.equal(
     normalizeMarkdownForDisplay("See `[web-1]` for details."),

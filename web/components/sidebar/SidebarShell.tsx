@@ -11,12 +11,11 @@ import {
   Brain,
   ChevronDown,
   Github,
-  GraduationCap,
   HeartHandshake,
+  House,
   LayoutGrid,
   Library,
   Lock,
-  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
   PenLine,
@@ -42,10 +41,10 @@ interface NavEntry {
 
 const PRIMARY_NAV: NavEntry[] = [
   {
-    href: "/chat",
-    label: "Chat",
-    icon: MessageSquare,
-    tooltipKey: "Chat tooltip",
+    href: "/home",
+    label: "Home",
+    icon: House,
+    tooltipKey: "Home tooltip",
     requires: "llm",
   },
   {
@@ -70,35 +69,32 @@ const PRIMARY_NAV: NavEntry[] = [
     requires: "llm",
   },
   {
-    // Knowledge needs no per-user model grant (embedding/search are shared
-    // admin infrastructure), so it stays reachable and is never gated.
-    href: "/knowledge",
-    label: "Knowledge",
-    icon: BookOpen,
-    tooltipKey: "Knowledge tooltip",
-  },
-  {
-    href: "/learning",
-    label: "Mastery Path",
-    icon: GraduationCap,
-    tooltipKey: "Mastery Path tooltip",
-    requires: "llm",
-  },
-  {
     href: "/space",
-    label: "Space",
+    label: "Learning Space",
     icon: LayoutGrid,
     tooltipKey: "Space tooltip",
   },
+];
+
+const SECONDARY_NAV: NavEntry[] = [
   {
+    // Memory is its own top-level console (pulled out of the Learning Space):
+    // a place to inspect and curate the tutor's long-term memory, not a daily
+    // workspace. Never gated — memory has no per-user model requirement.
     href: "/memory",
     label: "Memory",
     icon: Brain,
     tooltipKey: "Memory tooltip",
   },
-];
-
-const SECONDARY_NAV: NavEntry[] = [
+  {
+    // Knowledge Center sits just above Settings: it's a console for managing
+    // KBs and retrieval engines, not a daily workspace. Never gated — embedding
+    // / search are shared admin infrastructure, no per-user model grant needed.
+    href: "/knowledge",
+    label: "Knowledge Center",
+    icon: BookOpen,
+    tooltipKey: "Knowledge tooltip",
+  },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 const GITHUB_REPO_URL = "https://github.com/HKUDS/DeepTutor";
@@ -167,7 +163,7 @@ export function SidebarShell({
     });
   };
 
-  const handleChatClick = (event: React.MouseEvent) => {
+  const handleHomeClick = (event: React.MouseEvent) => {
     // Always reset to a fresh session (mirrors the old "New Chat" affordance);
     // let modifier-clicks fall through to default Link behavior so middle-click
     // open-in-new-tab still works.
@@ -175,7 +171,7 @@ export function SidebarShell({
       return;
     event.preventDefault();
     onNewChat?.();
-    router.push("/chat");
+    router.push("/home");
   };
 
   /* ---- Collapsed state ---- */
@@ -248,17 +244,14 @@ export function SidebarShell({
               >
                 <Link
                   href={item.href}
-                  onClick={item.href === "/chat" ? handleChatClick : undefined}
+                  onClick={item.href === "/home" ? handleHomeClick : undefined}
                   aria-label={t(item.label)}
                   className={`relative flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-150 ${
                     active
-                      ? "bg-[var(--background)]/80 text-[var(--foreground)] shadow-sm"
-                      : "text-[var(--muted-foreground)] hover:bg-[var(--background)]/50 hover:text-[var(--foreground)]"
+                      ? "bg-[var(--accent)] text-[var(--foreground)] shadow-sm"
+                      : "text-[var(--foreground)]/85 hover:bg-[var(--background)]/60 hover:text-[var(--foreground)]"
                   }`}
                 >
-                  {active && (
-                    <span className="absolute -left-1.5 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-[var(--foreground)]/80" />
-                  )}
                   <item.icon size={18} strokeWidth={active ? 2 : 1.6} />
                 </Link>
               </Tooltip>
@@ -280,13 +273,10 @@ export function SidebarShell({
                 title={t(item.label) as string}
                 className={`relative flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-150 ${
                   active
-                    ? "bg-[var(--background)]/80 text-[var(--foreground)] shadow-sm"
-                    : "text-[var(--muted-foreground)] hover:bg-[var(--background)]/50 hover:text-[var(--foreground)]"
+                    ? "bg-[var(--accent)] text-[var(--foreground)] shadow-sm"
+                    : "text-[var(--foreground)]/85 hover:bg-[var(--background)]/60 hover:text-[var(--foreground)]"
                 }`}
               >
-                {active && (
-                  <span className="absolute -left-1.5 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-[var(--foreground)]/80" />
-                )}
                 <item.icon size={18} strokeWidth={active ? 2 : 1.6} />
               </Link>
             );
@@ -379,11 +369,11 @@ export function SidebarShell({
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={item.href === "/chat" ? handleChatClick : undefined}
+                onClick={item.href === "/home" ? handleHomeClick : undefined}
                 className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
                   active
-                    ? "bg-[var(--background)]/70 font-medium text-[var(--foreground)]"
-                    : "text-[var(--muted-foreground)] hover:bg-[var(--background)]/50 hover:text-[var(--foreground)]"
+                    ? "bg-[var(--accent)] font-medium text-[var(--foreground)]"
+                    : "text-[var(--foreground)]/85 hover:bg-[var(--background)]/60 hover:text-[var(--foreground)]"
                 }`}
               >
                 <item.icon size={16} strokeWidth={active ? 1.9 : 1.5} />
@@ -456,8 +446,8 @@ export function SidebarShell({
               href={item.href}
               className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] transition-colors ${
                 active
-                  ? "bg-[var(--background)]/70 font-medium text-[var(--foreground)]"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--background)]/50 hover:text-[var(--foreground)]"
+                  ? "bg-[var(--accent)] font-medium text-[var(--foreground)]"
+                  : "text-[var(--foreground)]/85 hover:bg-[var(--background)]/60 hover:text-[var(--foreground)]"
               }`}
             >
               <item.icon size={16} strokeWidth={active ? 1.9 : 1.5} />

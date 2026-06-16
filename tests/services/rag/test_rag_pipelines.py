@@ -42,14 +42,16 @@ class _FakePipeline:
 def fake_service(tmp_path) -> tuple[RAGService, _FakePipeline]:
     pipeline = _FakePipeline()
     service = RAGService(kb_base_dir=str(tmp_path))
-    service._pipeline = pipeline  # type: ignore[attr-defined]
+    # No metadata.json under tmp_path → KBs resolve to the default provider.
+    service._pipelines["llamaindex"] = pipeline  # type: ignore[attr-defined]
     return service, pipeline
 
 
-def test_provider_argument_is_silently_ignored(tmp_path) -> None:
-    """Constructor accepts ``provider`` for back-compat but always uses llamaindex."""
-    service = RAGService(kb_base_dir=str(tmp_path), provider="lightrag")
-    assert service.provider == "llamaindex"
+def test_provider_argument_honored_for_known_provider(tmp_path) -> None:
+    """An explicit known provider wins (used at create time); unknown/legacy
+    strings collapse to the default engine."""
+    assert RAGService(kb_base_dir=str(tmp_path), provider="lightrag").provider == "lightrag"
+    assert RAGService(kb_base_dir=str(tmp_path), provider="raganything").provider == "llamaindex"
 
 
 @pytest.mark.asyncio
@@ -63,15 +65,42 @@ async def test_search_force_overwrites_provider_in_result(fake_service) -> None:
 
 
 @pytest.mark.asyncio
-async def test_search_drops_mode_kwarg_before_calling_pipeline(fake_service) -> None:
-    """The ``mode`` kwarg is intentionally consumed by the service layer."""
+async def test_search_forwards_mode_kwarg_to_pipeline(fake_service) -> None:
+    """Mode-aware engines must receive explicit retrieval mode overrides."""
     service, pipeline = fake_service
     await service.search(query="hi", kb_name="kb", mode="hybrid", top_k=5)
 
     last = pipeline.calls[-1]
     assert last["op"] == "search"
-    assert "mode" not in last["kwargs"]
+    assert last["kwargs"].get("mode") == "hybrid"
     assert last["kwargs"].get("top_k") == 5
+
+
+def test_ragservice_routes_provider_from_kb_config_when_metadata_missing(tmp_path) -> None:
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    (tmp_path / "kb_config.json").write_text(
+        '{"knowledge_bases": {"kb": {"rag_provider": "lightrag"}}}',
+        encoding="utf-8",
+    )
+
+    service = RAGService(kb_base_dir=str(tmp_path))
+
+    assert service._resolve_provider("kb") == "lightrag"
+
+
+def test_ragservice_prefers_authoritative_config_over_stale_metadata(tmp_path) -> None:
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    (kb / "metadata.json").write_text('{"rag_provider": "llamaindex"}', encoding="utf-8")
+    (tmp_path / "kb_config.json").write_text(
+        '{"knowledge_bases": {"kb": {"rag_provider": "lightrag"}}}',
+        encoding="utf-8",
+    )
+
+    service = RAGService(kb_base_dir=str(tmp_path))
+
+    assert service._resolve_provider("kb") == "lightrag"
 
 
 @pytest.mark.asyncio
@@ -159,7 +188,7 @@ async def test_delete_removes_kb_directory_when_pipeline_lacks_delete(tmp_path) 
             return {}
 
     service = RAGService(kb_base_dir=str(tmp_path))
-    service._pipeline = _NoDeletePipeline()  # type: ignore[attr-defined]
+    service._pipelines["llamaindex"] = _NoDeletePipeline()  # type: ignore[attr-defined]
 
     assert await service.delete(kb_name="demo") is True
     assert not kb_dir.exists()

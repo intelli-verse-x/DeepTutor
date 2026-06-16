@@ -19,7 +19,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from deeptutor.core.i18n import t
-from deeptutor.core.metadata_i18n import tool_description_i18n
+from deeptutor.i18n.metadata_i18n import tool_description_i18n
 from deeptutor.logging import (
     ProcessLogEvent,
     bind_log_context,

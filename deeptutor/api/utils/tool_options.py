@@ -11,7 +11,7 @@ import logging
 from typing import Any
 
 from deeptutor.core.i18n import current_language
-from deeptutor.core.metadata_i18n import localized_description, tool_description_i18n
+from deeptutor.i18n.metadata_i18n import localized_description, tool_description_i18n
 
 logger = logging.getLogger(__name__)
 

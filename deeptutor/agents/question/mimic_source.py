@@ -1,7 +1,7 @@
 """Exam-paper → QuizTemplate adapter for mimic mode.
 
 Wraps the (sync, IO-heavy) MinerU parsing backend (local CLI or cloud API,
-selected via ``mineru.json``) + the LLM question extractor so the capability
+selected via ``document_parsing.json``) + the LLM question extractor so the capability
 layer can hand mimic templates to :class:`QuestionPipeline` via its
 ``templates_override`` entry. Each extracted question carries its own
 ``question_type`` and ``difficulty`` (classified by the extractor), so mimic
@@ -27,7 +27,7 @@ from deeptutor.agents.question.pipeline import (
     _VALID_QUESTION_TYPES,
     QuizTemplate,
 )
-from deeptutor.tools.question.mineru_backend import parse_pdf_to_workdir
+from deeptutor.services.parsing import get_parse_service
 from deeptutor.tools.question.question_extractor import extract_questions_from_paper
 
 logger = logging.getLogger(__name__)
@@ -99,19 +99,28 @@ def _parse_sync(
     output_base.mkdir(parents=True, exist_ok=True)
 
     if paper_mode == "parsed":
-        # Caller already has a MinerU-parsed directory; skip the parse step.
+        # Caller already has a parsed directory; skip the parse step. Its own
+        # dir doubles as the questions-output dir (legacy behavior).
         working_dir = paper_path
+        questions_dir = working_dir
     else:
-        # Local CLI or cloud API — the backend is selected from mineru.json and
-        # both converge on a working dir with the parsed artifacts.
-        working_dir = parse_pdf_to_workdir(paper_path, output_base, on_output=progress_callback)
+        # Shared parse layer: cached + engine-pluggable (the active engine is
+        # selected in Settings → Document Parsing). Returns the cache dir with
+        # the parsed artifacts; the questions JSON goes to the session output
+        # dir so it never pollutes the shared parse cache.
+        doc = get_parse_service().parse(paper_path, on_output=progress_callback)
+        working_dir = doc.workdir or paper_path
+        questions_dir = output_base
 
-    json_files = list(working_dir.glob("*_questions.json"))
+    json_files = list(questions_dir.glob("*_questions.json"))
     if not json_files:
-        ok = extract_questions_from_paper(str(working_dir), output_dir=None)
+        ok = extract_questions_from_paper(
+            str(working_dir),
+            output_dir=None if questions_dir == working_dir else str(questions_dir),
+        )
         if not ok:
             raise RuntimeError("Failed to extract questions from parsed exam")
-        json_files = list(working_dir.glob("*_questions.json"))
+        json_files = list(questions_dir.glob("*_questions.json"))
     if not json_files:
         raise RuntimeError("Question extraction output not found")
 

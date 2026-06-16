@@ -114,6 +114,44 @@ export async function getSkill(name: string): Promise<SkillDetail> {
   };
 }
 
+export interface InstalledSkill {
+  name: string;
+  version: string;
+  verdict: { status: string; detail: string };
+}
+
+/**
+ * Import a hub skill (e.g. from EduHub) into the caller's own skill layer.
+ * `ref` is a `<hub>:<slug>[@version]` reference — the EduHub import flow always
+ * builds an `eduhub:` ref. Surfaces the hub's security verdict so callers can
+ * warn on `unknown`/`suspicious` packages.
+ */
+export async function installSkillFromHub(
+  ref: string,
+  options?: { name?: string; force?: boolean; allowUnverified?: boolean },
+): Promise<InstalledSkill> {
+  const response = await apiFetch(apiUrl("/api/v1/skills/install"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ref,
+      name: options?.name,
+      force: options?.force ?? false,
+      allow_unverified: options?.allowUnverified ?? false,
+    }),
+  });
+  const data = await asJson(response);
+  invalidateSkillsCache();
+  return {
+    name: String(data?.skill?.name ?? ""),
+    version: String(data?.version ?? ""),
+    verdict: {
+      status: String(data?.verdict?.status ?? "unknown"),
+      detail: String(data?.verdict?.detail ?? ""),
+    },
+  };
+}
+
 export async function createSkill(
   payload: CreateSkillPayload,
 ): Promise<SkillInfo> {

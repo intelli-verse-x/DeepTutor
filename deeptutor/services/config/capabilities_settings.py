@@ -61,7 +61,12 @@ _SIMPLE_LLM_DEFAULTS: dict[str, dict[str, Any]] = {
 # main.yaml subtrees that capabilities read at runtime (besides LLM params).
 _MAIN_YAML_RUNTIME_DEFAULTS: dict[str, dict[str, Any]] = {
     "solve": {
-        "max_iterations_per_step": 7,
+        # Total LLM-round budget for one solve turn (plan + tool + finish all
+        # count as rounds in the flat agent loop). Higher than chat's default
+        # (each plan step costs several rounds) but kept moderate so a churning
+        # turn finishes naturally instead of running long enough to hit an LLM
+        # timeout — raise it in settings if you want deeper solving.
+        "max_rounds": 12,
         "max_replans": 2,
     },
     "research": {
@@ -224,10 +229,13 @@ def _build_main_runtime_block(main_cfg: dict[str, Any], capability: str) -> dict
         return {}
     if capability == "solve":
         solve_cfg = _get_at(main_cfg, ("capabilities", "solve"))
+        # The pre-flat-loop ``max_iterations_per_step`` key was inert, so a stale
+        # value is intentionally ignored — only the new ``max_rounds`` counts,
+        # otherwise everyone would silently inherit the old (too-low) number.
         return {
-            "max_iterations_per_step": _coerce_int(
-                solve_cfg.get("max_iterations_per_step"),
-                defaults["max_iterations_per_step"],
+            "max_rounds": _coerce_int(
+                solve_cfg.get("max_rounds"),
+                defaults["max_rounds"],
                 lo=1,
                 hi=50,
             ),
@@ -355,10 +363,10 @@ def _apply_main_runtime(
         return
     if capability == "solve":
         solve_section: dict[str, Any] = {}
-        if "max_iterations_per_step" in block:
-            solve_section["max_iterations_per_step"] = _coerce_int(
-                block.get("max_iterations_per_step"),
-                defaults["max_iterations_per_step"],
+        if "max_rounds" in block:
+            solve_section["max_rounds"] = _coerce_int(
+                block.get("max_rounds"),
+                defaults["max_rounds"],
                 lo=1,
                 hi=50,
             )
@@ -424,4 +432,24 @@ def save_capabilities_settings(payload: dict[str, Any]) -> dict[str, Any]:
     return capabilities_settings_dict()
 
 
-__all__ = ["capabilities_settings_dict", "save_capabilities_settings"]
+def get_solve_params() -> dict[str, Any]:
+    """Runtime solve params, read through the same coerce path as the UI.
+
+    Combines the two storage locations the solve settings page writes to:
+    ``temperature`` / ``max_tokens`` (agents.yaml) and ``max_rounds`` /
+    ``max_replans`` (main config). This is the single source the deep-solve
+    capability forwards into the chat agent loop, so the settings page actually
+    drives the loop instead of being inert.
+    """
+    agents_cfg = _read_agents_yaml()
+    main_cfg = ConfigManager().load_config()
+    llm = _build_simple_llm_block(agents_cfg, "solve")
+    runtime = _build_main_runtime_block(main_cfg, "solve")
+    return {**llm, **runtime}
+
+
+__all__ = [
+    "capabilities_settings_dict",
+    "get_solve_params",
+    "save_capabilities_settings",
+]

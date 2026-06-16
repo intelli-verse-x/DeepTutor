@@ -168,11 +168,17 @@ async def lifespan(app: FastAPI):
     # Migrate any v1 memory files (PROFILE.md / SUMMARY.md) into a
     # backup folder so the v2 three-layer subsystem starts clean.
     try:
-        from deeptutor.services.memory import migrate_v1_if_needed
+        from deeptutor.services.memory import (
+            migrate_partner_surface_if_needed,
+            migrate_v1_if_needed,
+        )
 
         backup = migrate_v1_if_needed()
         if backup is not None:
             logger.info("v1 memory archived to %s", backup)
+        # Rename the legacy ``tutorbot`` memory surface (footnote refs, L2
+        # doc, snapshot/trace dirs, L3 meta keys) to ``partner``.
+        migrate_partner_surface_if_needed()
     except Exception as e:
         logger.warning(f"v1 memory migration failed: {e}")
 
@@ -287,6 +293,7 @@ from deeptutor.api.routers import (
     chat,
     co_writer,
     dashboard,
+    imports,
     knowledge,
     mastery_path,
     mcp_settings,
@@ -303,7 +310,7 @@ from deeptutor.api.routers import (
     skills,
     system,
     unified_ws,
-    vision_solver,
+    voice,
 )
 from deeptutor.api.routers import (
     tools as tools_router,
@@ -336,6 +343,9 @@ app.include_router(
 )
 app.include_router(
     knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"], dependencies=_auth
+)
+app.include_router(
+    imports.router, prefix="/api/v1/imports", tags=["imports"], dependencies=_auth
 )
 app.include_router(
     dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"], dependencies=_auth
@@ -384,14 +394,12 @@ app.include_router(
 )
 app.include_router(tools_router.router, prefix="/api/v1/tools", tags=["tools"], dependencies=_auth)
 app.include_router(system.router, prefix="/api/v1/system", tags=["system"], dependencies=_auth)
+app.include_router(voice.router, prefix="/api/v1/voice", tags=["voice"], dependencies=_auth)
 app.include_router(
     plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"], dependencies=_auth
 )
 app.include_router(
     agent_config.router, prefix="/api/v1/agent-config", tags=["agent-config"], dependencies=_auth
-)
-app.include_router(
-    vision_solver.router, prefix="/api/v1", tags=["vision-solver"], dependencies=_auth
 )
 app.include_router(
     partners.router, prefix="/api/v1/partners", tags=["partners"], dependencies=_admin

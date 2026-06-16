@@ -7,9 +7,12 @@ import json
 import logging
 from typing import Any
 
+from deeptutor.capabilities.mastery import MASTERY_TOOL_TYPES
+from deeptutor.capabilities.obsidian import OBSIDIAN_TOOL_TYPES
+from deeptutor.capabilities.solve import SOLVE_TOOL_TYPES
 from deeptutor.core.tool_protocol import BaseTool, ToolDefinition, ToolParameter, ToolResult
-from deeptutor.loop_plugins.mastery import MASTERY_TOOL_TYPES
 from deeptutor.tools.exec_tool import ExecTool
+from deeptutor.tools.media_gen_tool import ImagegenTool, VideogenTool
 from deeptutor.tools.prompting import load_prompt_hints
 
 logger = logging.getLogger(__name__)
@@ -550,12 +553,8 @@ class GeoGebraAnalysisTool(_PromptHintsMixin, BaseTool):
                 "commands_count": len(final_commands),
                 "final_ggb_commands": final_commands,
                 "image_is_reference": result.get("image_is_reference", False),
-                "bbox_elements": len((result.get("bbox_output") or {}).get("elements", [])),
                 "constraints_count": len(constraints),
                 "relations_count": len(relations),
-                "reflection_issues": len(
-                    (result.get("reflection_output") or {}).get("issues_found", [])
-                ),
             },
         )
 
@@ -1452,17 +1451,27 @@ BUILTIN_TOOL_TYPES: tuple[type[BaseTool], ...] = (
     GithubTool,
     AskUserTool,
     CronTool,
-    # Mastery Path tools — globally registered so schemas/API stay stable;
-    # the chat loop plugin decides when to auto-mount them for a turn.
+    # Image → GeoGebra figure reconstruction. User-toggleable in chat; the
+    # solve loop capability force-mounts it for diagram problems.
+    GeoGebraAnalysisTool,
+    # Text-to-image / text-to-video generation. User-toggleable + per-user
+    # grant-gated; the chat pipeline only mounts them when a model is configured.
+    ImagegenTool,
+    VideogenTool,
+    # Mastery Path + Solve + Obsidian tools — globally registered so schemas/API
+    # stay stable; the chat loop capabilities decide when to auto-mount them for
+    # a turn. Obsidian is a knowledge capability: when its vault is selected it
+    # runs the turn exclusively on these tools.
     *MASTERY_TOOL_TYPES,
+    *SOLVE_TOOL_TYPES,
+    *OBSIDIAN_TOOL_TYPES,
 )
 
-# Tools whose implementation is parked while we redesign them. NOT loaded
-# into the runtime registry — the chat agent cannot invoke these — but the
-# settings page surfaces them with a "Coming soon" badge so users see the
-# capability is on the roadmap. Re-add to ``BUILTIN_TOOL_TYPES`` when ready
-# to ship.
-COMING_SOON_TOOL_TYPES: tuple[type[BaseTool], ...] = (GeoGebraAnalysisTool,)
+# No tools are parked right now. When a tool's implementation is being
+# redesigned, list its type here: it stays OUT of the runtime registry (the
+# chat agent cannot invoke it) while the settings page still surfaces it with
+# a "Coming soon" badge. Re-add to ``BUILTIN_TOOL_TYPES`` when ready to ship.
+COMING_SOON_TOOL_TYPES: tuple[type[BaseTool], ...] = ()
 
 BUILTIN_TOOL_NAMES: tuple[str, ...] = tuple(tool_type().name for tool_type in BUILTIN_TOOL_TYPES)
 
@@ -1480,6 +1489,9 @@ USER_TOGGLEABLE_TOOL_NAMES: tuple[str, ...] = (
     "web_search",
     "paper_search",
     "reason",
+    "geogebra_analysis",
+    "imagegen",
+    "videogen",
 )
 
 TOOL_ALIASES: dict[str, tuple[str, dict[str, Any]]] = {
@@ -1503,6 +1515,8 @@ __all__ = [
     "ExecTool",
     "GeoGebraAnalysisTool",
     "GithubTool",
+    "ImagegenTool",
+    "VideogenTool",
     "ListNotebookTool",
     "PaperSearchToolWrapper",
     "RAGTool",

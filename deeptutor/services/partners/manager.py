@@ -315,6 +315,10 @@ class PartnerManager:
             logger.exception("Failed to load auto_start flag for partner '%s'", partner_id)
             return default
 
+    def auto_start_enabled(self, partner_id: str, *, default: bool = False) -> bool:
+        """Return whether this partner is allowed to start without an explicit user action."""
+        return self._load_auto_start(partner_id, default=default)
+
     def merge_config(self, partner_id: str, overrides: dict[str, Any]) -> PartnerConfig:
         """Overlay non-``None`` overrides onto the on-disk config.
 

@@ -964,7 +964,8 @@ def test_parse_exam_paper_to_templates_happy_path(monkeypatch, tmp_path: Path) -
         )
     )
 
-    monkeypatch.setattr(mimic_source, "parse_pdf_to_workdir", lambda *a, **k: parsed_dir)
+    # "parsed" mode reads an already-parsed dir; it never invokes the parse
+    # layer, so only the question extractor needs stubbing.
     monkeypatch.setattr(mimic_source, "extract_questions_from_paper", lambda *a, **k: True)
 
     templates, trace = asyncio.run(

@@ -324,6 +324,7 @@ function PartnerDetail() {
               emoji={partner.emoji}
               color={partner.color}
               avatar={partner.avatar}
+              running={partner.running}
               onMessagesChange={setChatMessages}
             />
           </div>

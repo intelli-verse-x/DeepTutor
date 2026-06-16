@@ -418,6 +418,12 @@ function getTraceHeader(
     ].includes(kind)
   ) {
     title = label;
+  } else if (kind === "context_exploration") {
+    // The pre-pass that investigates the turn's attached sources before
+    // answering. Noun header for the trace row — the turn-level status row
+    // carries the verb form ("Exploring your context…") so the two never
+    // read as the same label stacked on itself.
+    title = t("Context exploration");
   } else if (role === "retrieve") {
     title = t("Retrieve");
   } else if (role === "explore" || kind === "agent_loop_round") {
@@ -1168,12 +1174,30 @@ function TraceRowItem({
   if (kind === "llm_final_response") return null;
   const expandable = hasExpandableContent(callEvents, group, role);
   if (!expandable && !active) return null;
-  const open = expandable && (userOpen ?? active);
 
   const isToolRow = kind === "tool_planning" || group === "tool_call";
   const isChatRound = kind === "agent_loop_round";
   const isRetrieve = role === "retrieve";
   const narration = isNarrationRound(callEvents);
+  // The model's own text-form deliberation — chat-loop reasoning/narration and
+  // pipeline "Thought"/"Plan" rounds. Unlike a tool call (whose result is
+  // secondary detail worth folding away), here the text IS the substance, so
+  // it always streams in full and is never collapsed behind a chevron.
+  const isThinking =
+    isChatRound ||
+    role === "thought" ||
+    kind === "llm_reasoning" ||
+    kind === "llm_planning";
+  // Thinking rows pin open; everything else folds to a preview once settled
+  // unless the user pins it. The context-exploration pre-pass is the
+  // exception to "auto-open while live": its briefing can be long, and
+  // auto-opening it lets the trace climb the viewport (the page is pinned to
+  // the bottom while streaming). Keep it folded by default — a compact,
+  // pulsing one-liner the user can expand to read/watch the briefing.
+  const isContextExploration = kind === "context_exploration";
+  const autoOpen = isContextExploration ? false : active;
+  const open = isThinking ? true : expandable && (userOpen ?? autoOpen);
+  const canToggle = expandable && !isThinking;
 
   const toolCallEvent = callEvents.find((event) => event.type === "tool_call");
   const toolName = String(
@@ -1231,17 +1255,17 @@ function TraceRowItem({
   // Chat rounds ARE their text, so an open chat row renders the full
   // reasoning/narration inline (markdown) rather than a separate detail
   // body. Tool / pipeline rows keep their structured detail body.
-  const showDetailBody = open && !isChatRound;
+  const showDetailBody = open && !isThinking;
   const showChatBody = open && isChatRound;
 
   return (
     <div className="group/row">
       <div
-        role={expandable ? "button" : undefined}
-        aria-expanded={expandable ? open : undefined}
-        onClick={expandable ? () => setUserOpen(!open) : undefined}
+        role={canToggle ? "button" : undefined}
+        aria-expanded={canToggle ? open : undefined}
+        onClick={canToggle ? () => setUserOpen(!open) : undefined}
         className={`flex items-start gap-2.5 py-1.5 text-[14px] leading-[1.5] text-[var(--muted-foreground)] ${
-          expandable
+          canToggle
             ? "cursor-pointer transition-colors hover:text-[var(--foreground)]"
             : ""
         }`}
@@ -1272,35 +1296,62 @@ function TraceRowItem({
                 <MarkdownRenderer content={contentText} variant="trace" />
               ) : null}
             </div>
-          ) : (
+          ) : isThinking ? (
+            // Pipeline "Thought"/"Plan" rounds: a quiet label, then the
+            // model's reasoning streamed inline below it — never folded. The
+            // body sits at the row's own 14px for comfortable reading, the
+            // label one notch heavier so the two read as label + prose.
             <>
               <span
-                className={`block ${active ? "dt-breathing-text" : ""} ${
-                  isChatRound ? "line-clamp-3 italic" : "line-clamp-2"
-                }`}
+                className={`block font-medium ${active ? "dt-breathing-text" : ""}`}
               >
                 {headline}
               </span>
+              {thoughtText || contentText ? (
+                <div className="mt-1 leading-[1.6]">
+                  <MarkdownRenderer
+                    content={thoughtText || contentText}
+                    variant="trace"
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <>
               {chip ? (
-                <div className="mt-1">
+                // Action verb + its artifact collapse onto a single line: the
+                // verb anchors (never truncates, always legible) while the
+                // dimmer query trails and ellipsizes. Reads "读取技能 pdf" /
+                // "联网搜索 …" at a glance — the colour drop is the only cue
+                // separating the two, no pill chrome.
+                <div className="flex items-baseline gap-1.5">
+                  <span className={`shrink-0 ${active ? "dt-breathing-text" : ""}`}>
+                    {headline}
+                  </span>
                   <span
-                    className={`inline-block max-w-full truncate rounded-md bg-[var(--muted)]/70 px-2 py-0.5 align-middle text-[var(--muted-foreground)]/85 ${
-                      chip.mono
-                        ? "font-mono text-[10.5px]"
-                        : "text-[11px] font-medium"
+                    className={`min-w-0 truncate text-[var(--muted-foreground)]/55 ${
+                      chip.mono ? "font-mono text-[12.5px]" : ""
                     }`}
                   >
                     {chip.text}
                   </span>
                 </div>
-              ) : null}
+              ) : (
+                <span
+                  className={`block ${active ? "dt-breathing-text" : ""} ${
+                    isChatRound ? "line-clamp-3 italic" : "line-clamp-2"
+                  }`}
+                >
+                  {headline}
+                </span>
+              )}
             </>
           )}
         </div>
         {/* No trailing spinner while active — the pulsing leading mark carries
             that signal. A faint chevron surfaces on hover for any expandable
             row (live or settled) so the detail is always one click away. */}
-        {expandable ? (
+        {canToggle ? (
           <ChevronDown
             size={13}
             className={`mt-1 shrink-0 text-[var(--muted-foreground)]/40 opacity-0 transition-[transform,opacity] duration-150 group-hover/row:opacity-100 ${
@@ -1803,14 +1854,14 @@ function KnowledgeMark(props: MarkProps) {
   );
 }
 
-/** Read — an open book: a spine with two page leaves curving away. */
+/** Read — a bookmark ribbon: a single clean pennant with softly rounded
+ *  shoulders and a notched foot. One closed stroke reads crisply at glyph
+ *  size, where the old open-book's spine + two leaves muddied into a blob. */
 function BookMark(props: MarkProps) {
   return (
     <MarkSvg {...props}>
       <g transform="rotate(-2 12 12)">
-        <path d="M12 7 V18.2" />
-        <path d="M12 7 Q 7.8 5.4 4 6.6 V16.6 Q 7.8 15.6 12 17.2" />
-        <path d="M12 7 Q 16.2 5.4 20 6.6 V16.6 Q 16.2 15.6 12 17.2" />
+        <path d="M7.4 6.2 Q 7.4 4.8 8.8 4.8 H15.2 Q 16.6 4.8 16.6 6.2 V19 L12 14.9 L7.4 19 Z" />
       </g>
     </MarkSvg>
   );
@@ -2024,6 +2075,40 @@ function getDeepResearchStatusLabel(
   return null;
 }
 
+// While the explore_context pre-pass is the most recent activity, the
+// turn-level status reads "Exploring Your Contexts" instead of the generic
+// reasoning label. Mirrors getDeepResearchStatusLabel: a backward scan that
+// bails as soon as a later (answer-phase) activity is seen.
+function getExploreContextStatusLabel(
+  events: StreamEvent[],
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  isStreaming: boolean,
+) {
+  if (!isStreaming) return null;
+  for (let idx = events.length - 1; idx >= 0; idx -= 1) {
+    const event = events[idx];
+    const meta = getTraceMeta(event);
+    const kind = String(meta.call_kind || "");
+    const stage = String(event.stage || meta.phase || "");
+    // Anything still inside the explore pre-pass — its reasoning rounds AND the
+    // read_source tool calls it fires (stage="context_exploration") — keeps the
+    // status on the explore verb, so it doesn't flicker to "Tool Calling…".
+    if (kind === "context_exploration" || stage === "context_exploration") {
+      return t("Exploring your context…");
+    }
+    // The answer loop has taken over — let the normal mode label win.
+    if (
+      kind === "agent_loop_round" ||
+      kind === "llm_final_response" ||
+      event.type === "tool_call" ||
+      event.type === "content"
+    ) {
+      return null;
+    }
+  }
+  return null;
+}
+
 export function StreamingStatus({
   events,
   isStreaming,
@@ -2091,7 +2176,9 @@ export function StreamingStatus({
   else if (mode === "responded") modeLabel = t("DeepTutor responded.");
 
   const label =
-    getDeepResearchStatusLabel(events, t, Boolean(isStreaming)) ?? modeLabel;
+    getExploreContextStatusLabel(events, t, Boolean(isStreaming)) ??
+    getDeepResearchStatusLabel(events, t, Boolean(isStreaming)) ??
+    modeLabel;
 
   // Single turn-level clock. Ticks every second while the turn is in
   // flight and freezes on the final elapsed time once the answer ends —

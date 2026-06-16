@@ -633,6 +633,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         selectedBookReferences={selectedBookReferences}
         selectedNotebookRecords={selectedNotebookRecords}
         selectedHistorySessions={selectedHistorySessions}
+        selectedAgentSessions={[]}
         selectedQuestionEntries={selectedQuestionEntries}
         notebookReferenceGroups={notebookReferenceGroups}
         selectedPersona={selectedPersona}
@@ -651,6 +652,8 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         onSelectNotebookPicker={handleSelectNotebookPicker}
         onSelectBookPicker={handleSelectBookPicker}
         onSelectHistoryPicker={handleSelectHistoryPicker}
+        agentsAvailable={false}
+        onSelectAgentsPicker={() => {}}
         onSelectQuestionBankPicker={handleSelectQuestionBankPicker}
         onSelectPersonaPicker={handleSelectPersonaPicker}
         onSelectMemoryPicker={handleSelectMemoryPicker}
@@ -659,6 +662,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         onSend={handleSend}
         onRemoveAttachment={removeAttachment}
         onRemoveHistory={handleRemoveHistory}
+        onRemoveAgent={() => {}}
         onRemoveBookReference={handleRemoveBookReference}
         onRemoveNotebook={handleRemoveNotebook}
         onRemoveQuestion={handleRemoveQuestion}

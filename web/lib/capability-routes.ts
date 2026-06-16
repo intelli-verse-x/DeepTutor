@@ -19,11 +19,11 @@ export const ROUTE_CAPABILITIES: ReadonlyArray<{
   prefix: string;
   capability: Capability;
 }> = [
-  { prefix: "/chat", capability: "llm" },
+  { prefix: "/home", capability: "llm" },
   { prefix: "/partners", capability: "llm" },
   { prefix: "/co-writer", capability: "llm" },
   { prefix: "/book", capability: "llm" },
-  { prefix: "/learning", capability: "llm" }, // Mastery Path
+  { prefix: "/space/learning", capability: "llm" }, // Mastery Path
   { prefix: "/playground", capability: "llm" },
 ];
 

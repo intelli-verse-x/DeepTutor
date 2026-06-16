@@ -49,6 +49,7 @@ app.add_typer(partner_app, name="partner")
 app.add_typer(chat_app, name="chat")
 app.add_typer(kb_app, name="kb")
 app.add_typer(skill_app, name="skill")
+app.add_typer(skill_app, name="skills")  # alias: `deeptutor skills …`
 app.add_typer(memory_app, name="memory")
 app.add_typer(plugin_app, name="plugin")
 app.add_typer(config_app, name="config")

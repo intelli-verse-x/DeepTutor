@@ -19,7 +19,7 @@ not a format translation:
    and records provenance in ``.hub-lock.json``.
 
 Providers are addressed as ``<hub>:<slug>[@version]`` (e.g.
-``clawhub:gh-release-notes@1.2.0``; the hub prefix defaults to ``clawhub``).
+``eduhub:socratic-tutor@1.2.0``; the hub prefix defaults to ``eduhub``).
 Two provider shapes ship in v1:
 
 * :class:`ClawHubProvider` — speaks the ClawHub HTTP API directly (search /
@@ -62,9 +62,20 @@ from .service import SkillImportError, SkillInstallResult, SkillService
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HUB = "clawhub"
+# DeepTutor ships pointing at EduHub, its native open skill registry: a bare
+# ``install <slug>`` with no ``<hub>:`` prefix resolves here.
+DEFAULT_HUB = "eduhub"
 _CLAWHUB_BASE_URL = "https://clawhub.ai/api/v1"
+_EDUHUB_BASE_URL = "https://eduhub.deeptutor.info/api/v1"
 _HUBS_SETTINGS_FILE = "skill_hubs"
+
+# Hubs available out of the box, no settings file required. Both speak the
+# ClawHub HTTP protocol. A user's ``skill_hubs.json`` is layered on top and may
+# override any entry (e.g. point ``eduhub`` at a local dev server).
+_BUILTIN_HUBS: dict[str, dict[str, str]] = {
+    "clawhub": {"type": "clawhub", "base_url": _CLAWHUB_BASE_URL},
+    "eduhub": {"type": "clawhub", "base_url": _EDUHUB_BASE_URL},
+}
 
 _REF_RE = re.compile(
     r"^(?:(?P<hub>[a-z0-9][a-z0-9-]{0,31}):)?"
@@ -152,7 +163,7 @@ def parse_hub_ref(ref: str) -> tuple[str, str, str | None]:
     if match is None:
         raise HubError(f"Invalid skill reference `{ref}`. Expected <hub>:<slug>[@version].")
     return (
-        match.group("hub") or DEFAULT_HUB,
+        match.group("hub") or default_hub(),
         match.group("slug"),
         match.group("version"),
     )
@@ -234,7 +245,7 @@ class ClawHubProvider:
 
     def __init__(
         self,
-        name: str = DEFAULT_HUB,
+        name: str = "clawhub",
         *,
         base_url: str = _CLAWHUB_BASE_URL,
         client: httpx.Client | None = None,
@@ -242,6 +253,11 @@ class ClawHubProvider:
         self.name = name
         self._base_url = base_url.rstrip("/")
         self._client = client or httpx.Client(timeout=_HTTP_TIMEOUT, follow_redirects=True)
+
+    @property
+    def base_url(self) -> str:
+        """The configured ``/api/v1`` base URL (used to derive the web origin)."""
+        return self._base_url
 
     def _get(self, path: str, **params: Any) -> httpx.Response:
         url = f"{self._base_url}{path}"
@@ -342,6 +358,101 @@ class ClawHubProvider:
             latest = payload["skill"].get("latestVersion")
         return str(latest or "").strip()
 
+    def publish(
+        self,
+        *,
+        slug: str,
+        version: str,
+        zip_bytes: bytes,
+        token: str,
+        fields: dict[str, str],
+    ) -> dict[str, Any]:
+        """Publish a version via ``POST /skills`` (multipart + bearer token).
+
+        Read-only ClawHub mirrors will reject this; eduhub (same /api/v1 shape)
+        accepts it. Surfaces the API's JSON ``error`` message on failure.
+        """
+        url = f"{self._base_url}/skills"
+        try:
+            response = self._client.post(
+                url,
+                data={"slug": slug, "version": version, **fields},
+                files={"zip": ("package.zip", zip_bytes, "application/zip")},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        except httpx.HTTPError as exc:
+            raise HubError(f"{self.name}: publish request failed: {exc}") from exc
+        if response.status_code >= 400:
+            detail = ""
+            try:
+                detail = str(response.json().get("error") or "")
+            except ValueError:
+                detail = response.text[:200]
+            raise HubError(
+                f"{self.name}: publish failed (HTTP {response.status_code}): {detail}"
+            )
+        try:
+            return response.json()
+        except ValueError:
+            return {}
+
+    def list_my_skills(self, token: str) -> list[dict[str, Any]]:
+        """List the authenticated user's skills via ``GET /skills?owner=me``.
+
+        Each row carries the slug, current ``version`` (latest), the full
+        ``versions`` list (for rollback) and the current classification (for
+        pre-filling an upgrade's tagging) — see ``buildMySkills`` on the hub.
+        """
+        url = f"{self._base_url}/skills"
+        try:
+            response = self._client.get(
+                url, params={"owner": "me"}, headers={"Authorization": f"Bearer {token}"}
+            )
+        except httpx.HTTPError as exc:
+            raise HubError(f"{self.name}: request failed: {exc}") from exc
+        if response.status_code in (401, 403):
+            raise HubError(f"{self.name}: not authenticated — run `skill login` or pass a valid token.")
+        if response.status_code >= 400:
+            raise HubError(f"{self.name}: HTTP {response.status_code}: {response.text[:200]}")
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise HubError(f"{self.name}: invalid JSON listing skills") from exc
+        rows = payload.get("skills") if isinstance(payload, dict) else None
+        return [row for row in (rows or []) if isinstance(row, dict)]
+
+    def set_dist_tag(
+        self,
+        slug: str,
+        *,
+        version: str,
+        token: str,
+        tag: str = "latest",
+    ) -> dict[str, Any]:
+        """Move a dist-tag (default ``latest``) to an existing version (rollback)."""
+        url = f"{self._base_url}/skills/{slug}/dist-tags"
+        try:
+            response = self._client.post(
+                url,
+                json={"tag": tag, "version": version},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        except httpx.HTTPError as exc:
+            raise HubError(f"{self.name}: request failed: {exc}") from exc
+        if response.status_code >= 400:
+            detail = ""
+            try:
+                detail = str(response.json().get("error") or "")
+            except ValueError:
+                detail = response.text[:200]
+            raise HubError(
+                f"{self.name}: set dist-tag failed (HTTP {response.status_code}): {detail}"
+            )
+        try:
+            return response.json()
+        except ValueError:
+            return {}
+
 
 class CommandProvider:
     """Generic fetch-by-command provider for registries without a public API.
@@ -409,7 +520,8 @@ class CommandProvider:
 # ── provider registry ─────────────────────────────────────────────────────
 
 
-def _load_hub_settings() -> dict[str, dict[str, Any]]:
+def _load_hub_config() -> dict[str, Any]:
+    """Read the whole skill_hubs settings doc (``{}`` if absent/unreadable)."""
     try:
         path = get_path_service().get_settings_file(_HUBS_SETTINGS_FILE)
     except Exception:
@@ -421,16 +533,35 @@ def _load_hub_settings() -> dict[str, dict[str, Any]]:
     except (OSError, json.JSONDecodeError):
         logger.warning("skill_hubs settings file is unreadable; ignoring it")
         return {}
-    hubs = data.get("hubs") if isinstance(data, dict) else None
+    return data if isinstance(data, dict) else {}
+
+
+def _load_hub_settings() -> dict[str, dict[str, Any]]:
+    hubs = _load_hub_config().get("hubs")
     if not isinstance(hubs, dict):
         return {}
     return {str(name): value for name, value in hubs.items() if isinstance(value, dict)}
 
 
+def default_hub() -> str:
+    """The hub used when a ref carries no ``<hub>:`` prefix.
+
+    Settings-driven (``"default": "eduhub"`` in skill_hubs.json) so a
+    deployment can point the bare ``install <slug>`` at its own hub without
+    forking the code; falls back to the built-in ``eduhub``.
+    """
+    chosen = str(_load_hub_config().get("default") or "").strip().lower()
+    return chosen or DEFAULT_HUB
+
+
 def get_hub_provider(name: str) -> SkillHubProvider:
-    """Resolve a hub name to a provider: built-in ``clawhub`` plus settings."""
+    """Resolve a hub name to a provider.
+
+    Built-in hubs (``eduhub``, ``clawhub``) work with no configuration; entries
+    in ``settings/skill_hubs.json`` are layered on top and override built-ins.
+    """
     hub = (name or DEFAULT_HUB).strip().lower()
-    configured = _load_hub_settings().get(hub)
+    configured = _load_hub_settings().get(hub) or _BUILTIN_HUBS.get(hub)
     if configured is not None:
         kind = str(configured.get("type") or "").strip().lower()
         if kind == "clawhub":
@@ -443,10 +574,8 @@ def get_hub_provider(name: str) -> SkillHubProvider:
                 raise HubError(f"Hub `{hub}` is missing fetch_cmd in skill_hubs settings.")
             return CommandProvider(hub, fetch_cmd=fetch_cmd)
         raise HubError(f"Hub `{hub}` has unknown type `{kind}` in skill_hubs settings.")
-    if hub == DEFAULT_HUB:
-        return ClawHubProvider()
     raise HubError(
-        f"Unknown hub `{hub}`. Configure it in settings/skill_hubs.json or use `clawhub:`."
+        f"Unknown hub `{hub}`. Configure it in settings/skill_hubs.json."
     )
 
 
@@ -499,6 +628,254 @@ def install_from_hub(
     return HubInstallOutcome(result=result, ref=fetched.ref, verdict=verdict)
 
 
+# ── publish ─────────────────────────────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class PublishOutcome:
+    hub: str
+    slug: str
+    version: str
+    response: dict[str, Any]
+
+
+@dataclass(slots=True)
+class SkillPreflight:
+    """Result of the local pre-publish format check.
+
+    ``errors`` would make the hub reject the upload (the CLI should stop);
+    ``warnings`` are advisory. ``file_count``/``total_bytes`` are reported so
+    the caller can show what is about to be zipped.
+    """
+
+    errors: list[str]
+    warnings: list[str]
+    file_count: int
+    total_bytes: int
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+
+# Native executables / installers have no place in a document-shaped skill;
+# mirrors the hub scanner's DANGEROUS_BINARY_EXT so the CLI flags them locally
+# before upload rather than after a server-side ``review`` verdict.
+_DANGEROUS_BINARY_EXT = frozenset(
+    {
+        ".exe", ".dll", ".so", ".dylib", ".bin", ".msi", ".dmg", ".pkg",
+        ".app", ".bat", ".cmd", ".scr", ".com", ".jar", ".apk",
+    }
+)
+
+
+def preflight_skill_dir(directory: str | Path) -> SkillPreflight:
+    """Check a skill directory against the hub's structural constraints.
+
+    Local mirror of ``normalizePackage`` / scanner bounds (SKILL.md present,
+    ≤600 files, ≤4 MB/file, ≤40 MB total, no native executables) plus advisory
+    checks on the SKILL.md frontmatter. Catches the common rejections before a
+    round-trip; the authoritative scan still runs server-side on publish.
+    """
+    root = Path(directory).expanduser().resolve()
+    errors: list[str] = []
+    warnings: list[str] = []
+    file_count = 0
+    total_bytes = 0
+
+    if not root.is_dir():
+        return SkillPreflight([f"Not a directory: {root}"], [], 0, 0)
+
+    skill_md = root / "SKILL.md"
+    if not skill_md.is_file():
+        errors.append("Missing SKILL.md at the package root.")
+    else:
+        fm = _read_frontmatter(skill_md)
+        if not str(fm.get("name") or "").strip():
+            warnings.append("SKILL.md frontmatter has no `name:` (display name falls back to slug).")
+        if not str(fm.get("description") or "").strip():
+            warnings.append(
+                "SKILL.md frontmatter has no `description:` — agents rely on it to decide when to use the skill."
+            )
+
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root)
+        if any(part.startswith(".") or part == "__MACOSX" for part in rel.parts):
+            continue  # dotfiles / __MACOSX are dropped at zip time
+        file_count += 1
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        total_bytes += size
+        if size > _ZIP_MAX_ENTRY_BYTES:
+            errors.append(f"File exceeds 4 MB: {rel.as_posix()} ({size // 1_000_000} MB).")
+        if rel.suffix.lower() in _DANGEROUS_BINARY_EXT:
+            errors.append(f"Native executable/installer not allowed: {rel.as_posix()}.")
+
+    if file_count == 0:
+        errors.append("No publishable files found (only dotfiles/__MACOSX present).")
+    if file_count > _ZIP_MAX_ENTRIES:
+        errors.append(f"Too many files: {file_count} (limit {_ZIP_MAX_ENTRIES}).")
+    if total_bytes > _ZIP_MAX_TOTAL_BYTES:
+        errors.append(f"Package too large: {total_bytes // 1_000_000} MB (limit 40 MB).")
+
+    return SkillPreflight(errors, warnings, file_count, total_bytes)
+
+
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+# frontmatter 字段直通到发布表单（track/name/description 另行处理）。
+_PUBLISH_PASSTHROUGH = (
+    "language",
+    "domains",
+    "stages",
+    "forms",
+    "audiences",
+    "tags",
+    "changelog",
+    "license",
+    "longDescription",
+)
+
+
+def _slugify(text: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9._-]+", "-", (text or "").lower()).strip("-")
+    return cleaned or "skill"
+
+
+def _read_frontmatter(skill_md: Path) -> dict[str, Any]:
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    match = _FRONTMATTER_RE.match(text)
+    if not match:
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(match.group(1))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def read_skill_metadata(directory: str | Path) -> dict[str, Any]:
+    """Public reader for a skill dir's SKILL.md frontmatter (``{}`` if absent).
+
+    Lets the interactive CLI pre-fill prompts from frontmatter without
+    re-implementing the parser.
+    """
+    return _read_frontmatter(Path(directory).expanduser().resolve() / "SKILL.md")
+
+
+def resolve_publish_identity(
+    directory: str | Path,
+    *,
+    slug: str | None = None,
+    version: str | None = None,
+) -> tuple[str, str]:
+    """Resolve the (slug, version) a publish would use; version may be ``""``.
+
+    Same precedence as :func:`publish_to_hub` (explicit arg → frontmatter →
+    slug from name/dir), exposed so the CLI can show an accurate confirmation
+    summary before uploading.
+    """
+    root = Path(directory).expanduser().resolve()
+    fm = _read_frontmatter(root / "SKILL.md")
+    eff_slug = slug or str(fm.get("slug") or "") or _slugify(str(fm.get("name") or root.name))
+    eff_version = (version or str(fm.get("version") or "")).strip()
+    return eff_slug, eff_version
+
+
+def _zip_dir(root: Path) -> bytes:
+    """Zip a skill directory (skip dotfiles and __MACOSX), paths relative to root."""
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(root)
+            if any(part.startswith(".") or part == "__MACOSX" for part in rel.parts):
+                continue
+            archive.write(path, rel.as_posix())
+    return buf.getvalue()
+
+
+def publish_to_hub(
+    directory: str | Path,
+    *,
+    token: str,
+    version: str | None = None,
+    slug: str | None = None,
+    track: str | None = None,
+    hub: str | None = None,
+    overrides: dict[str, str] | None = None,
+    provider: SkillHubProvider | None = None,
+) -> PublishOutcome:
+    """Zip a local skill dir and publish a version to a publish-capable hub.
+
+    Metadata defaults come from the SKILL.md frontmatter; explicit args win.
+    ``slug``/``version``/``track`` are what eduhub requires (track is
+    mandatory there). ``overrides`` carries the classification an interactive
+    caller resolved (track / language / domains / stages / forms / audiences /
+    tags / changelog); each present key replaces the frontmatter-derived value
+    verbatim — including an empty string, which clears a multi-select facet.
+    Auth is a bearer ``token`` minted on the hub web UI.
+    """
+    root = Path(directory).expanduser().resolve()
+    skill_md = root / "SKILL.md"
+    if not skill_md.is_file():
+        raise SkillImportError(f"No SKILL.md found in {root}")
+
+    fm = _read_frontmatter(skill_md)
+    hub = hub or default_hub()
+    resolved = provider or get_hub_provider(hub)
+    publish = getattr(resolved, "publish", None)
+    if not callable(publish):
+        raise HubError(f"Hub `{hub}` does not support publishing.")
+
+    eff_slug, eff_version = resolve_publish_identity(root, slug=slug, version=version)
+    if not eff_version:
+        raise SkillImportError(
+            "A version is required (pass --version or set `version:` in SKILL.md)."
+        )
+
+    fields: dict[str, str] = {}
+    if fm.get("name"):
+        fields["name"] = str(fm["name"])
+    if fm.get("description"):
+        fields["description"] = str(fm["description"])
+    eff_track = track or str(fm.get("track") or "")
+    if eff_track:
+        fields["track"] = eff_track
+    for key in _PUBLISH_PASSTHROUGH:
+        value = fm.get(key)
+        if isinstance(value, list):
+            fields[key] = ",".join(str(x) for x in value)
+        elif value is not None:
+            fields[key] = str(value)
+
+    # An interactive caller's resolved classification is authoritative: present
+    # keys replace the frontmatter-derived value as-is (empty string clears).
+    if overrides:
+        fields.update(overrides)
+
+    response = publish(
+        slug=eff_slug,
+        version=eff_version,
+        zip_bytes=_zip_dir(root),
+        token=token,
+        fields=fields,
+    )
+    return PublishOutcome(hub=hub, slug=eff_slug, version=eff_version, response=response)
+
+
 __all__ = [
     "DEFAULT_HUB",
     "ClawHubProvider",
@@ -508,8 +885,15 @@ __all__ = [
     "HubInstallOutcome",
     "HubSkillRef",
     "HubVerdict",
+    "PublishOutcome",
     "SkillHubProvider",
+    "SkillPreflight",
+    "default_hub",
     "get_hub_provider",
     "install_from_hub",
     "parse_hub_ref",
+    "preflight_skill_dir",
+    "publish_to_hub",
+    "read_skill_metadata",
+    "resolve_publish_identity",
 ]

@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Loader2, Search, UserRound, X } from "lucide-react";
+import { Check, Loader2, Search, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import PickerShell from "@/components/common/PickerShell";
+import PickerHeader from "@/components/common/PickerHeader";
 import { listPersonas, type PersonaInfo } from "@/lib/personas-api";
 
 interface PersonaPickerProps {
@@ -76,32 +77,15 @@ export default function PersonaPicker({
       backdropClass="bg-[var(--background)]/65"
     >
       <div className="surface-card w-full max-w-3xl overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] text-[var(--card-foreground)] shadow-[0_22px_70px_rgba(0,0,0,0.18)]">
-        <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
-          <div className="min-w-0">
-            <div className="mb-1 inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--primary)]">
-              <UserRound className="h-3 w-3" />
-              {t("Persona")}
-            </div>
-            <h2
-              id="persona-picker-title"
-              className="text-lg font-semibold text-[var(--foreground)]"
-            >
-              {t("Select Persona")}
-            </h2>
-            <p className="mt-0.5 text-sm text-[var(--muted-foreground)]">
-              {t(
-                "Choose a behavior persona to apply, or pick No persona to use the default.",
-              )}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-2 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
-            aria-label={t("Close")}
-          >
-            <X size={18} />
-          </button>
-        </div>
+        <PickerHeader
+          icon={UserRound}
+          titleId="persona-picker-title"
+          title={t("Select Persona")}
+          subtitle={t(
+            "Choose a behavior persona to apply, or pick No persona to use the default.",
+          )}
+          onClose={onClose}
+        />
 
         <div className="bg-[var(--background)]/40 p-5">
           <button

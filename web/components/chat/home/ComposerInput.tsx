@@ -42,6 +42,9 @@ interface ComposerInputProps {
   onSelectNotebookPicker: () => void;
   onSelectBookPicker: () => void;
   onSelectHistoryPicker: () => void;
+  onSelectAgentsPicker?: () => void;
+  /** Hide the My Agents entry (e.g. the quiz follow-up surface). */
+  agentsAvailable?: boolean;
   onSelectQuestionBankPicker: () => void;
   onSelectPersonaPicker: () => void;
   onSelectMemoryPicker: () => void;
@@ -120,6 +123,8 @@ export const ComposerInput = memo(
       onSelectNotebookPicker,
       onSelectBookPicker,
       onSelectHistoryPicker,
+      onSelectAgentsPicker,
+      agentsAvailable = true,
       onSelectQuestionBankPicker,
       onSelectPersonaPicker,
       onSelectMemoryPicker,
@@ -271,6 +276,7 @@ export const ComposerInput = memo(
           | "attach"
           | "knowledge"
           | "chat_history"
+          | "my_agents"
           | "books"
           | "notebooks"
           | "question_bank"
@@ -282,6 +288,7 @@ export const ComposerInput = memo(
         if (key === "attach") onSelectAttach();
         else if (key === "knowledge") onSelectKnowledge?.();
         else if (key === "chat_history") onSelectHistoryPicker();
+        else if (key === "my_agents") onSelectAgentsPicker?.();
         else if (key === "books") onSelectBookPicker();
         else if (key === "notebooks") onSelectNotebookPicker();
         else if (key === "question_bank") onSelectQuestionBankPicker();
@@ -293,6 +300,7 @@ export const ComposerInput = memo(
         onSelectAttach,
         onSelectKnowledge,
         onSelectHistoryPicker,
+        onSelectAgentsPicker,
         onSelectBookPicker,
         onSelectNotebookPicker,
         onSelectQuestionBankPicker,
@@ -335,6 +343,7 @@ export const ComposerInput = memo(
               selectedCounts={selectedCounts}
               knowledgeAvailable={knowledgeAvailable}
               personaAvailable={personaAvailable}
+              agentsAvailable={agentsAvailable}
               onSelectItem={handleSelectSpaceItem}
             />
           </div>

@@ -24,6 +24,7 @@ from deeptutor.services.skill.service import (
     InvalidSkillNameError,
     InvalidTagError,
     SkillExistsError,
+    SkillImportError,
     SkillNotFoundError,
     SkillReadOnlyError,
     TagExistsError,
@@ -45,6 +46,21 @@ class UpdateSkillRequest(BaseModel):
     content: str | None = None
     rename_to: str | None = None
     tags: list[str] | None = None
+
+
+class InstallSkillRequest(BaseModel):
+    """Install a hub skill into the caller's own skill layer.
+
+    ``ref`` is a ``<hub>:<slug>[@version]`` reference (the bare hub prefix
+    defaults to ``eduhub``). The web "import from EduHub" flow always builds an
+    ``eduhub:`` ref so a spoofed bridge message can't redirect the install to an
+    arbitrary registry.
+    """
+
+    ref: str = Field(..., min_length=1, max_length=256)
+    name: str | None = None
+    force: bool = False
+    allow_unverified: bool = False
 
 
 class CreateTagRequest(BaseModel):
@@ -162,6 +178,43 @@ async def create_skill(payload: CreateSkillRequest) -> dict[str, object]:
         raise HTTPException(status_code=400, detail=str(exc))
     except InvalidTagError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/install")
+async def install_skill(payload: InstallSkillRequest) -> dict[str, object]:
+    """Import a hub skill (e.g. from EduHub) into the caller's own skill layer.
+
+    Lands the package in the same per-user dir that ``/create`` writes to, so
+    the imported skill shows up in this user's Skills list. The install gate
+    (``suspicious`` verdict abort, safe extraction, ``always`` stripping)
+    lives in :func:`deeptutor.services.skill.hub.install_from_hub`.
+    """
+    import asyncio
+
+    from deeptutor.services.skill.hub import HubError, install_from_hub
+
+    service = get_skill_service()
+    try:
+        outcome = await asyncio.to_thread(
+            install_from_hub,
+            payload.ref,
+            service=service,
+            rename_to=payload.name,
+            force=payload.force,
+            allow_unverified=payload.allow_unverified,
+        )
+    except SkillExistsError as exc:
+        raise HTTPException(status_code=409, detail=f"Skill already exists: {exc}")
+    except (SkillImportError, InvalidSkillNameError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except HubError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    return {
+        "skill": outcome.result.info.to_dict(),
+        "verdict": {"status": outcome.verdict.status, "detail": outcome.verdict.detail},
+        "version": outcome.ref.version,
+    }
 
 
 @router.put("/{name}")

@@ -45,7 +45,7 @@ DEFAULT_MAIN_SETTINGS = {
     },
     "capabilities": {
         "solve": {
-            "max_iterations_per_step": 7,
+            "max_rounds": 12,
             "max_replans": 2,
         },
         "research": {
@@ -78,7 +78,6 @@ DEFAULT_AGENTS_SETTINGS = {
         "chat": {
             "temperature": 0.2,
             "responding": {"max_tokens": 8000},
-            "answer_now": {"max_tokens": 8000},
         },
     },
     "tools": {

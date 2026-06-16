@@ -1,8 +1,8 @@
 """Guards against StatusI18n status-message drift for the visualize capability.
 
 A capability that calls ``i18n.t("some_key", "default", ...)`` must have
-``some_key`` defined in ``capabilities/prompts/{en,zh}/<capability>.yaml`` under
-the ``status:`` section. If it isn't, ``StatusI18n.t`` silently falls back to the
+``some_key`` defined in ``agents/<module>/prompts/{en,zh}/<capability>.yaml``
+under the ``status:`` section. If it isn't, ``StatusI18n.t`` silently falls back to the
 English ``default`` — so non-English users see English status text while the
 code looks fine. This drift actually happened during the visualize Stage-3
 rewrite (the yaml lagged the code: missing keys + orphan keys); these tests keep
@@ -21,8 +21,8 @@ import re
 import yaml
 
 _REPO = Path(__file__).resolve().parents[2]
-_PROMPTS = _REPO / "deeptutor" / "capabilities" / "prompts"
-_CODE = _REPO / "deeptutor" / "capabilities" / "visualize.py"
+_PROMPTS = _REPO / "deeptutor" / "agents" / "visualize" / "prompts"
+_CODE = _REPO / "deeptutor" / "agents" / "visualize" / "capability.py"
 
 
 def _status_keys(lang: str) -> set[str]:

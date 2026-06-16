@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from deeptutor.core.context import UnifiedContext
-from deeptutor.loop_plugins.protocol import PromptBlock
+from deeptutor.capabilities.protocol import PromptBlock
 from deeptutor.services.prompt.language import append_language_directive
 
 
@@ -25,7 +25,7 @@ class ChatPromptAssembler:
         deferred_tools_manifest: str = "",
         notebook_manifest: str = "",
         workspace_note: str = "",
-        plugin_blocks: list[PromptBlock] | None = None,
+        capability_blocks: list[PromptBlock] | None = None,
         include_tool_manifest: bool = True,
     ) -> str:
         blocks = self.blocks(
@@ -35,7 +35,7 @@ class ChatPromptAssembler:
             deferred_tools_manifest=deferred_tools_manifest,
             notebook_manifest=notebook_manifest,
             workspace_note=workspace_note,
-            plugin_blocks=plugin_blocks,
+            capability_blocks=capability_blocks,
             include_tool_manifest=include_tool_manifest,
         )
         joined = "\n\n---\n\n".join(
@@ -52,7 +52,7 @@ class ChatPromptAssembler:
         deferred_tools_manifest: str = "",
         notebook_manifest: str = "",
         workspace_note: str = "",
-        plugin_blocks: list[PromptBlock] | None = None,
+        capability_blocks: list[PromptBlock] | None = None,
         include_tool_manifest: bool = True,
     ) -> list[PromptBlock]:
         blocks: list[PromptBlock] = [
@@ -60,11 +60,14 @@ class ChatPromptAssembler:
             PromptBlock("runtime_policy", self._t("runtime_policy")),
             PromptBlock("loop", self._t("loop.system")),
         ]
-        # Plugin playbooks sit high so they frame the whole turn when active;
+        # Capability playbooks sit high so they frame the whole turn when active;
         # empty blocks are omitted by ``system_prompt``'s join.
-        blocks.extend(plugin_blocks or [])
+        blocks.extend(capability_blocks or [])
         if context.persona_context:
             blocks.append(PromptBlock("persona_style", context.persona_context))
+        partner_policy = self._partner_turn_policy(context)
+        if partner_policy:
+            blocks.append(PromptBlock("partner_turn_policy", partner_policy))
         if context.memory_context:
             blocks.append(PromptBlock("memory", context.memory_context))
         if include_tool_manifest:
@@ -115,6 +118,14 @@ class ChatPromptAssembler:
             ).format(description=description)
             content = f"{content}\n{description_line}"
         return content
+
+    def _partner_turn_policy(self, context: UnifiedContext) -> str:
+        identity = context.metadata.get("agent_identity")
+        if not isinstance(identity, dict):
+            return ""
+        if not str(identity.get("name") or "").strip():
+            return ""
+        return self._t("partner_turn_policy", default="")
 
     def user_message(
         self,

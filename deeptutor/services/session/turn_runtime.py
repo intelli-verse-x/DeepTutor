@@ -679,7 +679,7 @@ class TurnRuntimeManager:
             key: raw_config.pop(key) for key in runtime_only_keys if key in raw_config
         }
         try:
-            from deeptutor.capabilities.request_contracts import validate_capability_config
+            from deeptutor.runtime.request_contracts import validate_capability_config
 
             validated_public_config = validate_capability_config(capability, raw_config)
         except ValueError as exc:
@@ -1446,6 +1446,7 @@ class TurnRuntimeManager:
                     fresh_book_references=book_references,
                     fresh_history_session_ids=history_references,
                     fresh_question_entry_ids=question_notebook_references,
+                    language=str(payload.get("language", "en") or "en"),
                 )
                 source_manifest_text, source_index = render_manifest(inventory)
                 effective_user_message = raw_user_content
@@ -1465,6 +1466,10 @@ class TurnRuntimeManager:
                         )
 
                 if history_references:
+                    from deeptutor.services.session.source_inventory import (
+                        serialize_referenced_transcript,
+                    )
+
                     history_records: list[dict[str, Any]] = []
                     for session_ref in history_references:
                         history_session_id = str(session_ref or "").strip()
@@ -1478,12 +1483,12 @@ class TurnRuntimeManager:
                         history_messages = await self.store.get_messages_for_context(
                             history_session_id
                         )
-                        transcript_lines = [
-                            f"## {str(message.get('role', '')).title()}\n{message.get('content', '')}"
-                            for message in history_messages
-                            if str(message.get("content", "") or "").strip()
-                        ]
-                        if not transcript_lines:
+                        transcript = serialize_referenced_transcript(
+                            history_session,
+                            history_messages,
+                            language=str(payload.get("language", "en") or "en"),
+                        )
+                        if not transcript:
                             continue
 
                         history_summary = str(
@@ -1510,7 +1515,7 @@ class TurnRuntimeManager:
                                     history_session.get("title", "") or "Untitled session"
                                 ),
                                 "summary": history_summary,
-                                "output": "\n\n".join(transcript_lines),
+                                "output": transcript,
                                 "metadata": {
                                     "session_id": history_session_id,
                                     "source": "history",

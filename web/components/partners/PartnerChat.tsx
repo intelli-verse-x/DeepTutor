@@ -158,6 +158,7 @@ export default function PartnerChat({
   emoji,
   color,
   avatar,
+  running,
   onMessagesChange,
 }: {
   partnerId: string;
@@ -165,6 +166,7 @@ export default function PartnerChat({
   emoji?: string;
   color?: string;
   avatar?: string;
+  running: boolean;
   /** Lifts the settled conversation up so the page header can export it.
    *  Fires only on discrete message events (send / turn done / clear), not
    *  per streamed token — the live `draft` is intentionally excluded. */
@@ -226,6 +228,15 @@ export default function PartnerChat({
   }, [partnerId, scrollToBottom]);
 
   useEffect(() => {
+    if (!running) {
+      wsRef.current?.close();
+      wsRef.current = null;
+      setConnected(false);
+      setStreaming(false);
+      setDraft(null);
+      return;
+    }
+
     const ws = new WebSocket(wsUrl(`/api/v1/partners/${partnerId}/ws`));
     wsRef.current = ws;
     ws.onopen = () => setConnected(true);
@@ -303,7 +314,7 @@ export default function PartnerChat({
       ws.close();
       wsRef.current = null;
     };
-  }, [partnerId, scrollToBottom]);
+  }, [partnerId, running, scrollToBottom]);
 
   // Report the settled transcript to the parent for header export controls.
   useEffect(() => {
@@ -324,6 +335,7 @@ export default function PartnerChat({
     (content: string, attachments: PartnerPendingAttachment[]) => {
       if (
         streaming ||
+        !running ||
         !wsRef.current ||
         wsRef.current.readyState !== WebSocket.OPEN
       )
@@ -361,7 +373,7 @@ export default function PartnerChat({
       setStreaming(true);
       scrollToBottom();
     },
-    [streaming, scrollToBottom, t],
+    [running, streaming, scrollToBottom, t],
   );
 
   return (
@@ -381,9 +393,11 @@ export default function PartnerChat({
                 {partnerName}
               </p>
               <p className="mt-1 max-w-sm text-[12.5px] text-[var(--muted-foreground)]">
-                {t(
-                  "Say hello — this conversation shares the same memory your partner has on its connected channels.",
-                )}
+                {running
+                  ? t(
+                      "Say hello — this conversation shares the same memory your partner has on its connected channels.",
+                    )
+                  : t("Partner is stopped. Start it before chatting.")}
               </p>
             </div>
           </div>
@@ -460,14 +474,18 @@ export default function PartnerChat({
       </div>
 
       <div className="mx-auto w-full max-w-2xl px-1 pb-4">
-        {!connected && (
+        {!running ? (
+          <p className="mb-1 text-center text-[11px] text-[var(--muted-foreground)]">
+            {t("Partner is stopped. Start it before chatting.")}
+          </p>
+        ) : !connected ? (
           <p className="mb-1 text-center text-[11px] text-[var(--muted-foreground)]">
             {t("Connecting…")}
           </p>
-        )}
+        ) : null}
         <PartnerComposer
           onSend={handleSend}
-          disabled={streaming || !connected}
+          disabled={streaming || !connected || !running}
         />
       </div>
     </div>

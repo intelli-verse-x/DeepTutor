@@ -167,9 +167,9 @@ export function SettingSection({
   );
 }
 
-// Page heading shared across settings sub-pages. The Save Draft / Apply
-// buttons live in the layout above this, so each page just owns its title
-// row.
+// Page heading shared across settings sub-pages. The global Save Draft / Apply
+// toolbar (which also shows where this module persists to) lives above this, so
+// each page just owns its title row.
 export function SettingsPageHeader({
   title,
   description,

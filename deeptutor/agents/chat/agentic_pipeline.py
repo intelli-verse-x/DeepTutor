@@ -15,6 +15,11 @@ from deeptutor.agents._shared.tool_composition import (
 )
 from deeptutor.agents.chat.agent_loop import AgentLoop
 from deeptutor.agents.chat.prompt_blocks import ChatPromptAssembler
+from deeptutor.capabilities import (
+    LoopCapability,
+    active_loop_capabilities,
+    any_exclusive_capability_active,
+)
 from deeptutor.core.agentic import (
     DispatchOutcome,
     LLMClientConfig,
@@ -33,7 +38,6 @@ from deeptutor.core.trace import (
     merge_trace_metadata,
     new_call_id,
 )
-from deeptutor.loop_plugins import LoopPlugin, active_loop_plugins
 from deeptutor.runtime.registry.deferred_tools import (
     DeferredToolLoader,
     render_deferred_tools_manifest,
@@ -54,6 +58,31 @@ logger = logging.getLogger(__name__)
 
 CHAT_EXCLUDED_TOOLS: set[str] = set()
 CHAT_OPTIONAL_TOOLS = default_optional_tools(excluded=CHAT_EXCLUDED_TOOLS)
+
+# Generation tools are user-toggleable + grant-gated, but only usable once an
+# admin has configured an active model for the service. Drop them from a turn's
+# tool list when unconfigured so the model never sees a tool that can only error.
+_GENERATION_TOOL_SERVICES: dict[str, str] = {"imagegen": "imagegen", "videogen": "videogen"}
+
+
+def _drop_unconfigured_generation_tools(tools: list[str]) -> list[str]:
+    present = [name for name in tools if name in _GENERATION_TOOL_SERVICES]
+    if not present:
+        return tools
+    try:
+        from deeptutor.services.config.model_catalog import get_model_catalog_service
+
+        service = get_model_catalog_service()
+        catalog = service.load()
+        configured = {
+            name
+            for name in present
+            if (service.get_active_model(catalog, _GENERATION_TOOL_SERVICES[name]) or {}).get("model")
+        }
+    except Exception:
+        logger.debug("generation-tool config probe failed; dropping them", exc_info=True)
+        configured = set()
+    return [name for name in tools if name not in _GENERATION_TOOL_SERVICES or name in configured]
 
 KB_SEED_MAX_KBS = 3
 KB_SEED_CHARS_PER_KB = 4000
@@ -145,7 +174,14 @@ def _flatten_ask_user_summary(ask_user_payload: dict[str, Any]) -> str:
 class AgenticChatPipeline:
     """Run chat as one exploring agent loop followed by a respond stage."""
 
-    def __init__(self, language: str = "en") -> None:
+    def __init__(
+        self,
+        language: str = "en",
+        *,
+        max_rounds: int | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> None:
         self.language = "zh" if language.lower().startswith("zh") else "en"
         self.llm_config = get_llm_config()
         self.binding = getattr(self.llm_config, "binding", None) or "openai"
@@ -177,6 +213,15 @@ class AgenticChatPipeline:
         self._respond_max_tokens = _read_int(
             chat_cfg.get("responding"), key="max_tokens", default=8000
         )
+        # Per-capability overrides (e.g. deep solve forwards its own round
+        # budget / temperature / answer-token cap, read from the solve
+        # settings). Chat itself passes none and keeps the chat_cfg values.
+        if max_rounds is not None:
+            self._max_rounds = max(1, int(max_rounds))
+        if temperature is not None:
+            self._chat_temperature = float(temperature)
+        if max_tokens is not None:
+            self._respond_max_tokens = max(256, int(max_tokens))
 
         try:
             self._prompts: dict[str, Any] = (
@@ -271,7 +316,7 @@ class AgenticChatPipeline:
             ),
             notebook_manifest=self._build_notebook_manifest(),
             workspace_note=self._workspace_system_note(context),
-            plugin_blocks=self._plugin_system_blocks(context),
+            capability_blocks=self._capability_system_blocks(context),
             include_tool_manifest=include_tool_manifest,
         )
 
@@ -428,13 +473,16 @@ class AgenticChatPipeline:
             return False
 
     def _compose_enabled_tools(self, context: UnifiedContext) -> list[str]:
-        return compose_enabled_tools(
+        composed = compose_enabled_tools(
             registry=self.registry,
             requested_tools=context.enabled_tools,
             optional_whitelist=CHAT_OPTIONAL_TOOLS,
             mount_flags=ToolMountFlags(
                 has_kb=bool(self._selected_kbs(context)),
-                has_sources=bool(self._source_index(context)),
+                # read_source is owned by the explore_context pre-pass (it runs
+                # the investigation over attached sources), not the answer loop.
+                # Keep it off the answer surface even when sources are present.
+                has_sources=False,
                 has_memory=user_has_memory(),
                 has_notebooks=user_has_notebooks(),
                 has_skills=bool(context.skills_manifest),
@@ -442,22 +490,34 @@ class AgenticChatPipeline:
                 has_exec=getattr(self, "_exec_enabled", False),
                 has_code=getattr(self, "_exec_enabled", False),
             ),
-            extra_auto_tools=self._plugin_tool_names(context),
+            capability_owned=self._capability_owned_tools(context),
+            exclusive=self._exclusive_capability_active(context),
         )
+        return _drop_unconfigured_generation_tools(composed)
 
-    def _active_loop_plugins(self, context: UnifiedContext) -> tuple[LoopPlugin, ...]:
-        return active_loop_plugins(context)
+    def _active_loop_capabilities(self, context: UnifiedContext) -> tuple[LoopCapability, ...]:
+        return active_loop_capabilities(context)
 
-    def _plugin_tool_names(self, context: UnifiedContext) -> tuple[str, ...]:
+    @staticmethod
+    def _exclusive_capability_active(context: UnifiedContext) -> bool:
+        """True when a knowledge capability owns the turn (replaces the surface).
+
+        Suppresses rag scaffolding (KB seed / kb note) too — rag isn't mounted,
+        so seeding or advertising it would be wrong.
+        """
+        return any_exclusive_capability_active(context)
+
+    def _capability_owned_tools(self, context: UnifiedContext) -> tuple[str, ...]:
+        """The active capabilities' own tools — added on top of chat's full surface."""
         names: list[str] = []
-        for plugin in self._active_loop_plugins(context):
-            names.extend(plugin.tool_types(context))
+        for cap in self._active_loop_capabilities(context):
+            names.extend(cap.owned_tools)
         return tuple(names)
 
-    def _plugin_system_blocks(self, context: UnifiedContext):
+    def _capability_system_blocks(self, context: UnifiedContext):
         blocks = []
-        for plugin in self._active_loop_plugins(context):
-            block = plugin.system_block(
+        for cap in self._active_loop_capabilities(context):
+            block = cap.system_block(
                 context,
                 language=self.language,
                 prompts=self._prompts,
@@ -466,13 +526,46 @@ class AgenticChatPipeline:
                 blocks.append(block)
         return blocks
 
-    def _plugin_pre_loop_seed(self, context: UnifiedContext) -> str:
+    def _capability_pre_loop_seed(self, context: UnifiedContext) -> str:
         seeds = [
             seed.strip()
-            for plugin in self._active_loop_plugins(context)
-            if (seed := plugin.pre_loop_seed(context))
+            for cap in self._active_loop_capabilities(context)
+            if (seed := cap.pre_loop_seed(context))
         ]
         return "\n\n".join(seed for seed in seeds if seed)
+
+    async def _capability_pre_loop_briefings(
+        self,
+        context: UnifiedContext,
+        stream: StreamBus,
+    ) -> str:
+        """Run each active capability's optional async ``pre_loop`` hook and
+        join their returned blocks into one seed fragment.
+
+        The hook is optional (read via ``getattr`` so plain capabilities are
+        unaffected) and runs once before the answer loop's first LLM call —
+        see the ``pre_loop`` note on :class:`LoopCapability`. Failures are
+        swallowed: a pre-pass is best-effort grounding and must never sink the
+        turn.
+        """
+        blocks: list[str] = []
+        for cap in self._active_loop_capabilities(context):
+            hook = getattr(cap, "pre_loop", None)
+            if not callable(hook):
+                continue
+            try:
+                block = await hook(context, stream, usage=self._usage)
+            except Exception:
+                logger.warning(
+                    "pre_loop hook failed for capability %s",
+                    getattr(cap, "name", "?"),
+                    exc_info=True,
+                )
+                continue
+            content = (getattr(block, "content", "") or "").strip()
+            if content:
+                blocks.append(content)
+        return "\n\n".join(blocks)
 
     def _build_llm_tool_schemas(
         self,
@@ -481,7 +574,6 @@ class AgenticChatPipeline:
     ) -> list[dict[str, Any]]:
         schemas = self.registry.build_openai_schemas(enabled_tools)
         kb_choices = self._selected_kbs(context)
-        source_ids = sorted((self._source_index(context) or {}).keys())
         notebook_choices = self._notebook_choices()
         for schema in schemas:
             function = schema.get("function") if isinstance(schema, dict) else None
@@ -496,9 +588,6 @@ class AgenticChatPipeline:
                     properties["query"].setdefault("minLength", 1)
                 if isinstance(properties.get("kb_name"), dict):
                     properties["kb_name"]["enum"] = kb_choices
-            if function.get("name") == "read_source" and isinstance(properties, dict):
-                if isinstance(properties.get("source_id"), dict) and source_ids:
-                    properties["source_id"]["enum"] = source_ids
             if function.get("name") == "geogebra_analysis" and isinstance(properties, dict):
                 properties.pop("image_base64", None)
                 required = parameters.get("required")
@@ -735,6 +824,14 @@ class AgenticChatPipeline:
                 kwargs["_sandbox_mounts"] = (
                     Mount(host_path=str(code_dir), sandbox_path=str(code_dir), read_only=False),
                 )
+        elif tool_name in ("imagegen", "videogen"):
+            # Generated media lands in the turn's public workspace so it
+            # surfaces as a download card via /api/outputs (same convention as
+            # exec/code_execution artifacts).
+            media_dir = task_dir / "media" if task_dir is not None else None
+            if media_dir is not None:
+                media_dir.mkdir(parents=True, exist_ok=True)
+                kwargs["_workspace_dir"] = str(media_dir)
         elif tool_name == "cron":
             # Owner routing is supplied server-side — the model never picks
             # where a scheduled task's output lands.
@@ -775,8 +872,6 @@ class AgenticChatPipeline:
             kwargs.setdefault("query", context.user_message)
             if task_dir is not None:
                 kwargs.setdefault("output_dir", str(task_dir / "web_search"))
-        elif tool_name == "read_source":
-            kwargs["source_index"] = self._source_index(context)
         elif tool_name == "write_note":
             kwargs["conversation_history"] = list(context.conversation_history or [])
             kwargs["current_user_message"] = context.user_message or ""
@@ -797,8 +892,8 @@ class AgenticChatPipeline:
                     mime = getattr(first_image, "mime_type", "") or "image/png"
                     kwargs["image_base64"] = f"data:{mime};base64,{raw_b64}"
             kwargs["language"] = context.language or "zh"
-        for plugin in self._active_loop_plugins(context):
-            kwargs = plugin.augment_kwargs(tool_name, kwargs, context)
+        for cap in self._active_loop_capabilities(context):
+            kwargs = cap.augment_kwargs(tool_name, kwargs, context)
         return kwargs
 
     def _retrieve_trace_metadata(
@@ -809,17 +904,27 @@ class AgenticChatPipeline:
         tool_name: str,
         tool_args: dict[str, Any],
     ) -> dict[str, Any] | None:
-        if tool_name != "rag":
-            return None
         _ = context
-        return derive_trace_metadata(
-            tool_meta,
-            label=self._t("labels.retrieve", default="Retrieve"),
-            call_kind="rag_retrieval",
-            trace_role="retrieve",
-            trace_group="retrieve",
-            query=str(tool_args.get("query", "") or ""),
-        )
+        if tool_name == "rag":
+            return derive_trace_metadata(
+                tool_meta,
+                label=self._t("labels.retrieve", default="Retrieve"),
+                call_kind="rag_retrieval",
+                trace_role="retrieve",
+                trace_group="retrieve",
+                query=str(tool_args.get("query", "") or ""),
+            )
+        # imagegen/videogen are long-running: wiring retrieve_meta gives them an
+        # event_sink so their progress (esp. videogen's poll loop) streams to the
+        # client, which resets the chat idle-timeout watchdog mid-render.
+        if tool_name in ("imagegen", "videogen"):
+            return derive_trace_metadata(
+                tool_meta,
+                label=self._t("labels.tool_call", default="Tool call"),
+                call_kind="media_generation",
+                query=str(tool_args.get("prompt", "") or ""),
+            )
+        return None
 
     # ---- KB seed ---------------------------------------------------------
 
@@ -828,6 +933,8 @@ class AgenticChatPipeline:
         context: UnifiedContext,
         stream: StreamBus,
     ) -> str:
+        if self._exclusive_capability_active(context):
+            return ""
         kbs = self._selected_kbs(context)
         query = (context.user_message or "").strip()
         if not kbs or not query:
@@ -1043,13 +1150,6 @@ class AgenticChatPipeline:
         return [str(kb).strip() for kb in context.knowledge_bases if str(kb).strip()]
 
     @staticmethod
-    def _source_index(context: UnifiedContext) -> dict[str, str]:
-        idx = context.metadata.get("source_index")
-        if isinstance(idx, dict) and idx:
-            return idx
-        return {}
-
-    @staticmethod
     def _workspace_key(context: UnifiedContext) -> str:
         raw = str(
             context.metadata.get("turn_id")
@@ -1061,6 +1161,8 @@ class AgenticChatPipeline:
         return cleaned.strip("_") or "direct"
 
     def _kb_system_note(self, context: UnifiedContext) -> str:
+        if self._exclusive_capability_active(context):
+            return ""
         kbs = self._selected_kbs(context)
         if not kbs:
             return ""

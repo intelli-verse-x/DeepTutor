@@ -185,9 +185,11 @@ def test_startup_ensure_creates_missing_runtime_jsons_with_defaults(
     assert (settings_dir / "system.json").exists()
     assert (settings_dir / "auth.json").exists()
     assert (settings_dir / "integrations.json").exists()
-    assert (settings_dir / "mineru.json").exists()
+    assert (settings_dir / "document_parsing.json").exists()
     assert (settings_dir / "model_catalog.json").exists()
-    assert _read_json(settings_dir / "mineru.json")["mode"] == "local"
+    _parsing_file = _read_json(settings_dir / "document_parsing.json")
+    assert _parsing_file["version"] == 2
+    assert _parsing_file["engines"]["mineru"]["mode"] == "local"
     assert _read_json(settings_dir / "system.json")["backend_port"] == 8001
     assert _read_json(settings_dir / "auth.json")["enabled"] is False
     assert _read_json(settings_dir / "integrations.json")["pocketbase_url"] == ""
@@ -265,9 +267,87 @@ def test_mineru_process_env_override(tmp_path: Path) -> None:
     assert effective["mode"] == "cloud"
     assert effective["api_token"] == "env-token"
     assert effective["local_cli_path"] == "/env/bin/mineru"
-    # The persisted file keeps the on-disk values, not the env overrides.
-    assert _read_json(service.path_for("mineru"))["mode"] == "local"
-    assert _read_json(service.path_for("mineru"))["api_token"] == "file-token"
+    # The persisted file keeps the on-disk values (nested under engines.mineru),
+    # not the env overrides.
+    persisted = _read_json(service.path_for("document_parsing"))["engines"]["mineru"]
+    assert persisted["mode"] == "local"
+    assert persisted["api_token"] == "file-token"
+
+
+def test_document_parsing_v1_to_v2_migration(tmp_path: Path) -> None:
+    """A legacy flat mineru.json is folded into engines.mineru on first load,
+    with the active engine pinned to MinerU (preserve existing behavior)."""
+    from deeptutor.services.config.runtime_settings import _atomic_write_json
+
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    legacy = {
+        "version": 1,
+        "mode": "cloud",
+        "api_token": "legacy-tok",
+        "model_version": "vlm",
+        "language": "ch",
+    }
+    _atomic_write_json(service.path_for("mineru"), legacy)
+
+    full = service.load_document_parsing(include_process_overrides=False)
+    assert full["version"] == 2
+    assert full["engine"] == "mineru"  # migrated installs keep MinerU
+    mineru = full["engines"]["mineru"]
+    assert mineru["mode"] == "cloud"
+    assert mineru["api_token"] == "legacy-tok"
+    assert mineru["model_version"] == "vlm"
+    assert mineru["language"] == "ch"
+    assert mineru["allow_local_model_download"] is False
+    # All engines are always present after normalization.
+    assert set(full["engines"]) == {"text_only", "mineru", "docling", "markitdown"}
+    # Migration is persisted to the renamed file (v2, no top-level flat keys);
+    # the legacy mineru.json is gone.
+    assert not service.path_for("mineru").exists()
+    on_disk = _read_json(service.path_for("document_parsing"))
+    assert on_disk["version"] == 2
+    assert "mode" not in on_disk
+
+
+def test_document_parsing_legacy_filename_rename(tmp_path: Path) -> None:
+    """A pre-existing v2 ``mineru.json`` is renamed to ``document_parsing.json``
+    on first load, preserving its contents."""
+    from deeptutor.services.config.runtime_settings import _atomic_write_json
+
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    existing = service.save_document_parsing({"engine": "docling"})
+    # save_document_parsing already writes the new filename; simulate an old
+    # install by moving it back to the legacy name.
+    service.path_for("document_parsing").rename(service.path_for("mineru"))
+    assert service.path_for("mineru").exists()
+    assert not service.path_for("document_parsing").exists()
+
+    full = service.load_document_parsing(include_process_overrides=False)
+    assert full["engine"] == "docling"
+    assert full["engines"]["mineru"] == existing["engines"]["mineru"]
+    # File was renamed in place, not duplicated.
+    assert service.path_for("document_parsing").exists()
+    assert not service.path_for("mineru").exists()
+
+
+def test_document_parsing_fresh_default_engine_is_text_only(tmp_path: Path) -> None:
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    full = service.load_document_parsing(include_process_overrides=False)
+    assert full["engine"] == "text_only"
+    assert full["engines"]["text_only"] == {}
+
+
+def test_mineru_allow_local_model_download_default_off_and_env(tmp_path: Path) -> None:
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    assert service.load_mineru()["allow_local_model_download"] is False
+    assert service.save_mineru({"allow_local_model_download": True})[
+        "allow_local_model_download"
+    ] is True
+
+    env_service = RuntimeSettingsService(
+        tmp_path / "settings2",
+        process_env={"MINERU_ALLOW_LOCAL_MODEL_DOWNLOAD": "1"},
+    )
+    assert env_service.load_mineru()["allow_local_model_download"] is True
 
 
 def test_runtime_settings_can_ignore_process_overrides(tmp_path: Path) -> None:

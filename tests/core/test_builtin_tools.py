@@ -88,11 +88,19 @@ async def test_exec_tool_reports_generated_public_artifacts(
     )
 
     assert result.success is True
-    assert "Generated artifacts:" in result.content
+    assert "Generated artifacts" in result.content
     assert "report.pdf" in result.content
-    assert "/api/outputs/workspace/chat/chat/turn_1/exec/report.pdf" in result.content
+    # The model is told to mention the exact filename (the UI linkifies it); the
+    # raw download URL is delivered out-of-band (sources/metadata), never in the
+    # model-facing text, so the model can't paste it.
+    assert "clickable link" in result.content
+    assert "/api/outputs/" not in result.content
     assert "build_pdf.py" not in result.content
     assert result.metadata["artifacts"][0]["filename"] == "report.pdf"
+    assert (
+        result.metadata["artifacts"][0]["url"]
+        == "/api/outputs/workspace/chat/chat/turn_1/exec/report.pdf"
+    )
     assert result.sources[0]["url"].endswith("/report.pdf")
 
 
@@ -331,8 +339,7 @@ async def test_geogebra_analysis_tool_handles_success(monkeypatch: pytest.Monkey
                     "constraints": ["AB = 1"],
                     "geometric_relations": [{"description": "A and B are on x-axis"}],
                 },
-                "bbox_output": {"elements": [1, 2]},
-                "reflection_output": {"issues_found": []},
+                "image_is_reference": False,
             }
 
         def format_ggb_block(self, commands: list[str]) -> str:

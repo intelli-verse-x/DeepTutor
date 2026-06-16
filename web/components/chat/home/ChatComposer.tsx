@@ -9,16 +9,22 @@ import {
   useState,
   type RefObject,
 } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowUp,
   BookOpen,
+  Bot,
   Brain,
   Check,
   ChevronDown,
+  ChevronRight,
   ClipboardList,
+  Loader2,
   MessageSquare,
+  Mic,
   Paperclip,
   Plus,
+  Sparkles,
   Square,
   UserRound,
   X,
@@ -47,6 +53,7 @@ type SpaceSelectionCounts = {
   attachments: number;
   knowledge: number;
   chatHistory: number;
+  myAgents: number;
   books: number;
   notebooks: number;
   questionBank: number;
@@ -57,6 +64,7 @@ import ContextReferenceTree, {
   type ContextTreeItem,
 } from "./ContextReferenceTree";
 import { ComposerInput, type ComposerInputHandle } from "./ComposerInput";
+import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 
 interface PendingAttachment {
   type: string;
@@ -77,6 +85,50 @@ interface CapabilityDef {
   description: string;
   icon: LucideIcon;
   allowedTools: string[];
+  // Loop-engine capabilities (solve / mastery) run on the chat agent loop and
+  // are collapsed into the "More" flyout instead of listed directly.
+  loopEngine?: boolean;
+}
+
+/** One row in the capability picker — shared by the built-in list and the
+ *  "More" flyout so both render identically. */
+function CapMenuItem({
+  cap,
+  selected,
+  onSelect,
+}: {
+  cap: CapabilityDef;
+  selected: boolean;
+  onSelect: (value: string) => void;
+}) {
+  const { t } = useTranslation();
+  const Icon = cap.icon;
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(cap.value)}
+      className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors active:bg-[var(--muted)]/70 ${
+        selected ? "bg-[var(--primary)]/[0.06]" : "hover:bg-[var(--muted)]/45"
+      }`}
+    >
+      <Icon
+        size={15}
+        strokeWidth={1.7}
+        className={`shrink-0 ${selected ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}`}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[12.5px] font-medium leading-snug text-[var(--foreground)]">
+          {t(cap.label)}
+        </div>
+        <div className="truncate text-[11px] leading-snug text-[var(--muted-foreground)]">
+          {t(cap.description)}
+        </div>
+      </div>
+      {selected && (
+        <Check size={14} strokeWidth={2} className="shrink-0 text-[var(--primary)]" />
+      )}
+    </button>
+  );
 }
 
 export default memo(function ChatComposer({
@@ -102,6 +154,7 @@ export default memo(function ChatComposer({
   selectedNotebookRecords,
   selectedBookReferences,
   selectedHistorySessions,
+  selectedAgentSessions,
   selectedQuestionEntries,
   notebookReferenceGroups,
   selectedPersona,
@@ -120,6 +173,7 @@ export default memo(function ChatComposer({
   onSelectNotebookPicker,
   onSelectBookPicker,
   onSelectHistoryPicker,
+  onSelectAgentsPicker,
   onSelectQuestionBankPicker,
   onSelectPersonaPicker,
   onSelectMemoryPicker,
@@ -128,11 +182,13 @@ export default memo(function ChatComposer({
   onPersonaSelectionChange,
   personaSelectorOpen,
   onPersonaSelectorOpenChange,
+  agentsAvailable = true,
   onToggleMemoryFile,
   onSend,
   onRemoveAttachment,
   onPreviewAttachment,
   onRemoveHistory,
+  onRemoveAgent,
   onRemoveBookReference,
   onRemoveNotebook,
   onRemoveQuestion,
@@ -169,6 +225,7 @@ export default memo(function ChatComposer({
   selectedNotebookRecords: SelectedRecord[];
   selectedBookReferences: SelectedBookReference[];
   selectedHistorySessions: SelectedHistorySession[];
+  selectedAgentSessions: SelectedHistorySession[];
   selectedQuestionEntries: SelectedQuestionEntry[];
   notebookReferenceGroups: Array<{
     notebookId: string;
@@ -201,6 +258,7 @@ export default memo(function ChatComposer({
   onSelectNotebookPicker: () => void;
   onSelectBookPicker: () => void;
   onSelectHistoryPicker: () => void;
+  onSelectAgentsPicker: () => void;
   onSelectQuestionBankPicker: () => void;
   onSelectPersonaPicker: () => void;
   onSelectMemoryPicker: () => void;
@@ -215,11 +273,14 @@ export default memo(function ChatComposer({
   onPersonaSelectionChange?: (persona: string) => void;
   personaSelectorOpen?: boolean;
   onPersonaSelectorOpenChange?: (open: boolean) => void;
+  /** Hide the My Agents reference entry (e.g. the quiz follow-up surface). */
+  agentsAvailable?: boolean;
   onToggleMemoryFile: (file: SpaceMemoryFile) => void;
   onSend: (content: string) => void;
   onRemoveAttachment: (index: number) => void;
   onPreviewAttachment?: (index: number) => void;
   onRemoveHistory: (sessionId: string) => void;
+  onRemoveAgent: (sessionId: string) => void;
   onRemoveBookReference: (bookId: string) => void;
   onRemoveNotebook: (notebookId: string) => void;
   onRemoveQuestion: (entryId: number) => void;
@@ -245,9 +306,15 @@ export default memo(function ChatComposer({
   const CapIcon = activeCap.icon;
 
   const [hasContent, setHasContent] = useState(false);
+  const [moreCapsOpen, setMoreCapsOpen] = useState(false);
+  const [lastCapMenuOpen, setLastCapMenuOpen] = useState(capMenuOpen);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHandleRef = useRef<ComposerInputHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  if (lastCapMenuOpen !== capMenuOpen) {
+    setLastCapMenuOpen(capMenuOpen);
+    if (!capMenuOpen) setMoreCapsOpen(false);
+  }
 
   useEffect(() => {
     if (!prefillInputRef) return;
@@ -258,6 +325,15 @@ export default memo(function ChatComposer({
       if (prefillInputRef) prefillInputRef.current = null;
     };
   }, [prefillInputRef]);
+
+  // Microphone → speech-to-text. Appends the transcript to whatever is already
+  // in the composer so a dictated phrase can be combined with typed text.
+  const handleTranscript = useCallback((text: string) => {
+    const current = inputHandleRef.current?.getValue() || "";
+    const next = current.trim() ? `${current.trimEnd()} ${text}` : text;
+    inputHandleRef.current?.setValue(next);
+  }, []);
+  const recorder = useVoiceRecorder(handleTranscript);
 
   // Composer-row compaction: when the available width drops below ~620 px
   // (e.g. the Viewer panel is open or the user is on a narrow viewport),
@@ -299,6 +375,14 @@ export default memo(function ChatComposer({
     if (!hasMessages) textareaRef.current?.focus();
   }, [hasMessages]);
 
+  const handleSelectCapability = useCallback(
+    (value: string) => {
+      setMoreCapsOpen(false);
+      onSelectCapability(value);
+    },
+    [onSelectCapability],
+  );
+
   // Functional-update form keeps `handleInputChange` identity stable across
   // every keystroke (no `hasContent` in deps), so the memoized ComposerInput
   // doesn't get re-rendered just because we observed a content-empty toggle.
@@ -321,6 +405,7 @@ export default memo(function ChatComposer({
     !!selectedBookReferences.length ||
     !!selectedNotebookRecords.length ||
     !!selectedHistorySessions.length ||
+    !!selectedAgentSessions.length ||
     !!selectedQuestionEntries.length ||
     !!selectedPersona ||
     !!selectedMemoryFiles.length;
@@ -337,6 +422,7 @@ export default memo(function ChatComposer({
     attachments: attachments.length,
     knowledge: selectedKnowledgeBases.length,
     chatHistory: selectedHistorySessions.length,
+    myAgents: selectedAgentSessions.length,
     books: selectedBookReferences.reduce(
       (total, ref) => total + ref.pages.length,
       0,
@@ -390,6 +476,15 @@ export default memo(function ChatComposer({
         kind: t("Chat History"),
         label: session.title,
         onRemove: () => onRemoveHistory(session.sessionId),
+      }),
+    ),
+    ...selectedAgentSessions.map(
+      (session): ContextTreeItem => ({
+        key: `agent-${session.sessionId}`,
+        icon: Bot,
+        kind: t("My Agents"),
+        label: session.title,
+        onRemove: () => onRemoveAgent(session.sessionId),
       }),
     ),
     ...selectedQuestionEntries.map(
@@ -514,9 +609,11 @@ export default memo(function ChatComposer({
             knowledgeAvailable={false}
             personaAvailable={!onPersonaSelectionChange}
             onSelectAttach={handlePickFiles}
+            agentsAvailable={agentsAvailable}
             onSelectNotebookPicker={onSelectNotebookPicker}
             onSelectBookPicker={onSelectBookPicker}
             onSelectHistoryPicker={onSelectHistoryPicker}
+            onSelectAgentsPicker={onSelectAgentsPicker}
             onSelectQuestionBankPicker={onSelectQuestionBankPicker}
             onSelectPersonaPicker={onSelectPersonaPicker}
             onSelectMemoryPicker={onSelectMemoryPicker}
@@ -661,44 +758,93 @@ export default memo(function ChatComposer({
                 {capMenuOpen && (
                   <div
                     ref={capMenuRef}
-                    className="dt-popup-up absolute bottom-full left-0 z-50 mb-1.5 w-[260px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--popover)] py-1 shadow-lg backdrop-blur-md"
+                    className="dt-popup-up absolute bottom-full left-0 z-50 mb-1.5 w-[260px] overflow-visible rounded-xl border border-[var(--border)] bg-[var(--popover)] py-1 shadow-lg backdrop-blur-md"
                   >
-                    {capabilities.map((cap) => {
-                      const Icon = cap.icon;
-                      const selected = activeCap.value === cap.value;
-                      return (
-                        <button
+                    {capabilities
+                      .filter((cap) => !cap.loopEngine)
+                      .map((cap) => (
+                        <CapMenuItem
                           key={cap.value}
-                          onClick={() => onSelectCapability(cap.value)}
-                          className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors active:bg-[var(--muted)]/70 ${
-                            selected
-                              ? "bg-[var(--primary)]/[0.06]"
-                              : "hover:bg-[var(--muted)]/45"
-                          }`}
+                          cap={cap}
+                          selected={activeCap.value === cap.value}
+                          onSelect={handleSelectCapability}
+                        />
+                      ))}
+                    {(() => {
+                      const loopCaps = capabilities.filter((cap) => cap.loopEngine);
+                      if (loopCaps.length === 0) return null;
+                      const loopSelected = loopCaps.some(
+                        (cap) => cap.value === activeCap.value,
+                      );
+                      return (
+                        <div
+                          className="group/more relative"
+                          onMouseEnter={() => setMoreCapsOpen(true)}
+                          onMouseLeave={() => setMoreCapsOpen(false)}
+                          onFocus={() => setMoreCapsOpen(true)}
+                          onBlur={(event) => {
+                            const next = event.relatedTarget;
+                            if (!next || !event.currentTarget.contains(next as Node)) {
+                              setMoreCapsOpen(false);
+                            }
+                          }}
                         >
-                          <Icon
-                            size={15}
-                            strokeWidth={1.7}
-                            className={`shrink-0 ${selected ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}`}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-[12.5px] font-medium leading-snug text-[var(--foreground)]">
-                              {t(cap.label)}
+                          <button
+                            type="button"
+                            aria-haspopup="menu"
+                            aria-expanded={moreCapsOpen}
+                            onClick={() => setMoreCapsOpen((open) => !open)}
+                            className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors ${
+                              moreCapsOpen
+                                ? "bg-[var(--muted)]/45"
+                                : "group-hover/more:bg-[var(--muted)]/45"
+                            } ${
+                              loopSelected && !moreCapsOpen
+                                ? "bg-[var(--primary)]/[0.06]"
+                                : ""
+                            }`}
+                          >
+                            <Sparkles
+                              size={15}
+                              strokeWidth={1.7}
+                              className={`shrink-0 ${loopSelected ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}`}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-[12.5px] font-medium leading-snug text-[var(--foreground)]">
+                                {t("More Capabilities")}
+                              </div>
+                              <div className="truncate text-[11px] leading-snug text-[var(--muted-foreground)]">
+                                {t("Agent-loop driven modes")}
+                              </div>
                             </div>
-                            <div className="truncate text-[11px] leading-snug text-[var(--muted-foreground)]">
-                              {t(cap.description)}
-                            </div>
-                          </div>
-                          {selected && (
-                            <Check
+                            <ChevronRight
                               size={14}
                               strokeWidth={2}
-                              className="shrink-0 text-[var(--primary)]"
+                              className="shrink-0 text-[var(--muted-foreground)]"
                             />
-                          )}
-                        </button>
+                          </button>
+                          {/* Right flyout. ``pl-1.5`` is a pointer bridge so the
+                              cursor can cross the gap without dropping hover;
+                              click/focus also open it for touch and keyboard. */}
+                          <div
+                            className={`absolute bottom-0 left-full z-50 pl-1.5 transition-opacity duration-150 ${
+                              moreCapsOpen ? "visible opacity-100" : "invisible opacity-0"
+                            }`}
+                          >
+                            <div className="w-[240px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--popover)] py-1 shadow-lg backdrop-blur-md">
+                              {loopCaps.map((cap) => (
+                                <CapMenuItem
+                                  key={cap.value}
+                                  cap={cap}
+                                  selected={activeCap.value === cap.value}
+                                  onSelect={handleSelectCapability}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
                       );
-                    })}
+                    })()}
                   </div>
                 )}
               </div>
@@ -723,31 +869,40 @@ export default memo(function ChatComposer({
                     </span>
                   )}
                 </button>
-                {spaceMenuOpen && (
-                  <div
-                    ref={spaceMenuRef}
-                    className="dt-popup-up absolute bottom-full left-0 z-50 mb-1.5"
-                  >
-                    <ChatSpaceMenu
-                      variant="toolbar"
-                      selectedCounts={spaceSelectionCounts}
-                      knowledgeAvailable={false}
-                      personaAvailable={!onPersonaSelectionChange}
-                      onSelectItem={(key) => {
-                        onSetSpaceMenuOpen(false);
-                        if (key === "attach") handlePickFiles();
-                        else if (key === "chat_history")
-                          onSelectHistoryPicker();
-                        else if (key === "books") onSelectBookPicker();
-                        else if (key === "notebooks") onSelectNotebookPicker();
-                        else if (key === "question_bank")
-                          onSelectQuestionBankPicker();
-                        else if (key === "persona") onSelectPersonaPicker();
-                        else if (key === "memory") onSelectMemoryPicker();
-                      }}
-                    />
-                  </div>
-                )}
+                <AnimatePresence>
+                  {spaceMenuOpen && (
+                    <motion.div
+                      ref={spaceMenuRef}
+                      className="absolute bottom-full left-0 z-50 mb-1.5"
+                      style={{ transformOrigin: "bottom left" }}
+                      initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 4, scale: 0.97 }}
+                      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                    >
+                      <ChatSpaceMenu
+                        variant="toolbar"
+                        selectedCounts={spaceSelectionCounts}
+                        knowledgeAvailable={false}
+                        personaAvailable={!onPersonaSelectionChange}
+                        agentsAvailable={agentsAvailable}
+                        onSelectItem={(key) => {
+                          onSetSpaceMenuOpen(false);
+                          if (key === "attach") handlePickFiles();
+                          else if (key === "chat_history")
+                            onSelectHistoryPicker();
+                          else if (key === "my_agents") onSelectAgentsPicker();
+                          else if (key === "books") onSelectBookPicker();
+                          else if (key === "notebooks") onSelectNotebookPicker();
+                          else if (key === "question_bank")
+                            onSelectQuestionBankPicker();
+                          else if (key === "persona") onSelectPersonaPicker();
+                          else if (key === "memory") onSelectMemoryPicker();
+                        }}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -774,6 +929,41 @@ export default memo(function ChatComposer({
                   error={llmOptionsError}
                   onChange={onSelectLLM}
                 />
+
+                <button
+                  type="button"
+                  onClick={recorder.toggle}
+                  disabled={recorder.state === "transcribing" || isStreaming}
+                  className={`group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] transition-[background-color,color,transform] duration-150 active:scale-90 disabled:opacity-40 ${
+                    recorder.state === "recording"
+                      ? "bg-red-500/15 text-red-500"
+                      : "text-[var(--muted-foreground)] hover:bg-[var(--muted)]/55 hover:text-[var(--foreground)]"
+                  }`}
+                  aria-label={
+                    recorder.state === "recording"
+                      ? t("Stop recording")
+                      : t("Record voice")
+                  }
+                  title={
+                    recorder.error ||
+                    (recorder.state === "recording"
+                      ? t("Stop recording")
+                      : t("Record voice"))
+                  }
+                >
+                  {recorder.state === "recording" && (
+                    <span className="pointer-events-none absolute inset-0 rounded-[10px] border border-red-500/40 animate-pulse" />
+                  )}
+                  {recorder.state === "transcribing" ? (
+                    <Loader2
+                      size={16}
+                      strokeWidth={1.9}
+                      className="animate-spin"
+                    />
+                  ) : (
+                    <Mic size={16} strokeWidth={1.9} />
+                  )}
+                </button>
 
                 {isStreaming ? (
                   <button

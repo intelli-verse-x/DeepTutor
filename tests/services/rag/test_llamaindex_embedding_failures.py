@@ -233,7 +233,7 @@ async def test_rag_service_hides_low_level_invalid_index_error_in_raw_logs(
         signature_provider=lambda: None,
     )
     service = RAGService(kb_base_dir=str(tmp_path))
-    service._pipeline = pipeline
+    service._pipelines["llamaindex"] = pipeline
     events: list[tuple[str, str, dict]] = []
 
     async def event_sink(event_type: str, message: str, metadata: dict) -> None:

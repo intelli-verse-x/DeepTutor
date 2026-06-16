@@ -47,19 +47,52 @@ DEFAULT_INTEGRATIONS_SETTINGS: dict[str, Any] = {
     "pocketbase_admin_password": "",
 }
 
-# MinerU PDF parsing backend. ``mode`` selects between a locally-installed
-# MinerU CLI ("local") and the hosted mineru.net cloud API ("cloud"). The
-# cloud branch needs ``api_token``; every other field is a parsing knob that
-# both backends understand. Kept in its own JSON file so the parsing backend
-# can be swapped without touching model/network settings.
+# Document parsing settings. The parse layer (deeptutor/services/parsing)
+# supports several pluggable engines; one is active at a time. The persisted
+# shape is v2::
+#
+#   {"version": 2, "engine": "<name>", "engines": {"text_only": {...},
+#    "mineru": {...}, "docling": {...}, "markitdown": {...}}}
+#
+# Persisted as ``document_parsing.json``. It originally held only MinerU config
+# and was named ``mineru.json``; the file is renamed in place on first load (see
+# ``_migrate_legacy_document_parsing_file``) so existing installs keep their
+# settings. ``load_mineru`` returns the MinerU engine *slice* (flat) so legacy
+# readers keep working; ``load_document_parsing`` returns the whole structure
+# for the multi-engine settings UI. A v1 flat file is migrated into
+# ``engines.mineru`` on first load (and the active engine pinned to "mineru" so
+# existing installs keep their behavior).
+DOCUMENT_PARSING_SETTINGS_NAME = "document_parsing"
+_LEGACY_DOCUMENT_PARSING_SETTINGS_NAME = "mineru"
+
 MINERU_MODE_LOCAL = "local"
 MINERU_MODE_CLOUD = "cloud"
 _MINERU_MODES = frozenset({MINERU_MODE_LOCAL, MINERU_MODE_CLOUD})
 _MINERU_MODEL_VERSIONS = frozenset({"pipeline", "vlm"})
 _MINERU_DOWNLOAD_SOURCES = frozenset({"huggingface", "modelscope"})
 
-DEFAULT_MINERU_SETTINGS: dict[str, Any] = {
-    "version": 1,
+DOCUMENT_PARSING_ENGINE_TEXT_ONLY = "text_only"
+DOCUMENT_PARSING_ENGINE_MINERU = "mineru"
+DOCUMENT_PARSING_ENGINE_DOCLING = "docling"
+DOCUMENT_PARSING_ENGINE_MARKITDOWN = "markitdown"
+_DOCUMENT_PARSING_ENGINES = frozenset(
+    {
+        DOCUMENT_PARSING_ENGINE_TEXT_ONLY,
+        DOCUMENT_PARSING_ENGINE_MINERU,
+        DOCUMENT_PARSING_ENGINE_DOCLING,
+        DOCUMENT_PARSING_ENGINE_MARKITDOWN,
+    }
+)
+# Fresh installs default to the built-in text extractor so parsing works out of
+# the box without optional parser packages or model weights.
+# Migrated v1 installs keep MinerU (see ``_normalize_document_parsing``).
+_DEFAULT_DOCUMENT_PARSING_ENGINE = DOCUMENT_PARSING_ENGINE_TEXT_ONLY
+
+# MinerU engine slice. ``mode`` selects a locally-installed MinerU CLI ("local")
+# vs the hosted mineru.net cloud API ("cloud"); cloud needs ``api_token``. Every
+# other field is a parsing knob both backends understand. ``allow_local_model_download``
+# gates the first-parse model pull (default off → no silent multi-GB download).
+_DEFAULT_MINERU_ENGINE: dict[str, Any] = {
     "mode": MINERU_MODE_LOCAL,
     "api_base_url": "https://mineru.net",
     "api_token": "",
@@ -79,6 +112,109 @@ DEFAULT_MINERU_SETTINGS: dict[str, Any] = {
     "enable_formula": True,
     "enable_table": True,
     "is_ocr": False,
+    "allow_local_model_download": False,
+}
+
+# Docling engine slice. Downloads layout/table models on first run, hence the
+# same ``allow_local_model_download`` gate as MinerU local.
+_DEFAULT_DOCLING_ENGINE: dict[str, Any] = {
+    "do_ocr": False,
+    "do_table_structure": True,
+    "allow_local_model_download": False,
+}
+
+# markitdown engine slice. Pure-Python, no model downloads. Optionally uses
+# DeepTutor's VLM to describe images.
+_DEFAULT_MARKITDOWN_ENGINE: dict[str, Any] = {
+    "enable_llm_image_description": False,
+}
+
+# Built-in text-only engine slice. It deliberately has no knobs: it reuses
+# DeepTutor's legacy text extractors for PDF / Office / text-like files.
+_DEFAULT_TEXT_ONLY_ENGINE: dict[str, Any] = {}
+
+# Legacy flat keys that mark a v1 ``mineru.json`` (these live only at the top
+# level in v1; v2 never writes them there).
+_MINERU_ENGINE_KEYS = frozenset(_DEFAULT_MINERU_ENGINE.keys())
+
+DEFAULT_DOCUMENT_PARSING_SETTINGS: dict[str, Any] = {
+    "version": 2,
+    "engine": _DEFAULT_DOCUMENT_PARSING_ENGINE,
+    "engines": {
+        DOCUMENT_PARSING_ENGINE_TEXT_ONLY: _DEFAULT_TEXT_ONLY_ENGINE,
+        DOCUMENT_PARSING_ENGINE_MINERU: _DEFAULT_MINERU_ENGINE,
+        DOCUMENT_PARSING_ENGINE_DOCLING: _DEFAULT_DOCLING_ENGINE,
+        DOCUMENT_PARSING_ENGINE_MARKITDOWN: _DEFAULT_MARKITDOWN_ENGINE,
+    },
+}
+
+# Backward-compatible alias: the MinerU engine slice. Several call-sites and
+# tests reference ``DEFAULT_MINERU_SETTINGS``; it now denotes the engine slice.
+DEFAULT_MINERU_SETTINGS: dict[str, Any] = _DEFAULT_MINERU_ENGINE
+
+# PageIndex cloud RAG engine. A KB indexed with the ``pageindex`` provider
+# ships its documents to the hosted PageIndex service for tree building and
+# reasoning-based retrieval. Only an API key (per PageIndex account) and the
+# API base URL are needed; the same key is reused by every ``pageindex`` KB.
+# Kept in its own JSON file so the credential lives beside other per-feature
+# settings and never leaks into model/network config.
+DEFAULT_PAGEINDEX_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "api_key": "",
+    "api_base_url": "https://api.pageindex.ai",
+}
+
+# LlamaIndex local RAG engine. These are the retrieval + chunking knobs the
+# default engine exposes; they were previously hardcoded / env-only. Kept in
+# their own JSON file so the engine's detail page can read/write them.
+#
+# * ``retrieval_profile`` — "hybrid" (BM25 + vector fusion) or "vector" only.
+# * ``top_k`` — default number of chunks a query returns.
+# * ``vector_top_k_multiplier`` / ``bm25_top_k_multiplier`` — how many extra
+#   candidates each child retriever fetches before fusion re-ranks to ``top_k``.
+# * ``chunk_size`` / ``chunk_overlap`` — indexing chunk geometry; changes apply
+#   on the next (re-)index, not retroactively.
+#
+# ``fusion_num_queries`` is intentionally NOT exposed: query generation needs a
+# real LLM, but the fusion retriever runs on a MockLLM, so any value > 1 would
+# silently degrade results. It stays pinned to the dataclass default.
+LLAMAINDEX_VECTOR_PROFILE = "vector"
+LLAMAINDEX_HYBRID_PROFILE = "hybrid"
+_LLAMAINDEX_PROFILES = frozenset({LLAMAINDEX_VECTOR_PROFILE, LLAMAINDEX_HYBRID_PROFILE})
+
+DEFAULT_LLAMAINDEX_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "retrieval_profile": LLAMAINDEX_HYBRID_PROFILE,
+    "top_k": 5,
+    "vector_top_k_multiplier": 2,
+    "bm25_top_k_multiplier": 2,
+    "chunk_size": 512,
+    "chunk_overlap": 50,
+}
+
+# GraphRAG retrieval knobs (microsoft/graphrag). Only query-time params that the
+# engine passes explicitly (engine.py) are exposed; indexing knobs are left to
+# GraphRAG's auto-config on purpose (the settings.yaml bridge is deliberately
+# minimal). ``response_type`` is a free-form GraphRAG answer style; the UI offers
+# presets but any string is accepted. ``community_level`` controls graph
+# traversal granularity (local/drift). ``dynamic_community_selection`` only
+# affects global search.
+DEFAULT_GRAPHRAG_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "response_type": "Multiple Paragraphs",
+    "community_level": 2,
+    "dynamic_community_selection": False,
+}
+
+# LightRAG retrieval knobs (HKUDS/LightRAG via RAG-Anything). ``top_k`` is the
+# number of entities/relations the query pulls; ``response_type`` mirrors
+# GraphRAG's. These ride into ``QueryParam`` via the engine's aquery() call;
+# wiring is defensive (an older RAG-Anything that rejects a kwarg degrades to a
+# mode-only query).
+DEFAULT_LIGHTRAG_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "top_k": 60,
+    "response_type": "Multiple Paragraphs",
 }
 
 IGNORE_PROCESS_OVERRIDES_ENV = "DEEPTUTOR_IGNORE_PROCESS_ENV_OVERRIDES"
@@ -102,6 +238,11 @@ def _coerce_int(value: Any, default: int) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return default
+
+
+def _coerce_clamped_int(value: Any, default: int, low: int, high: int) -> int:
+    coerced = _coerce_int(value, default)
+    return max(low, min(high, coerced))
 
 
 def _coerce_port(value: Any, default: int) -> int:
@@ -231,19 +372,101 @@ class RuntimeSettingsService:
         _atomic_write_json(self.path_for("integrations"), payload)
         return payload
 
-    def load_mineru(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+    def load_document_parsing(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        """Return the full v2 document-parsing structure (all engines)."""
+        self._migrate_legacy_document_parsing_file()
         payload = self._load_or_create(
-            "mineru",
-            DEFAULT_MINERU_SETTINGS,
-            self._normalize_mineru,
+            DOCUMENT_PARSING_SETTINGS_NAME,
+            DEFAULT_DOCUMENT_PARSING_SETTINGS,
+            self._normalize_document_parsing,
         )
         if include_process_overrides:
-            payload = self._apply_mineru_process_overrides(payload)
+            engines = dict(payload["engines"])
+            engines[DOCUMENT_PARSING_ENGINE_MINERU] = self._apply_mineru_process_overrides(
+                dict(engines[DOCUMENT_PARSING_ENGINE_MINERU])
+            )
+            payload = {**payload, "engines": engines}
         return payload
 
+    def save_document_parsing(self, settings: dict[str, Any]) -> dict[str, Any]:
+        self._migrate_legacy_document_parsing_file()
+        payload = self._normalize_document_parsing({**DEFAULT_DOCUMENT_PARSING_SETTINGS, **settings})
+        _atomic_write_json(self.path_for(DOCUMENT_PARSING_SETTINGS_NAME), payload)
+        return payload
+
+    def load_mineru(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        """Return the MinerU engine slice (flat) for legacy readers.
+
+        Backed by the v2 structure on disk; env overrides apply to the slice.
+        """
+        slice_ = dict(
+            self.load_document_parsing(include_process_overrides=False)["engines"][
+                DOCUMENT_PARSING_ENGINE_MINERU
+            ]
+        )
+        if include_process_overrides:
+            slice_ = self._apply_mineru_process_overrides(slice_)
+        return slice_
+
     def save_mineru(self, settings: dict[str, Any]) -> dict[str, Any]:
-        payload = self._normalize_mineru({**DEFAULT_MINERU_SETTINGS, **settings})
-        _atomic_write_json(self.path_for("mineru"), payload)
+        """Persist only the MinerU engine slice, preserving the other engines."""
+        full = self.load_document_parsing(include_process_overrides=False)
+        engines = dict(full["engines"])
+        engines[DOCUMENT_PARSING_ENGINE_MINERU] = self._normalize_mineru_engine(
+            {**_DEFAULT_MINERU_ENGINE, **settings}
+        )
+        payload = self._normalize_document_parsing({**full, "engines": engines})
+        _atomic_write_json(self.path_for(DOCUMENT_PARSING_SETTINGS_NAME), payload)
+        return payload["engines"][DOCUMENT_PARSING_ENGINE_MINERU]
+
+    def load_pageindex(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        payload = self._load_or_create(
+            "pageindex",
+            DEFAULT_PAGEINDEX_SETTINGS,
+            self._normalize_pageindex,
+        )
+        if include_process_overrides:
+            payload = self._apply_pageindex_process_overrides(payload)
+        return payload
+
+    def save_pageindex(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_pageindex({**DEFAULT_PAGEINDEX_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("pageindex"), payload)
+        return payload
+
+    def load_llamaindex(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        payload = self._load_or_create(
+            "llamaindex",
+            DEFAULT_LLAMAINDEX_SETTINGS,
+            self._normalize_llamaindex,
+        )
+        if include_process_overrides:
+            payload = self._apply_llamaindex_process_overrides(payload)
+        return payload
+
+    def save_llamaindex(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_llamaindex({**DEFAULT_LLAMAINDEX_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("llamaindex"), payload)
+        return payload
+
+    def load_graphrag(self) -> dict[str, Any]:
+        return self._load_or_create(
+            "graphrag", DEFAULT_GRAPHRAG_SETTINGS, self._normalize_graphrag
+        )
+
+    def save_graphrag(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_graphrag({**DEFAULT_GRAPHRAG_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("graphrag"), payload)
+        return payload
+
+    def load_lightrag(self) -> dict[str, Any]:
+        return self._load_or_create(
+            "lightrag", DEFAULT_LIGHTRAG_SETTINGS, self._normalize_lightrag
+        )
+
+    def save_lightrag(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_lightrag({**DEFAULT_LIGHTRAG_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("lightrag"), payload)
         return payload
 
     def ensure_defaults(self) -> None:
@@ -251,6 +474,10 @@ class RuntimeSettingsService:
         self.load_auth(include_process_overrides=False)
         self.load_integrations(include_process_overrides=False)
         self.load_mineru(include_process_overrides=False)
+        self.load_pageindex(include_process_overrides=False)
+        self.load_llamaindex(include_process_overrides=False)
+        self.load_graphrag()
+        self.load_lightrag()
 
     def render_environment(self) -> dict[str, str]:
         """Render non-model settings into process env names for subprocesses."""
@@ -322,6 +549,24 @@ class RuntimeSettingsService:
         normalized = normalizer(_deepcopy_default(defaults))
         _atomic_write_json(path, normalized)
         return normalized
+
+    def _migrate_legacy_document_parsing_file(self) -> None:
+        """Rename the legacy ``mineru.json`` to ``document_parsing.json``.
+
+        The file holds the full multi-engine parsing config; the MinerU-specific
+        name predates the other engines. Move it in place on first access so
+        existing installs keep their settings (content migration to v2 happens in
+        ``_normalize_document_parsing``). Idempotent: a no-op once migrated.
+        """
+        new_path = self.path_for(DOCUMENT_PARSING_SETTINGS_NAME)
+        legacy_path = self.path_for(_LEGACY_DOCUMENT_PARSING_SETTINGS_NAME)
+        if not legacy_path.exists():
+            return
+        if new_path.exists():
+            # New file is authoritative; drop the stale legacy copy.
+            legacy_path.unlink(missing_ok=True)
+            return
+        legacy_path.rename(new_path)
 
     def _ignore_process_overrides(self) -> bool:
         return _coerce_bool(self.process_env.get(IGNORE_PROCESS_OVERRIDES_ENV), False)
@@ -399,9 +644,125 @@ class RuntimeSettingsService:
             payload["model_version"] = value
         if value := self._process_env_value("MINERU_LANGUAGE"):
             payload["language"] = value
-        return self._normalize_mineru(payload)
+        if value := self._process_env_value("MINERU_ALLOW_LOCAL_MODEL_DOWNLOAD"):
+            payload["allow_local_model_download"] = _coerce_bool(value, False)
+        return self._normalize_mineru_engine(payload)
 
-    def _normalize_mineru(self, settings: dict[str, Any]) -> dict[str, Any]:
+    def _apply_pageindex_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(settings)
+        if value := self._process_env_value("PAGEINDEX_API_KEY"):
+            payload["api_key"] = value
+        if value := self._process_env_value("PAGEINDEX_API_BASE_URL"):
+            payload["api_base_url"] = value
+        return self._normalize_pageindex(payload)
+
+    def _normalize_pageindex(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "api_key": _string(settings.get("api_key")),
+            "api_base_url": _string(settings.get("api_base_url")).rstrip("/")
+            or "https://api.pageindex.ai",
+        }
+
+    def _apply_llamaindex_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        # Only the retrieval profile had an env override historically
+        # (DEEPTUTOR_RAG_RETRIEVAL_PROFILE / RAG_RETRIEVAL_PROFILE); preserve it.
+        payload = dict(settings)
+        if value := (
+            self._process_env_value("DEEPTUTOR_RAG_RETRIEVAL_PROFILE")
+            or self._process_env_value("RAG_RETRIEVAL_PROFILE")
+        ):
+            payload["retrieval_profile"] = value
+        return self._normalize_llamaindex(payload)
+
+    def _normalize_llamaindex(self, settings: dict[str, Any]) -> dict[str, Any]:
+        profile = _string(settings.get("retrieval_profile")).lower()
+        if profile not in _LLAMAINDEX_PROFILES:
+            profile = LLAMAINDEX_HYBRID_PROFILE
+        chunk_size = _coerce_clamped_int(settings.get("chunk_size"), 512, 64, 8192)
+        # Overlap must stay below the chunk size or chunking degenerates.
+        chunk_overlap = _coerce_clamped_int(
+            settings.get("chunk_overlap"), 50, 0, max(0, chunk_size - 1)
+        )
+        return {
+            "version": 1,
+            "retrieval_profile": profile,
+            "top_k": _coerce_clamped_int(settings.get("top_k"), 5, 1, 50),
+            "vector_top_k_multiplier": _coerce_clamped_int(
+                settings.get("vector_top_k_multiplier"), 2, 1, 10
+            ),
+            "bm25_top_k_multiplier": _coerce_clamped_int(
+                settings.get("bm25_top_k_multiplier"), 2, 1, 10
+            ),
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+        }
+
+    def _normalize_response_type(self, value: Any) -> str:
+        # GraphRAG/LightRAG accept any answer-style string; just trim + cap so a
+        # pathological value can't blow up a prompt.
+        text = _string(value) or "Multiple Paragraphs"
+        return text[:80]
+
+    def _normalize_graphrag(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "response_type": self._normalize_response_type(settings.get("response_type")),
+            "community_level": _coerce_clamped_int(settings.get("community_level"), 2, 0, 5),
+            "dynamic_community_selection": _coerce_bool(
+                settings.get("dynamic_community_selection"), False
+            ),
+        }
+
+    def _normalize_lightrag(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "top_k": _coerce_clamped_int(settings.get("top_k"), 60, 1, 200),
+            "response_type": self._normalize_response_type(settings.get("response_type")),
+        }
+
+    def _normalize_document_parsing(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """Normalize the full v2 structure, migrating a v1 flat file in place.
+
+        v1 is detected by legacy flat MinerU keys at the top level (v2 never
+        writes them there). When migrating, those values seed ``engines.mineru``
+        and the active engine is pinned to MinerU so the install's behavior is
+        preserved. Each known engine is always present (defaults fill gaps).
+        """
+        settings = dict(settings)
+        legacy_flat = {key: settings[key] for key in _MINERU_ENGINE_KEYS if key in settings}
+        migrating = bool(legacy_flat)
+
+        raw_engines = settings.get("engines")
+        engines_in = dict(raw_engines) if isinstance(raw_engines, dict) else {}
+        if legacy_flat:
+            mineru_in = dict(engines_in.get(DOCUMENT_PARSING_ENGINE_MINERU) or {})
+            engines_in[DOCUMENT_PARSING_ENGINE_MINERU] = {**mineru_in, **legacy_flat}
+
+        engines_out = {
+            DOCUMENT_PARSING_ENGINE_TEXT_ONLY: self._normalize_text_only_engine(
+                engines_in.get(DOCUMENT_PARSING_ENGINE_TEXT_ONLY) or {}
+            ),
+            DOCUMENT_PARSING_ENGINE_MINERU: self._normalize_mineru_engine(
+                engines_in.get(DOCUMENT_PARSING_ENGINE_MINERU) or {}
+            ),
+            DOCUMENT_PARSING_ENGINE_DOCLING: self._normalize_docling_engine(
+                engines_in.get(DOCUMENT_PARSING_ENGINE_DOCLING) or {}
+            ),
+            DOCUMENT_PARSING_ENGINE_MARKITDOWN: self._normalize_markitdown_engine(
+                engines_in.get(DOCUMENT_PARSING_ENGINE_MARKITDOWN) or {}
+            ),
+        }
+
+        engine = _string(settings.get("engine")).lower().replace("-", "_").replace(" ", "_")
+        if migrating:
+            engine = DOCUMENT_PARSING_ENGINE_MINERU
+        if engine not in _DOCUMENT_PARSING_ENGINES:
+            engine = _DEFAULT_DOCUMENT_PARSING_ENGINE
+
+        return {"version": 2, "engine": engine, "engines": engines_out}
+
+    def _normalize_mineru_engine(self, settings: dict[str, Any]) -> dict[str, Any]:
         mode = _string(settings.get("mode")).lower()
         if mode not in _MINERU_MODES:
             mode = MINERU_MODE_LOCAL
@@ -413,7 +774,6 @@ class RuntimeSettingsService:
             download_source = "huggingface"
         language = _string(settings.get("language")) or "auto"
         return {
-            "version": 1,
             "mode": mode,
             "api_base_url": _string(settings.get("api_base_url")).rstrip("/")
             or "https://mineru.net",
@@ -426,7 +786,29 @@ class RuntimeSettingsService:
             "enable_formula": _coerce_bool(settings.get("enable_formula"), True),
             "enable_table": _coerce_bool(settings.get("enable_table"), True),
             "is_ocr": _coerce_bool(settings.get("is_ocr"), False),
+            "allow_local_model_download": _coerce_bool(
+                settings.get("allow_local_model_download"), False
+            ),
         }
+
+    def _normalize_docling_engine(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "do_ocr": _coerce_bool(settings.get("do_ocr"), False),
+            "do_table_structure": _coerce_bool(settings.get("do_table_structure"), True),
+            "allow_local_model_download": _coerce_bool(
+                settings.get("allow_local_model_download"), False
+            ),
+        }
+
+    def _normalize_markitdown_engine(self, settings: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "enable_llm_image_description": _coerce_bool(
+                settings.get("enable_llm_image_description"), False
+            ),
+        }
+
+    def _normalize_text_only_engine(self, _settings: dict[str, Any]) -> dict[str, Any]:
+        return {}
 
     def _normalize_system(self, settings: dict[str, Any]) -> dict[str, Any]:
         public_api_base = _string(settings.get("next_public_api_base_external")) or _string(
@@ -515,15 +897,40 @@ def load_mineru_settings() -> dict[str, Any]:
     return get_runtime_settings_service().load_mineru()
 
 
+def load_llamaindex_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_llamaindex()
+
+
+def load_graphrag_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_graphrag()
+
+
+def load_lightrag_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_lightrag()
+
+
+def load_document_parsing_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_document_parsing()
+
+
 def export_runtime_settings_to_env(*, overwrite: bool = True) -> dict[str, str]:
     return get_runtime_settings_service().export_environment(overwrite=overwrite)
 
 
 __all__ = [
     "DEFAULT_AUTH_SETTINGS",
+    "DEFAULT_DOCUMENT_PARSING_SETTINGS",
+    "DEFAULT_GRAPHRAG_SETTINGS",
     "DEFAULT_INTEGRATIONS_SETTINGS",
+    "DEFAULT_LIGHTRAG_SETTINGS",
+    "DEFAULT_LLAMAINDEX_SETTINGS",
     "DEFAULT_MINERU_SETTINGS",
+    "DEFAULT_PAGEINDEX_SETTINGS",
     "DEFAULT_SYSTEM_SETTINGS",
+    "DOCUMENT_PARSING_ENGINE_DOCLING",
+    "DOCUMENT_PARSING_ENGINE_MARKITDOWN",
+    "DOCUMENT_PARSING_ENGINE_MINERU",
+    "DOCUMENT_PARSING_ENGINE_TEXT_ONLY",
     "MINERU_MODE_CLOUD",
     "MINERU_MODE_LOCAL",
     "RuntimeSettingsService",
@@ -531,7 +938,11 @@ __all__ = [
     "export_runtime_settings_to_env",
     "get_runtime_settings_service",
     "load_auth_settings",
+    "load_document_parsing_settings",
+    "load_graphrag_settings",
     "load_integrations_settings",
+    "load_lightrag_settings",
+    "load_llamaindex_settings",
     "load_mineru_settings",
     "load_system_settings",
 ]

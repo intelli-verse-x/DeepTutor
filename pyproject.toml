@@ -133,6 +133,14 @@ partners = [
     "qrcode>=7.4.0,<9.0.0",
 ]
 
+# Optional document-parsing engines for the shared parse layer
+# (deeptutor/services/parsing). MinerU is an external CLI / hosted API and is
+# not a pip dependency. Engines import lazily, so these stay opt-in and an
+# absent engine simply reports unavailable in Settings → Document Parsing.
+parse-markitdown = ["markitdown[pdf,docx,pptx,xlsx]>=0.0.1a2"]
+parse-docling = ["docling>=2.0.0"]
+parse = ["deeptutor[parse-markitdown]", "deeptutor[parse-docling]"]
+
 # Legacy alias kept for one release: `pip install deeptutor[tutorbot]`.
 tutorbot = ["deeptutor[partners]"]
 
@@ -153,6 +161,18 @@ matrix-e2e = [
 # Math Animator addon (Manim). Mirrors requirements/math-animator.txt.
 # System prerequisites (installed outside pip): LaTeX, pkg-config, cairo, cmake, ffmpeg.
 math-animator = ["manim>=0.19.0"]
+
+# GraphRAG knowledge-base engine (microsoft/graphrag). Optional, heavy
+# (LiteLLM + lancedb + graspologic) and constrained to python <3.14 — kept out
+# of `all` so it stays a deliberate opt-in. The pipeline imports lazily and the
+# adapter targets the 3.x API (see services/rag/pipelines/graphrag/engine.py).
+graphrag = ["graphrag>=3.0.0,<4.0.0"]
+
+# LightRAG knowledge-base engine (HKUDS/LightRAG) with multimodal parsing via
+# RAG-Anything (HKUDS/RAG-Anything). Optional, heavy (pulls MinerU transitively —
+# see the pdfplumber pin above). The pipeline imports lazily and the adapter is
+# isolated in services/rag/pipelines/lightrag/engine.py.
+rag-lightrag = ["raganything>=1.0.0"]
 
 # Dev/test tooling. Mirrors requirements/dev.txt.
 dev = [

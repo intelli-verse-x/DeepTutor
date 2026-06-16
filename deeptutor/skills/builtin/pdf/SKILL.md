@@ -123,7 +123,47 @@ SimpleDocTemplate("out.pdf", pagesize=letter).build(story)
 
 Absolute placement (labels at fixed coordinates): use `canvas.Canvas("out.pdf", pagesize=letter)`, `c.drawString(x, y, "...")` (origin bottom-left, points), `c.showPage()` per page, `c.save()`.
 
-Gotcha: reportlab's built-in fonts lack many Unicode glyphs (subscripts, superscripts) — they render as boxes. In `Paragraph` use markup instead: `Paragraph("H<sub>2</sub>O", styles["Normal"])`, `x<super>2</super>`.
+### Non-Latin text (Chinese / Japanese / Korean, Cyrillic, …)
+
+reportlab's built-in fonts (Helvetica/Times/Courier) carry **zero CJK glyphs**, so any 中文/日本語/한국어 renders as empty boxes (□) baked permanently into the PDF. reportlab never auto-discovers system fonts — you MUST register a font that has the glyphs and set it on every style. **Whenever the document may contain non-Latin text, register a CJK font first** (it also covers Latin, so it is safe to use as the only font):
+
+```python
+import os
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+def register_cjk_font(name="CJK"):
+    # TrueType ONLY — reportlab cannot embed CFF/OpenType outlines, so a .otf
+    # like Noto Sans CJK fails with "postscript outlines are not supported".
+    for path in [
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",        # Linux sandbox (fonts-wqy-zenhei)
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",             # macOS
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/Supplemental/Songti.ttc",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "C:/Windows/Fonts/msyh.ttc",                           # Windows
+    ]:
+        if os.path.exists(path):
+            try:
+                pdfmetrics.registerFont(TTFont(name, path, subfontIndex=0))
+                return name
+            except Exception:
+                continue
+    raise RuntimeError("No CJK-capable TrueType font found — do not emit tofu; say so.")
+
+font = register_cjk_font()
+styles = getSampleStyleSheet()
+for s in styles.byName.values():                 # make the CJK font the default everywhere
+    s.fontName = font
+# Tables don't read the stylesheet — set the font in the TableStyle too:
+#   ("FONTNAME", (0, 0), (-1, -1), font)
+# Canvas: c.setFont(font, size) before every drawString.
+```
+
+If `register_cjk_font` raises (no font on the host), do **not** ship a tofu PDF — tell the user the sandbox lacks a CJK font instead of producing garbage.
+
+Gotcha: even with a good font, reportlab still needs markup for subscripts/superscripts. In `Paragraph` use `Paragraph("H<sub>2</sub>O", styles["Normal"])`, `x<super>2</super>`.
 
 Markdown/HTML → PDF needs an external converter (`soffice`/`pandoc`) that is usually absent — `command -v soffice` / `command -v pandoc` and degrade to building the PDF directly with reportlab if neither is present.
 

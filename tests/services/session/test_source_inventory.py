@@ -11,6 +11,7 @@ from deeptutor.services.session.source_inventory import (
     SourceInventory,
     build_inventory,
     render_manifest,
+    serialize_referenced_transcript,
 )
 
 
@@ -347,3 +348,73 @@ async def test_build_inventory_fresh_shadows_historical_on_same_sid() -> None:
     )
     assert inv.entries[0].fresh is True
     assert inv.entries[0].full_text == "fresh body"
+
+
+# ---------------------------------------------------------------------------
+# serialize_referenced_transcript — identity framing (the "floor" fix)
+# ---------------------------------------------------------------------------
+
+
+def test_serialize_imported_transcript_frames_as_external_agent() -> None:
+    """An imported session must read as a THIRD-PARTY conversation: the
+    assistant turns carry the external agent's name (not '## Assistant'), and
+    a boundary header tells the model it did not take part."""
+    meta = {
+        "session_id": "imported_claude_code_abc",
+        "title": "更新页眉导航模型",
+        "preferences": {"import": {"source": "claude_code"}},
+    }
+    messages = [
+        {"role": "user", "content": "更新导航"},
+        {"role": "assistant", "content": "我已通过代码注入完成了修改。"},
+    ]
+    out = serialize_referenced_transcript(meta, messages, language="en")
+    assert "Claude Code" in out
+    assert "## Claude Code" in out  # assistant turns relabelled to the agent
+    assert "## Assistant" not in out  # never the model's own role label
+    assert "## User" in out
+    assert "did not take part" in out.lower()
+
+
+def test_serialize_imported_transcript_zh_labels_and_framing() -> None:
+    meta = {
+        "session_id": "imported_codex_x",
+        "preferences": {"import": {"source": "codex"}},
+    }
+    out = serialize_referenced_transcript(
+        meta, [{"role": "assistant", "content": "done"}], language="zh"
+    )
+    assert "Codex" in out
+    assert "## Codex" in out
+    assert "第三方" in out or "不是你" in out
+
+
+def test_serialize_native_referenced_transcript_frames_as_separate() -> None:
+    """A referenced *native* session keeps the Assistant label but is framed
+    as a separate conversation, not the current one."""
+    meta = {"session_id": "unified_123", "title": "Past chat"}
+    messages = [
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": "a"},
+    ]
+    out = serialize_referenced_transcript(meta, messages, language="en")
+    assert "separate past conversation" in out.lower()
+    assert "## Assistant" in out
+    assert "## User" in out
+
+
+def test_serialize_imported_detected_by_prefix_without_import_meta() -> None:
+    """The ``imported_`` id prefix alone marks a session external even when the
+    preferences block is absent; the label falls back to a generic agent."""
+    meta = {"session_id": "imported_claude_code_zzz"}
+    out = serialize_referenced_transcript(
+        meta, [{"role": "assistant", "content": "x"}], language="en"
+    )
+    assert "an external AI assistant" in out
+    assert "## an external AI assistant" in out
+
+
+def test_serialize_returns_empty_when_no_content() -> None:
+    meta = {"session_id": "imported_x"}
+    assert serialize_referenced_transcript(meta, [{"role": "user", "content": "  "}]) == ""
+    assert serialize_referenced_transcript(meta, []) == ""

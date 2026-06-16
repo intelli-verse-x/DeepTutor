@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bot,
   ClipboardList,
   History,
   NotebookPen,
@@ -11,6 +12,7 @@ import {
 
 export type SpaceItemKey =
   | "chat_history"
+  | "agents"
   | "notebooks"
   | "question_bank"
   | "personas"
@@ -33,6 +35,13 @@ export const SPACE_ITEMS: SpaceItem[] = [
     label: "Chat History",
     description: "Review and reopen previous conversations.",
     icon: History,
+  },
+  {
+    key: "agents",
+    href: "/space/agents",
+    label: "My Agents",
+    description: "Chat with imported Claude Code and Codex agents.",
+    icon: Bot,
   },
   {
     key: "notebooks",

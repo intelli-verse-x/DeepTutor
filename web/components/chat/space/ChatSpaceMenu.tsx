@@ -3,6 +3,7 @@
 import { Fragment, memo, useEffect, useRef, useState } from "react";
 import {
   BookOpen,
+  Bot,
   ChevronRight,
   Database,
   Paperclip,
@@ -10,11 +11,13 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { SPACE_ITEMS } from "@/lib/space-items";
+import { setPickerOrigin } from "@/lib/picker-origin";
 
 type SelectableSpaceKey =
   | "attach"
   | "knowledge"
   | "chat_history"
+  | "my_agents"
   | "books"
   | "notebooks"
   | "question_bank"
@@ -25,6 +28,7 @@ export interface ChatSpaceSelectionCounts {
   attachments: number;
   knowledge: number;
   chatHistory: number;
+  myAgents: number;
   books: number;
   notebooks: number;
   questionBank: number;
@@ -44,6 +48,8 @@ interface ChatSpaceMenuProps {
    * its only persona entry point.
    */
   personaAvailable?: boolean;
+  /** Hide the My Agents entry (e.g. the quiz follow-up surface). */
+  agentsAvailable?: boolean;
   onSelectItem: (key: SelectableSpaceKey) => void;
 }
 
@@ -51,6 +57,7 @@ const ITEM_ORDER: SelectableSpaceKey[] = [
   "attach",
   "knowledge",
   "chat_history",
+  "my_agents",
   "books",
   "notebooks",
   "question_bank",
@@ -69,6 +76,8 @@ function countFor(
       return counts.knowledge;
     case "chat_history":
       return counts.chatHistory;
+    case "my_agents":
+      return counts.myAgents;
     case "books":
       return counts.books;
     case "notebooks":
@@ -89,6 +98,7 @@ export default memo(function ChatSpaceMenu({
   selectedCounts,
   knowledgeAvailable = true,
   personaAvailable = true,
+  agentsAvailable = true,
   onSelectItem,
 }: ChatSpaceMenuProps) {
   const { t } = useTranslation();
@@ -100,6 +110,7 @@ export default memo(function ChatSpaceMenu({
   const items = ITEM_ORDER.filter((key) => {
     if (key === "knowledge") return knowledgeAvailable;
     if (key === "persona") return personaAvailable;
+    if (key === "my_agents") return agentsAvailable;
     return true;
   })
     .map((key) => {
@@ -119,6 +130,14 @@ export default memo(function ChatSpaceMenu({
           label: "Knowledge",
           description: "Search the selected knowledge bases.",
           icon: Database,
+        };
+      }
+      if (key === "my_agents") {
+        return {
+          key,
+          label: "My Agents",
+          description: "Reference imported Claude Code / Codex conversations.",
+          icon: Bot,
         };
       }
       if (key === "books") {
@@ -222,7 +241,12 @@ export default memo(function ChatSpaceMenu({
                 role={isMention ? "option" : undefined}
                 aria-selected={isMention ? isActive : undefined}
                 onMouseEnter={isMention ? () => setActiveIdx(idx) : undefined}
-                onClick={() => onSelectItem(key as SelectableSpaceKey)}
+                onClick={(e) => {
+                  // Record the row's rect so the fullscreen picker can expand
+                  // outward from exactly this clickable box.
+                  setPickerOrigin(e.currentTarget.getBoundingClientRect());
+                  onSelectItem(key as SelectableSpaceKey);
+                }}
                 className={`flex w-full items-center gap-2.5 text-left transition-colors active:bg-[var(--muted)]/70 ${
                   isActive
                     ? "bg-[var(--muted)]/60"

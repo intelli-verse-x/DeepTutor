@@ -92,3 +92,54 @@ def test_parse_sync_respects_max_questions(tmp_path: Path) -> None:
 
     templates, _ = _parse_sync(paper, 2, "parsed", tmp_path / "out")
     assert len(templates) == 2
+
+
+def test_parse_sync_upload_mode_uses_parse_service_and_isolates_output(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Upload mode goes through the shared ParseService and writes the
+    questions JSON to the session output dir, never the shared parse cache."""
+    from deeptutor.agents.question import mimic_source
+    from deeptutor.services.parsing.types import ParsedDocument
+
+    # The parse cache dir the (fake) ParseService returns as the parsed workdir.
+    cache_dir = tmp_path / "parse_cache" / "abc"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "exam.md").write_text("# parsed", encoding="utf-8")
+
+    class _FakeService:
+        def parse(self, source_path, **kwargs):
+            return ParsedDocument(
+                markdown="# parsed", workdir=cache_dir, engine="fake", source_hash="h"
+            )
+
+    monkeypatch.setattr(mimic_source, "get_parse_service", lambda: _FakeService())
+
+    captured: dict = {}
+
+    def _fake_extract(paper_dir, output_dir=None):
+        captured["paper_dir"] = paper_dir
+        captured["output_dir"] = output_dir
+        # Mimic the real extractor: write the questions JSON to output_dir.
+        out = Path(output_dir)
+        (out / "exam_questions.json").write_text(
+            json.dumps({"questions": [{"question_text": "Q1", "question_type": "written"}]}),
+            encoding="utf-8",
+        )
+        return True
+
+    monkeypatch.setattr(mimic_source, "extract_questions_from_paper", _fake_extract)
+
+    output_base = tmp_path / "session-out"
+    pdf = tmp_path / "exam.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+
+    templates, trace = _parse_sync(pdf, 10, "upload", output_base)
+
+    assert len(templates) == 1
+    # Parsed content is read from the cache workdir...
+    assert captured["paper_dir"] == str(cache_dir)
+    # ...but the questions JSON is written to the session dir, not the cache.
+    assert captured["output_dir"] == str(output_base)
+    assert (output_base / "exam_questions.json").exists()
+    assert not (cache_dir / "exam_questions.json").exists()

@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
+  Bot,
   Brain,
   Check,
   ChevronLeft,
@@ -13,10 +14,13 @@ import {
   Copy,
   AlertCircle,
   Database,
+  Loader2,
   MessageSquare,
   Pencil,
   RefreshCcw,
+  Square,
   UserRound,
+  Volume2,
   X,
   Trash2,
   type LucideIcon,
@@ -25,13 +29,18 @@ import { useTranslation } from "react-i18next";
 import type { SelectedHistorySession } from "@/components/chat/HistorySessionPicker";
 import type { SelectedQuestionEntry } from "@/components/chat/QuestionBankPicker";
 import AssistantResponse from "@/components/common/AssistantResponse";
+import {
+  InlineFileCardProvider,
+  mergeGeneratedFiles,
+} from "@/components/common/InlineFileCard";
 import Tooltip from "@/components/common/Tooltip";
 import type {
   MessageAttachment,
   MessageRequestSnapshot,
 } from "@/context/UnifiedChatContext";
-import { apiUrl } from "@/lib/api";
+import { apiFetch, apiUrl } from "@/lib/api";
 import { docIconFor } from "@/lib/doc-attachments";
+import { useVoiceAutoplay } from "@/hooks/useVoiceAutoplay";
 import { extractMathAnimatorResult } from "@/lib/math-animator-types";
 import {
   extractQuizQuestions,
@@ -142,43 +151,7 @@ function humanizeFilename(filename: string): string {
 }
 
 /**
- * Pull generated-file artifacts out of streamed ``tool_result`` events
- * (``metadata.tool_metadata.artifacts`` from exec / code_execution) so the
- * file cards appear the moment the tool finishes — not only after the turn
- * completes and the persisted attachments arrive via session reload. This
- * also keeps files visible for turns that get cancelled or die mid-flight.
- */
-function extractStreamedArtifacts(events?: StreamEvent[]): MessageAttachment[] {
-  const out: MessageAttachment[] = [];
-  for (const ev of events ?? []) {
-    if (ev.type !== "tool_result") continue;
-    const meta = (ev.metadata ?? {}) as {
-      tool_metadata?: {
-        artifacts?: Array<{
-          filename?: string;
-          url?: string;
-          mime_type?: string;
-          size_bytes?: number;
-        }>;
-      };
-    };
-    for (const a of meta.tool_metadata?.artifacts ?? []) {
-      if (!a?.url) continue;
-      out.push({
-        type: a.mime_type?.startsWith("image/") ? "image" : "document",
-        filename: a.filename,
-        url: a.url,
-        mime_type: a.mime_type,
-        size_bytes: a.size_bytes,
-        generated: true,
-      });
-    }
-  }
-  return out;
-}
-
-/**
- * Files the assistant produced this turn (exec/code_execution artifacts),
+ * Files the assistant produced this turn (exec/code/media artifacts),
  * rendered as openable cards under the message — click to open in the Viewer
  * side panel, same path as user uploads. Sources: persisted ``generated``
  * attachments on the message (durable) merged with artifacts from streamed
@@ -194,28 +167,82 @@ function GeneratedFileCards({
   onOpen?: (attachment: MessageAttachment) => void;
 }) {
   const { t } = useTranslation();
-  const files = useMemo(() => {
-    const persisted = attachments.filter((a) => a.generated);
-    const seen = new Set(persisted.map((a) => a.url).filter(Boolean));
-    const merged = [...persisted];
-    for (const a of extractStreamedArtifacts(events)) {
-      if (a.url && seen.has(a.url)) continue;
-      if (a.url) seen.add(a.url);
-      merged.push(a);
-    }
-    return merged;
-  }, [attachments, events]);
+  const files = useMemo(
+    () => mergeGeneratedFiles(attachments, events),
+    [attachments, events],
+  );
   if (!files.length) return null;
   return (
     <div className="mt-3 flex flex-col gap-2">
       {files.map((a, i) => {
         const filename = a.filename || t("File");
+        const key = a.id || a.url || `gen-${i}`;
+        const mime = a.mime_type || "";
+        const mediaSrc = imageSrcForAttachment(a);
+
+        // Generated images / videos render inline (preview the moment they
+        // arrive); everything else stays a compact openable file card.
+        if (mime.startsWith("image/") && mediaSrc) {
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={onOpen ? () => onOpen(a) : undefined}
+              className="group block w-full max-w-[min(520px,90%)] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] text-left shadow-sm transition hover:border-[var(--border)]"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={mediaSrc}
+                alt={filename}
+                loading="lazy"
+                className="block max-h-[360px] w-full bg-[var(--background)] object-contain"
+              />
+              <span className="flex items-center justify-between gap-2 px-3 py-2">
+                <span className="min-w-0 truncate text-[12.5px] font-medium text-[var(--foreground)]">
+                  {humanizeFilename(filename)}
+                </span>
+                <span className="shrink-0 text-[11px] text-[var(--muted-foreground)] transition group-hover:text-[var(--foreground)]">
+                  {t("Open")}
+                </span>
+              </span>
+            </button>
+          );
+        }
+
+        if (mime.startsWith("video/") && mediaSrc) {
+          return (
+            <div
+              key={key}
+              className="w-full max-w-[min(520px,90%)] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-sm"
+            >
+              <video
+                src={mediaSrc}
+                controls
+                preload="metadata"
+                className="block max-h-[360px] w-full bg-black"
+              />
+              <button
+                type="button"
+                onClick={onOpen ? () => onOpen(a) : undefined}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition hover:bg-[var(--muted)]/30"
+              >
+                <span className="min-w-0 truncate text-[12.5px] font-medium text-[var(--foreground)]">
+                  {humanizeFilename(filename)}
+                </span>
+                <span className="shrink-0 text-[11px] text-[var(--muted-foreground)]">
+                  {t("Open")}
+                </span>
+              </button>
+            </div>
+          );
+        }
+
         const spec = docIconFor(filename);
         const Icon = spec.Icon;
         const size = formatFileSize(a.size_bytes);
         return (
           <button
-            key={a.id || a.url || `gen-${i}`}
+            key={key}
             type="button"
             onClick={onOpen ? () => onOpen(a) : undefined}
             className="group flex w-full max-w-[min(520px,90%)] items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-left shadow-sm transition hover:border-[var(--border)] hover:bg-[var(--muted)]/30"
@@ -592,6 +619,160 @@ function CopyActionButton({
   );
 }
 
+// Speaker button: synthesizes the reply via the configured TTS provider and
+// plays it. On the first manual play of a session it offers to auto-play the
+// rest; `autoPlayFresh` triggers playback automatically for a reply that just
+// finished generating when auto-play is on.
+function PlayAudioButton({
+  content,
+  conversationKey,
+  autoPlayFresh,
+}: {
+  content: string;
+  conversationKey?: string;
+  autoPlayFresh: boolean;
+}) {
+  const { t } = useTranslation();
+  const {
+    autoplayEnabled,
+    enableForSession,
+    markPrompted,
+    shouldPromptOnFirstPlay,
+  } = useVoiceAutoplay(conversationKey);
+  const [state, setState] = useState<"idle" | "loading" | "playing">("idle");
+  const [showPrompt, setShowPrompt] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const urlRef = useRef<string | null>(null);
+  const autoPlayedRef = useRef(false);
+
+  const cleanup = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    }
+  }, []);
+
+  const play = useCallback(async () => {
+    setState("loading");
+    try {
+      const resp = await apiFetch(apiUrl("/api/v1/voice/tts"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: content }),
+      });
+      if (!resp.ok) {
+        cleanup();
+        setState("idle");
+        return;
+      }
+      const blob = await resp.blob();
+      cleanup();
+      const url = URL.createObjectURL(blob);
+      urlRef.current = url;
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => {
+        setState("idle");
+        cleanup();
+      };
+      audio.onerror = () => {
+        setState("idle");
+        cleanup();
+      };
+      await audio.play();
+      setState("playing");
+    } catch {
+      cleanup();
+      setState("idle");
+    }
+  }, [cleanup, content]);
+
+  const handleClick = useCallback(() => {
+    if (state === "playing" || state === "loading") {
+      cleanup();
+      setState("idle");
+      return;
+    }
+    const willPrompt = shouldPromptOnFirstPlay();
+    void play();
+    if (willPrompt) {
+      markPrompted();
+      setShowPrompt(true);
+    }
+  }, [cleanup, markPrompted, play, shouldPromptOnFirstPlay, state]);
+
+  // Auto-play a freshly-generated reply when enabled, exactly once. Deferred
+  // to a timer so synthesis (which sets state) starts off the effect body.
+  useEffect(() => {
+    if (!autoPlayFresh || !autoplayEnabled) return;
+    if (autoPlayedRef.current) return;
+    if (!content.trim()) return;
+    autoPlayedRef.current = true;
+    const id = window.setTimeout(() => void play(), 0);
+    return () => window.clearTimeout(id);
+  }, [autoPlayFresh, autoplayEnabled, content, play]);
+
+  useEffect(() => cleanup, [cleanup]);
+
+  return (
+    <div className="relative inline-flex">
+      <Tooltip
+        label={state === "playing" ? t("Stop") : t("Play aloud")}
+        side="top"
+      >
+        <button
+          type="button"
+          onClick={handleClick}
+          aria-label={state === "playing" ? t("Stop") : t("Play aloud")}
+          className={`inline-flex items-center justify-center rounded-md p-1 transition-colors ${
+            state === "playing"
+              ? "text-[var(--primary)]"
+              : "text-[var(--muted-foreground)] hover:bg-[var(--muted)]/50 hover:text-[var(--foreground)]"
+          }`}
+        >
+          {state === "loading" ? (
+            <Loader2 size={15} strokeWidth={1.8} className="animate-spin" />
+          ) : state === "playing" ? (
+            <Square size={13} strokeWidth={1.8} className="fill-current" />
+          ) : (
+            <Volume2 size={15} strokeWidth={1.5} />
+          )}
+        </button>
+      </Tooltip>
+      {showPrompt && (
+        <div className="absolute bottom-full left-0 z-30 mb-2 w-60 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 shadow-lg">
+          <p className="text-[12px] leading-relaxed text-[var(--foreground)]">
+            {t("Auto-play replies in this conversation?")}
+          </p>
+          <div className="mt-2.5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPrompt(false)}
+              className="rounded-md px-2.5 py-1 text-[11.5px] text-[var(--muted-foreground)] hover:bg-[var(--muted)]/50 hover:text-[var(--foreground)]"
+            >
+              {t("Not now")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                enableForSession();
+                setShowPrompt(false);
+              }}
+              className="rounded-md bg-[var(--primary)] px-2.5 py-1 text-[11.5px] font-medium text-[var(--primary-foreground)] hover:bg-[var(--primary)]/90"
+            >
+              {t("Turn on")}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BranchNavigator({
   info,
   onSwitch,
@@ -762,14 +943,29 @@ const UserMessage = memo(function UserMessage({
         label: `${ref.record_ids.length} ${t("records")}`,
       }),
     ),
-    ...(snap?.historyReferences ?? []).map(
-      (sid): ContextTreeItem => ({
-        key: `hist-${sid}`,
-        icon: MessageSquare,
-        kind: t("Chat History"),
-        label: "",
-      }),
-    ),
+    // Imported agent conversations are folded into the same history_references
+    // payload but carry the `imported_` id prefix — split them back out so they
+    // read as "My Agents" rather than "Chat History" (mirrors the composer).
+    ...(snap?.historyReferences ?? [])
+      .filter((sid) => !sid.startsWith("imported_"))
+      .map(
+        (sid): ContextTreeItem => ({
+          key: `hist-${sid}`,
+          icon: MessageSquare,
+          kind: t("Chat History"),
+          label: "",
+        }),
+      ),
+    ...(snap?.historyReferences ?? [])
+      .filter((sid) => sid.startsWith("imported_"))
+      .map(
+        (sid): ContextTreeItem => ({
+          key: `agent-${sid}`,
+          icon: Bot,
+          kind: t("My Agents"),
+          label: "",
+        }),
+      ),
     ...(snap?.questionNotebookReferences?.length
       ? [
           {
@@ -1082,6 +1278,28 @@ export const ChatMessageList = memo(function ChatMessageList({
     return -1;
   }, [messageRows]);
 
+  // Auto-play (when enabled) must fire only for a reply that JUST finished
+  // generating — never when loading history. We capture the last-assistant
+  // index at the moment streaming flips off; the matching speaker button
+  // plays once. Switching sessions clears the marker. Uses the "adjust state
+  // during render" pattern (state-vs-prop comparison, like the API-key reset
+  // in ServiceConfigEditor) — both branches are conditional and bounded.
+  const [prevStreaming, setPrevStreaming] = useState(isStreaming);
+  const [prevSession, setPrevSession] = useState(sessionId);
+  const [freshlyCompletedIndex, setFreshlyCompletedIndex] = useState<
+    number | null
+  >(null);
+  if (prevSession !== sessionId) {
+    setPrevSession(sessionId);
+    setPrevStreaming(false);
+    setFreshlyCompletedIndex(null);
+  } else if (prevStreaming !== isStreaming) {
+    setPrevStreaming(isStreaming);
+    if (!isStreaming && lastRenderedAssistantIndex >= 0) {
+      setFreshlyCompletedIndex(lastRenderedAssistantIndex);
+    }
+  }
+
   return (
     <>
       {messageRows.map(({ msg, originalIndex, pairedUserMessage }) => {
@@ -1142,18 +1360,24 @@ export const ChatMessageList = memo(function ChatMessageList({
 
         return (
           <div key={`${msg.role}-${i}`} className="w-full">
-            <AssistantMessage
-              msg={msg}
-              isStreaming={isActiveAssistant}
-              outlineStatus={outlineStatusByIndex.get(i)}
-              sessionId={sessionId}
-              language={language}
-              onConfirmOutline={onConfirmOutline}
-              onSubmitUserReply={onSubmitUserReply}
-              researchRequestSnapshot={
-                pairedUserMessage?.requestSnapshot ?? null
-              }
-            />
+            <InlineFileCardProvider
+              attachments={msg.attachments ?? []}
+              events={msg.events}
+              onOpen={onPreviewAttachment}
+            >
+              <AssistantMessage
+                msg={msg}
+                isStreaming={isActiveAssistant}
+                outlineStatus={outlineStatusByIndex.get(i)}
+                sessionId={sessionId}
+                language={language}
+                onConfirmOutline={onConfirmOutline}
+                onSubmitUserReply={onSubmitUserReply}
+                researchRequestSnapshot={
+                  pairedUserMessage?.requestSnapshot ?? null
+                }
+              />
+            </InlineFileCardProvider>
             <GeneratedFileCards
               attachments={msg.attachments ?? []}
               events={msg.events}
@@ -1199,6 +1423,15 @@ export const ChatMessageList = memo(function ChatMessageList({
                       <CopyActionButton
                         content={msg.content}
                         onCopy={onCopyAssistantMessage}
+                      />
+                    )}
+                    {showActions && (
+                      <PlayAudioButton
+                        content={msg.content}
+                        conversationKey={sessionId ?? undefined}
+                        autoPlayFresh={
+                          isLastAssistant && freshlyCompletedIndex === i
+                        }
                       />
                     )}
                     {showActions && showRegenerate && (

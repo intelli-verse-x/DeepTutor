@@ -14,6 +14,7 @@ import {
   LANGUAGE_EVENT,
   LANGUAGE_STORAGE_KEY,
   normalizeLanguage,
+  readStoredChatResponseTimeout,
   readStoredLanguage,
   writeStoredActiveSessionId,
 } from "@/context/app-shell-storage";
@@ -1302,12 +1303,15 @@ export function UnifiedChatProvider({
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Idle timeout: if a streaming session receives no events for 60s, auto-fail it.
+  // Idle timeout: if a streaming session receives no events for the configured
+  // window (default 180s, set in Settings > Network), auto-fail it. Read per
+  // tick so a settings change applies without remounting.
   useEffect(() => {
-    const IDLE_TIMEOUT_MS = 60_000;
     const CHECK_INTERVAL_MS = 10_000;
 
     const timer = setInterval(() => {
+      const timeoutSeconds = readStoredChatResponseTimeout();
+      const idleTimeoutMs = timeoutSeconds * 1000;
       const current = stateRef.current;
       for (const [key, session] of Object.entries(current.sessions)) {
         if (!session.isStreaming) continue;
@@ -1316,7 +1320,7 @@ export function UnifiedChatProvider({
         ) {
           continue;
         }
-        if (Date.now() - session.updatedAt <= IDLE_TIMEOUT_MS) continue;
+        if (Date.now() - session.updatedAt <= idleTimeoutMs) continue;
 
         dispatch({
           type: "STREAM_EVENT",
@@ -1325,8 +1329,7 @@ export function UnifiedChatProvider({
             type: "error",
             source: "client",
             stage: "",
-            content:
-              "Connection timed out — no response received for 60 seconds.",
+            content: `Connection timed out — no response received for ${timeoutSeconds} seconds.`,
             metadata: { turn_terminal: true, status: "failed" },
             timestamp: Date.now() / 1000,
           },

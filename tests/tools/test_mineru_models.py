@@ -6,8 +6,8 @@ import time
 
 import pytest
 
-from deeptutor.tools.question import mineru_models
-from deeptutor.tools.question.mineru_models import (
+from deeptutor.services.parsing.engines.mineru import models as mineru_models
+from deeptutor.services.parsing.engines.mineru.models import (
     ModelDownloadManager,
     model_env_overrides,
     resolve_models_downloader,

@@ -45,11 +45,6 @@ class ChatOrchestrator:
 
         cap_name = context.active_capability or "chat"
         capability = self._cap_registry.get(cap_name)
-        if capability is None and context.config_overrides.get("answer_now_context") is not None:
-            fallback = self._cap_registry.get("chat")
-            if fallback is not None:
-                cap_name = "chat"
-                capability = fallback
 
         if capability is None:
             bus = StreamBus()

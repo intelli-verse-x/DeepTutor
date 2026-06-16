@@ -12,7 +12,7 @@ import logging
 from typing import Any
 
 from deeptutor.core.capability_protocol import BaseCapability
-from deeptutor.core.metadata_i18n import capability_description_i18n
+from deeptutor.i18n.metadata_i18n import capability_description_i18n
 from deeptutor.runtime.bootstrap.builtin_capabilities import BUILTIN_CAPABILITY_CLASSES
 
 logger = logging.getLogger(__name__)

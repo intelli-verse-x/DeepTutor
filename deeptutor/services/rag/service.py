@@ -10,18 +10,24 @@ from typing import Any, Dict, List, Optional
 
 from deeptutor.runtime.home import get_runtime_data_root
 
-from .factory import DEFAULT_PROVIDER, get_pipeline, list_pipelines
+from .factory import DEFAULT_PROVIDER, get_pipeline, list_pipelines, normalize_provider_name
+from .provider_binding import resolve_bound_provider
 
 DEFAULT_KB_BASE_DIR = str(get_runtime_data_root() / "knowledge_bases")
 
 
 class RAGService:
-    """Unified RAG service backed by the LlamaIndex pipeline."""
+    """Unified RAG service that routes to a KB's bound pipeline.
+
+    The provider is resolved per knowledge base: an explicit ``provider`` passed
+    to the constructor wins (used at create time); otherwise it is read from
+    DeepTutor's authoritative KB config, with metadata as a legacy fallback.
+    """
 
     def __init__(
         self,
         kb_base_dir: Optional[str] = None,
-        provider: Optional[str] = None,  # accepted for backward compatibility
+        provider: Optional[str] = None,
     ):
         self.logger = logging.getLogger(__name__)
         if kb_base_dir is None:
@@ -38,22 +44,37 @@ class RAGService:
                 )
                 kb_base_dir = DEFAULT_KB_BASE_DIR
         self.kb_base_dir = kb_base_dir
-        self.provider = DEFAULT_PROVIDER
-        self._pipeline = None
+        self._provider_override = normalize_provider_name(provider) if provider else None
+        # ``self.provider`` kept for callers that read it directly; the real
+        # selection happens per kb_name in ``_resolve_provider``.
+        self.provider = self._provider_override or DEFAULT_PROVIDER
+        self._pipelines: dict[str, Any] = {}
 
-    def _get_pipeline(self):
-        if self._pipeline is None:
-            self._pipeline = get_pipeline(kb_base_dir=self.kb_base_dir)
-        return self._pipeline
+    def _resolve_provider(self, kb_name: Optional[str]) -> str:
+        """Pick the provider for ``kb_name`` from DeepTutor's binding."""
+        if self._provider_override:
+            return self._provider_override
+        return resolve_bound_provider(self.kb_base_dir, kb_name)
+
+    def _get_pipeline(self, provider: str):
+        if provider not in self._pipelines:
+            self._pipelines[provider] = get_pipeline(
+                name=provider, kb_base_dir=self.kb_base_dir
+            )
+        return self._pipelines[provider]
 
     async def initialize(self, kb_name: str, file_paths: List[str], **kwargs) -> bool:
-        self.logger.info(f"Initializing KB '{kb_name}'")
-        pipeline = self._get_pipeline()
+        provider = self._resolve_provider(kb_name)
+        self.logger.info(f"Initializing KB '{kb_name}' (provider={provider})")
+        pipeline = self._get_pipeline(provider)
         return await pipeline.initialize(kb_name=kb_name, file_paths=file_paths, **kwargs)
 
     async def add_documents(self, kb_name: str, file_paths: List[str], **kwargs) -> bool:
-        self.logger.info(f"Adding {len(file_paths)} document(s) to KB '{kb_name}'")
-        pipeline = self._get_pipeline()
+        provider = self._resolve_provider(kb_name)
+        self.logger.info(
+            f"Adding {len(file_paths)} document(s) to KB '{kb_name}' (provider={provider})"
+        )
+        pipeline = self._get_pipeline(provider)
         if not hasattr(pipeline, "add_documents"):
             return await pipeline.initialize(kb_name=kb_name, file_paths=file_paths, **kwargs)
         return await pipeline.add_documents(kb_name=kb_name, file_paths=file_paths, **kwargs)
@@ -65,7 +86,7 @@ class RAGService:
         event_sink=None,
         **kwargs,
     ) -> Dict[str, Any]:
-        kwargs.pop("mode", None)
+        provider = self._resolve_provider(kb_name)
         with self._capture_raw_logs(event_sink):
             await self._emit_tool_event(
                 event_sink,
@@ -75,13 +96,13 @@ class RAGService:
             )
 
             self.logger.info(f"Searching KB '{kb_name}' with query: {query[:50]}...")
-            pipeline = self._get_pipeline()
+            pipeline = self._get_pipeline(provider)
 
             await self._emit_tool_event(
                 event_sink,
                 "status",
                 f"Retrieving from knowledge base '{kb_name}'...",
-                {"provider": DEFAULT_PROVIDER, "trace_layer": "summary"},
+                {"provider": provider, "trace_layer": "summary"},
             )
 
             result = await pipeline.search(query=query, kb_name=kb_name, **kwargs)
@@ -92,7 +113,9 @@ class RAGService:
                 result["answer"] = result["content"]
             if "content" not in result and "answer" in result:
                 result["content"] = result["answer"]
-            result["provider"] = DEFAULT_PROVIDER
+            # The service is authoritative about which engine ran (resolved from
+            # the KB's binding), so it overwrites whatever the pipeline reports.
+            result["provider"] = provider
 
             if result.get("error_type") or result.get("needs_reindex"):
                 await self._emit_tool_event(
@@ -100,7 +123,7 @@ class RAGService:
                     "status",
                     result.get("answer") or result.get("content") or "RAG search failed.",
                     {
-                        "provider": DEFAULT_PROVIDER,
+                        "provider": provider,
                         "kb_name": kb_name,
                         "trace_layer": "summary",
                         "call_state": "error",
@@ -116,7 +139,7 @@ class RAGService:
                 "status",
                 f"Retrieved {len(answer)} characters of grounded context.",
                 {
-                    "provider": DEFAULT_PROVIDER,
+                    "provider": provider,
                     "kb_name": kb_name,
                     "trace_layer": "summary",
                 },
@@ -179,8 +202,9 @@ class RAGService:
         return capture_process_logs(emit, min_level=logging.INFO)
 
     async def delete(self, kb_name: str) -> bool:
-        self.logger.info(f"Deleting KB '{kb_name}'")
-        pipeline = self._get_pipeline()
+        provider = self._resolve_provider(kb_name)
+        self.logger.info(f"Deleting KB '{kb_name}' (provider={provider})")
+        pipeline = self._get_pipeline(provider)
 
         if hasattr(pipeline, "delete"):
             return await pipeline.delete(kb_name=kb_name)
@@ -214,11 +238,11 @@ class RAGService:
 
     @staticmethod
     def get_current_provider() -> str:
-        # ``RAG_PROVIDER`` env var is honoured for visibility but the
-        # service only ships with a single backend.
-        os.getenv("RAG_PROVIDER")
-        return DEFAULT_PROVIDER
+        # Global default; per-KB selection happens in ``_resolve_provider``.
+        return normalize_provider_name(os.getenv("RAG_PROVIDER"))
 
     @staticmethod
     def has_provider(name: str) -> bool:
-        return (name or "").strip().lower() == DEFAULT_PROVIDER
+        from .factory import KNOWN_PROVIDERS
+
+        return (name or "").strip().lower() in KNOWN_PROVIDERS

@@ -17,7 +17,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from deeptutor.api.routers.settings import get_enabled_optional_tools
-from deeptutor.core.metadata_i18n import tool_description_i18n
+from deeptutor.i18n.metadata_i18n import tool_description_i18n
 from deeptutor.core.tool_protocol import BaseTool, ToolDefinition, ToolPromptHints
 from deeptutor.tools.builtin import (
     BUILTIN_TOOL_TYPES,
@@ -79,6 +79,11 @@ class BuiltinToolPayload(BaseModel):
     # page can render a placeholder card explaining the capability is on
     # the roadmap. The frontend should lock the toggle and show a badge.
     coming_soon: bool = False
+    # The capability that owns this tool (e.g. ``solve`` / ``mastery``), or
+    # ``None`` for a plain system built-in. Owned tools are reused by their
+    # capability on top of the shared built-in surface; the settings UI groups
+    # them under their owner, below the built-in section.
+    capability: str | None = None
 
 
 class ToolsListResponse(BaseModel):
@@ -133,6 +138,7 @@ def _build_tool_payload(
     *,
     enabled_optional: set[str],
     coming_soon: bool = False,
+    capability: str | None = None,
 ) -> BuiltinToolPayload:
     name, description, parameters = _serialise_definition(tool.get_definition())
     descriptions = tool_description_i18n(name, description)
@@ -156,6 +162,7 @@ def _build_tool_payload(
         toggleable=toggleable,
         enabled=enabled,
         coming_soon=coming_soon,
+        capability=capability,
     )
 
 
@@ -163,12 +170,21 @@ def _build_tool_payload(
 async def list_builtin_tools() -> ToolsListResponse:
     """Return all built-in tools the chat agent can invoke, plus any
     coming-soon placeholders for the settings page."""
+    from deeptutor.capabilities import capability_tool_owners
+
     enabled_optional = set(get_enabled_optional_tools())
+    owners = capability_tool_owners()
     payloads: list[BuiltinToolPayload] = []
     for tool_type in BUILTIN_TOOL_TYPES:
         try:
             instance = tool_type()
-            payloads.append(_build_tool_payload(instance, enabled_optional=enabled_optional))
+            payloads.append(
+                _build_tool_payload(
+                    instance,
+                    enabled_optional=enabled_optional,
+                    capability=owners.get(instance.name),
+                )
+            )
         except Exception:
             logger.exception("Failed to serialise tool %s", tool_type.__name__)
     for tool_type in COMING_SOON_TOOL_TYPES:

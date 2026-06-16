@@ -228,3 +228,20 @@ def resolve_for_rag(kb_ref: str | None) -> KnowledgeResource | None:
 
         log_usage("knowledge_base", resource.id, "rag_query")
     return resource
+
+
+def resolve_kb_metadata(kb_ref: str | None) -> dict[str, Any] | None:
+    """Access-checked KB metadata (``type`` / ``vault_path`` / …) for ``kb_ref``.
+
+    Returns ``None`` when the reference is empty or not accessible to the
+    current user. A pure read with no usage audit (unlike
+    :func:`resolve_for_rag`) — safe to call while resolving capability bindings.
+    """
+    if not kb_ref:
+        return None
+    try:
+        resource = resolve_kb(str(kb_ref), require_write=False)
+    except HTTPException:
+        return None
+    manager = _manager_for(str(resource.base_dir.resolve()))
+    return manager.get_metadata(resource.name)

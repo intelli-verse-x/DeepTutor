@@ -49,6 +49,23 @@ AUTO_MOUNTED_TOOLS: frozenset[str] = frozenset(
     }
 )
 
+# Conditional auto-mounts: tool name -> the ``ToolMountFlags`` attribute that
+# gates it. Single source of truth shared by the default composition (mount
+# when the flag is set) and the authoritative capability path (a capability's
+# declared built-in is dropped when its gate is unmet — e.g. ``rag`` without a KB).
+# Insertion order fixes the default surface's conditional-tool order.
+_CONDITIONAL_MOUNT_FLAGS: dict[str, str] = {
+    "rag": "has_kb",
+    "read_source": "has_sources",
+    "read_memory": "has_memory",
+    "list_notebook": "has_notebooks",
+    "write_note": "has_notebooks",
+    "read_skill": "has_skills",
+    "load_tools": "has_deferred_tools",
+    "exec": "has_exec",
+    "code_execution": "has_code",
+}
+
 
 def default_optional_tools(excluded: Iterable[str] = ()) -> list[str]:
     """Return the user-toggleable tool list (chat's default set).
@@ -92,49 +109,49 @@ def compose_enabled_tools(
     requested_tools: list[str] | None,
     optional_whitelist: list[str],
     mount_flags: ToolMountFlags,
-    extra_auto_tools: Iterable[str] = (),
+    capability_owned: Iterable[str] = (),
+    exclusive: bool = False,
 ) -> list[str]:
     """Compose the per-turn enabled-tool list.
 
     Order:
 
-    1. User-toggled tools (filtered through the registry's ``get_enabled``
-       so disabled tools never sneak in, and intersected with
-       ``optional_whitelist`` so only legitimate composer toggles are
-       respected).
-    2. Conditional auto-mounts (``rag`` if a KB is attached, ``read_source``
-       if a source index exists, ``read_memory`` if memory has content,
-       ``list_notebook`` + ``write_note`` if notebooks exist,
-       ``read_skill`` if the turn carries a skills manifest).
-    3. Plugin-owned auto-mounts supplied by the caller.
-    4. Always-on auto-mounts (``web_fetch``, ``github``, ``ask_user``).
+    1. User-toggled tools (filtered through ``get_enabled`` so unknown tools
+       never sneak in, intersected with ``optional_whitelist`` so only
+       legitimate composer toggles are respected).
+    2. Conditional auto-mounts (:data:`_CONDITIONAL_MOUNT_FLAGS`: ``rag`` if a
+       KB is attached, ``read_source`` if a source index exists, …).
+    3. Active loop capabilities' *owned* tools (``capability_owned``) — the
+       capability's own tools, added on top.
+    4. Always-on auto-mounts (``write_memory`` / ``web_fetch`` / ``github`` /
+       ``ask_user`` / ``cron``).
+
+    A loop capability (solve, mastery) reuses the *full* chat surface and only
+    *adds* its owned tools — it never curates or suppresses the reused
+    built-ins, so a capability turn respects the user's composer toggles
+    exactly as a chat turn does.
+
+    ``exclusive=True`` flips that for the *knowledge* category (an active
+    :class:`~deeptutor.capabilities.protocol.KnowledgeCapability`): the turn
+    runs only on ``capability_owned`` plus the ``ask_user`` floor — no built-ins,
+    no composer toggles, no conditional mounts. The capability owns the surface.
 
     The result is ordered and deduplicated. ``optional_whitelist`` is still
     expected to exclude ``AUTO_MOUNTED_TOOLS`` via :func:`default_optional_tools`.
     """
+    if exclusive:
+        owned = [str(name) for name in capability_owned if str(name).strip()]
+        return _ordered_unique([*owned, "ask_user"])
+
     composed: list[str] = [
         tool.name
         for tool in registry.get_enabled(requested_tools or [])
         if tool.name in optional_whitelist
     ]
-    if mount_flags.has_kb:
-        composed.append("rag")
-    if mount_flags.has_sources:
-        composed.append("read_source")
-    if mount_flags.has_memory:
-        composed.append("read_memory")
-    if mount_flags.has_notebooks:
-        composed.append("list_notebook")
-        composed.append("write_note")
-    if mount_flags.has_skills:
-        composed.append("read_skill")
-    if mount_flags.has_deferred_tools:
-        composed.append("load_tools")
-    if mount_flags.has_exec:
-        composed.append("exec")
-    if mount_flags.has_code:
-        composed.append("code_execution")
-    composed.extend(str(name) for name in extra_auto_tools if str(name).strip())
+    for tool_name, flag in _CONDITIONAL_MOUNT_FLAGS.items():
+        if getattr(mount_flags, flag):
+            composed.append(tool_name)
+    composed.extend(str(name) for name in capability_owned if str(name).strip())
     composed.append("write_memory")
     composed.append("web_fetch")
     composed.append("github")

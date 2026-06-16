@@ -74,20 +74,28 @@ def collect_public_artifacts(
 
 
 def render_artifacts_for_tool(artifacts: list[SandboxArtifact]) -> str:
-    """Compact model-facing artifact list with public download URLs."""
+    """Compact model-facing artifact list. The filename is the handle.
+
+    Each file already shows to the user as a download card. On top of that, the
+    UI turns any verbatim mention of one of these filenames in the reply into a
+    clickable link that opens the file — so the model just has to write the
+    exact filename, no special syntax or URL.
+    """
 
     if not artifacts:
         return ""
     lines = [
-        "Generated artifacts:",
+        "Generated artifacts (now saved — shown to the user as download cards):",
         *[
-            f"- {artifact.filename} ({_format_bytes(artifact.size_bytes)}): {artifact.url}"
+            f"- {artifact.filename} ({_format_bytes(artifact.size_bytes)})"
             for artifact in artifacts
         ],
-        "These files are shown to the user automatically as downloadable cards "
-        "below your reply — describe what you made in plain language, but do NOT "
-        "paste these raw URLs and do NOT repeat this artifacts list (no "
-        "'[Generated artifacts: ...]' annotations) in the answer.",
+        "",
+        "When you refer to one of these files in your reply, write its filename "
+        "EXACTLY as listed above (verbatim, including the extension) as plain "
+        "text — do NOT wrap it in a markdown link and do NOT paste a URL. The UI "
+        "automatically turns the plain filename into a clickable link that opens "
+        "the file. Describe what you made in plain language.",
     ]
     return "\n".join(lines)
 

@@ -30,7 +30,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from deeptutor.capabilities._shared import emit_capability_result
+from deeptutor.agents._shared.capability_result import emit_capability_result
 from deeptutor.core.agentic.tool_dispatch import DispatchOutcome
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
@@ -161,11 +161,23 @@ class AgentLoop:
 
     async def run(self) -> None:
         state = AgentLoopState()
+        # Optional async pre-pass briefings (e.g. explore_context) run BEFORE
+        # the answer stage so they form their own preceding activity group and
+        # their grounding can ride in the loop's user-message seed.
+        capability_briefing = await self.pipeline._capability_pre_loop_briefings(
+            self.context, self.stream
+        )
         async with self.stream.stage(LOOP_STAGE, source="chat"):
             seed_block = await self.pipeline._retrieve_kb_seed_block(self.context, self.stream)
-            plugin_seed = self.pipeline._plugin_pre_loop_seed(self.context)
+            capability_seed = self.pipeline._capability_pre_loop_seed(self.context)
             seed_block = "\n\n".join(
-                block for block in (seed_block.strip(), plugin_seed.strip()) if block
+                block
+                for block in (
+                    seed_block.strip(),
+                    capability_seed.strip(),
+                    capability_briefing.strip(),
+                )
+                if block
             )
             messages = self.pipeline._build_loop_messages(
                 context=self.context,
@@ -221,14 +233,28 @@ class AgentLoop:
         explore_label = self.pipeline._t("labels.exploring", default="Exploring")
         nudged_empty_finish = False
         for _round in range(max(1, self.pipeline.max_rounds)):
-            result = await self._call_llm(
-                messages=messages,
-                label=explore_label,
-                call_kind="agent_loop_round",
-                trace_role="explore",
-                max_tokens=self.pipeline.loop_max_tokens,
-                tool_schemas=self.tool_schemas,
-            )
+            try:
+                result = await self._call_llm(
+                    messages=messages,
+                    label=explore_label,
+                    call_kind="agent_loop_round",
+                    trace_role="explore",
+                    max_tokens=self.pipeline.loop_max_tokens,
+                    tool_schemas=self.tool_schemas,
+                )
+            except Exception as exc:
+                # A mid-loop LLM failure (timeout / transient network) must not
+                # discard a turn that already gathered useful work. Salvage it
+                # with a forced finish; only a failure on the very first round
+                # (nothing gathered yet) propagates as before.
+                if state.rounds == 0:
+                    raise
+                logger.warning(
+                    "agent loop round failed after %d round(s); forcing finish: %s",
+                    state.rounds,
+                    exc,
+                )
+                return await self._forced_finish(messages, state, reason="error")
             state.rounds += 1
             if not result.tool_calls:
                 final_text = self._clean(result.text)
@@ -339,25 +365,41 @@ class AgentLoop:
         self,
         messages: list[dict[str, Any]],
         state: AgentLoopState,
+        *,
+        reason: str = "budget",
     ) -> LoopOutcome:
-        await self.stream.progress(
-            self.pipeline._t(
+        if reason == "error":
+            notice = self.pipeline._t(
+                "notices.loop_error_finish",
+                default="A step failed; answering with what has been gathered.",
+            )
+        else:
+            notice = self.pipeline._t(
                 "notices.loop_budget_exhausted",
                 default="Exploration budget reached; answering with what has been gathered.",
-            ),
+            )
+        await self.stream.progress(
+            notice,
             source="chat",
             stage=LOOP_STAGE,
             metadata={"trace_kind": "warning"},
         )
         messages.append({"role": "user", "content": self.pipeline._finish_exhausted_instruction()})
-        result = await self._call_llm(
-            messages=messages,
-            label=self.pipeline._t("labels.final_response", default="Final response"),
-            call_kind="llm_final_response",
-            trace_role="response",
-            max_tokens=self.pipeline.loop_max_tokens,
-            tool_schemas=None,  # tools disabled so the model must finish
-        )
+        try:
+            result = await self._call_llm(
+                messages=messages,
+                label=self.pipeline._t("labels.final_response", default="Final response"),
+                call_kind="llm_final_response",
+                trace_role="response",
+                max_tokens=self.pipeline.loop_max_tokens,
+                tool_schemas=None,  # tools disabled so the model must finish
+            )
+        except Exception as exc:
+            # The salvage call itself failed (e.g. the provider is still
+            # stalling). Don't bubble up and lose the turn — emit the graceful
+            # fallback answer instead.
+            logger.warning("forced-finish LLM call failed: %s", exc)
+            return await self._finalize_finish("")
         state.rounds += 1
         return await self._finalize_finish(result.text)
 

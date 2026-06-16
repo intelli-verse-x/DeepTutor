@@ -17,6 +17,12 @@ import {
   markdownUrlTransform,
   normalizeMarkdownForDisplay,
 } from "@/lib/markdown-display";
+import {
+  InlineFileCard,
+  makeFileLinkRemarkPlugin,
+  parseAttachmentHref,
+  useInlineFileCardContext,
+} from "@/components/common/InlineFileCard";
 import type { MarkdownRendererProps } from "./MarkdownRenderer";
 
 function MermaidLoading() {
@@ -560,6 +566,10 @@ export default function RichMarkdownRenderer({
       );
     },
     a: ({ node, href, children, title, ...props }: any) => {
+      const attachmentName = parseAttachmentHref(href);
+      if (attachmentName) {
+        return <InlineFileCard name={attachmentName} fallback={children} />;
+      }
       const isCitation = title === "citation";
       const isHashLink = href?.startsWith("#");
       const external =
@@ -598,7 +608,7 @@ export default function RichMarkdownRenderer({
                 prefix && prefixMatch ? id.slice(prefixMatch[0].length) : id;
               const citationAnchor = citationAnchorIdFor(id);
               return (
-                <React.Fragment key={id}>
+                <React.Fragment key={`${id}-${idx}`}>
                   {idx > 0 && ", "}
                   <a
                     href={citationAnchor ? `#${citationAnchor}` : href}
@@ -717,11 +727,19 @@ export default function RichMarkdownRenderer({
       ? "md-renderer prose max-w-none font-serif"
       : "md-renderer prose prose-sm max-w-none font-serif";
 
+  // Linkify exact generated-filename mentions in the assistant's prose into
+  // clickable file links (no-op outside a chat message — fileCtx is null).
+  const fileCtx = useInlineFileCardContext();
+  const fileLinkPlugin = useMemo(
+    () => makeFileLinkRemarkPlugin(fileCtx?.files ?? []),
+    [fileCtx?.files],
+  );
   const remarkPlugins = useMemo(() => {
     const p: Array<any> = [remarkGfm];
     if (plugins.remarkMath) p.push(plugins.remarkMath as never);
+    if (fileLinkPlugin) p.push(fileLinkPlugin as never);
     return p;
-  }, [plugins.remarkMath]);
+  }, [plugins.remarkMath, fileLinkPlugin]);
 
   const rehypePlugins = useMemo(() => {
     const p: Array<any> = [];

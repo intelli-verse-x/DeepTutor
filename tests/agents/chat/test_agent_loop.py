@@ -9,11 +9,12 @@ import pytest
 
 from deeptutor.agents.chat.agent_loop import InlineThinkFilter
 from deeptutor.agents.chat.agentic_pipeline import AgenticChatPipeline
+from deeptutor.capabilities.explore_context import explorer as explorer_mod
+from deeptutor.capabilities.mastery import MASTERY_TOOL_NAMES
 from deeptutor.core.context import Attachment, UnifiedContext
 from deeptutor.core.stream import StreamEvent, StreamEventType
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.tool_protocol import ToolResult
-from deeptutor.loop_plugins.mastery import MASTERY_TOOL_NAMES
 
 
 async def _collect_bus_events(bus: StreamBus) -> tuple[list[StreamEvent], asyncio.Task[Any]]:
@@ -293,6 +294,64 @@ async def test_empty_finish_gets_one_nudge_then_recovers(
 
 
 @pytest.mark.asyncio
+async def test_explore_context_pre_pass_seeds_loop_without_polluting_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the user attaches fresh context, the explore_context pre-pass runs
+    before the answer loop and folds an objective briefing into the loop's
+    user-message seed — while its own output never appears as the answer."""
+
+    def _fake_explore_stream(*_args, **_kwargs):
+        async def _gen():
+            yield "The user and the external agent updated the navigation."
+
+        return _gen()
+
+    monkeypatch.setattr(explorer_mod, "llm_stream", _fake_explore_stream)
+    monkeypatch.setattr(
+        explorer_mod,
+        "get_llm_config",
+        lambda: SimpleNamespace(
+            model="gpt-test", api_key="k", base_url="u", api_version=None, binding="openai"
+        ),
+    )
+
+    registry = _Registry()
+    client = _ScriptedChatClient([[_llm_chunk(content="Here is what that chat did.")]])
+    pipeline = AgenticChatPipeline(language="en")
+    pipeline.registry = registry
+    monkeypatch.setattr(pipeline, "_compose_enabled_tools", lambda _context: [])
+    monkeypatch.setattr(pipeline, "_build_openai_client", lambda: client)
+
+    context = UnifiedContext(
+        session_id="s1",
+        user_message="what did this chat do?",
+        source_manifest="[Attached Sources]\n- id=hs-imported_claude_code_x type=history",
+        metadata={
+            "source_index": {"hs-imported_claude_code_x": "## Claude Code\nI updated the nav."},
+            "history_references": ["imported_claude_code_x"],
+        },
+    )
+    events = await _run(pipeline, context)
+
+    # The briefing rode into the answer loop's trailing user message (the seed).
+    first_call_messages = client.calls[0]["messages"]
+    seed_user_msg = first_call_messages[-1]["content"]
+    assert "external agent updated the navigation" in seed_user_msg
+
+    # The pre-pass streamed THINKING (reasoning trace), never CONTENT — the
+    # answer is only the chat loop's finish text.
+    assert _contents(events) == ["Here is what that chat did."]
+    explore_thinking = "".join(
+        e.content
+        for e in events
+        if e.type == StreamEventType.THINKING
+        and str((e.metadata or {}).get("call_kind")) == "context_exploration"
+    )
+    assert "external agent updated the navigation" in explore_thinking
+
+
+@pytest.mark.asyncio
 async def test_finish_first_round_no_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     """A request that needs no exploration: the first round emits no tool
     calls, so it IS the finish — one LLM call, streamed straight to the user."""
@@ -315,36 +374,6 @@ async def test_finish_first_round_no_tools(monkeypatch: pytest.MonkeyPatch) -> N
     assert result.metadata["response"] == "A direct answer."
     assert result.metadata["rounds"] == 1
     assert result.metadata["tool_steps"] == 0
-
-
-@pytest.mark.asyncio
-async def test_chat_ignores_answer_now_context(monkeypatch: pytest.MonkeyPatch) -> None:
-    registry = _Registry()
-    client = _ScriptedChatClient([[_llm_chunk(content="Normal agent-loop answer.")]])
-    pipeline = AgenticChatPipeline(language="en")
-    pipeline.registry = registry
-    monkeypatch.setattr(pipeline, "_compose_enabled_tools", lambda _context: [])
-    monkeypatch.setattr(pipeline, "_build_openai_client", lambda: client)
-
-    events = await _run(
-        pipeline,
-        UnifiedContext(
-            session_id="s1",
-            user_message="Hello",
-            config_overrides={
-                "answer_now_context": {
-                    "original_user_message": "Hello",
-                    "partial_response": "old partial answer",
-                    "events": [],
-                },
-            },
-        ),
-    )
-
-    result = _result(events)
-    assert result.metadata["engine"] == "agent_loop"
-    assert "answer_now" not in result.metadata
-    assert result.metadata["response"] == "Normal agent-loop answer."
 
 
 @pytest.mark.asyncio
@@ -403,6 +432,111 @@ async def test_tool_round_then_finish(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.metadata["rounds"] == 2
     # Only the finish round's text is the persisted answer.
     assert result.metadata["response"] == "Found what was needed."
+
+
+@pytest.mark.asyncio
+async def test_midloop_llm_failure_salvages_turn_with_forced_finish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mid-loop LLM failure (e.g. a timeout) after useful work must not nuke
+    the turn — it is salvaged with a forced finish, not propagated."""
+
+    class _FailingThenFinishClient:
+        def __init__(self) -> None:
+            self.call_count = 0
+            self.calls: list[dict[str, Any]] = []
+            parent = self
+
+            class _Completions:
+                async def create(self, **kwargs):
+                    parent.call_count += 1
+                    parent.calls.append(
+                        {**kwargs, "messages": list(kwargs.get("messages") or [])}
+                    )
+                    if parent.call_count == 1:
+                        return _async_llm_stream(
+                            [
+                                _llm_chunk(content="Searching."),
+                                _llm_chunk(
+                                    tool_calls=[
+                                        {
+                                            "id": "call-1",
+                                            "name": "web_search",
+                                            "arguments": json.dumps({"query": "q"}),
+                                        }
+                                    ]
+                                ),
+                            ]
+                        )
+                    if parent.call_count == 2:
+                        raise TimeoutError("Request timed out.")
+                    return _async_llm_stream([_llm_chunk(content="Best-effort answer.")])
+
+            class _Chat:
+                def __init__(self) -> None:
+                    self.completions = _Completions()
+
+            self.chat = _Chat()
+
+    registry = _Registry()
+    client = _FailingThenFinishClient()
+    pipeline = AgenticChatPipeline(language="en")
+    pipeline.registry = registry
+    monkeypatch.setattr(pipeline, "_compose_enabled_tools", lambda _context: ["web_search"])
+    monkeypatch.setattr(pipeline, "_build_openai_client", lambda: client)
+
+    events = await _run(
+        pipeline,
+        UnifiedContext(session_id="s1", user_message="Look up", enabled_tools=["web_search"]),
+    )
+
+    # 1 tool round + 1 failed round + 1 forced-finish call = 3 create() calls.
+    assert client.call_count == 3
+    # The turn produced an answer instead of failing.
+    result = _result(events)
+    assert result.metadata["response"] == "Best-effort answer."
+    # The forced-finish warning explains the salvage.
+    progress = [
+        e.content
+        for e in events
+        if e.type == StreamEventType.PROGRESS and "A step failed" in str(e.content or "")
+    ]
+    assert progress, "expected the loop_error_finish notice to be emitted"
+
+
+@pytest.mark.asyncio
+async def test_first_round_llm_failure_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure on the very first round (no work gathered yet) has nothing to
+    salvage and propagates so the orchestrator surfaces the error."""
+
+    class _AlwaysFailClient:
+        def __init__(self) -> None:
+            class _Completions:
+                async def create(self, **kwargs):
+                    raise TimeoutError("Request timed out.")
+
+            class _Chat:
+                def __init__(self) -> None:
+                    self.completions = _Completions()
+
+            self.chat = _Chat()
+
+    pipeline = AgenticChatPipeline(language="en")
+    pipeline.registry = _Registry()
+    monkeypatch.setattr(pipeline, "_compose_enabled_tools", lambda _context: ["web_search"])
+    monkeypatch.setattr(pipeline, "_build_openai_client", lambda: _AlwaysFailClient())
+
+    bus = StreamBus()
+    _events, consumer = await _collect_bus_events(bus)
+    with pytest.raises(TimeoutError):
+        await pipeline.run(
+            UnifiedContext(session_id="s1", user_message="x", enabled_tools=["web_search"]),
+            bus,
+        )
+    await bus.close()
+    await consumer
 
 
 @pytest.mark.asyncio
@@ -716,6 +850,10 @@ def test_compose_enabled_tools_mounts_mastery_plugin_only_in_mastery_mode(
     mastery_tools = pipeline._compose_enabled_tools(mastery)
     assert not set(MASTERY_TOOL_NAMES).intersection(ordinary_tools)
     assert set(MASTERY_TOOL_NAMES).issubset(mastery_tools)
+    # Additive plugin surface: a mastery turn reuses chat's full built-in
+    # surface (always-on defaults included) and just adds its owned tools.
+    assert {"web_fetch", "github", "cron"}.issubset(mastery_tools)
+    assert {"web_fetch", "github", "cron"}.issubset(ordinary_tools)
 
 
 def test_augment_tool_kwargs_injects_mastery_path_id() -> None:

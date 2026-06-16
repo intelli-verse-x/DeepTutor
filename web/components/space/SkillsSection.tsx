@@ -12,12 +12,14 @@ import {
   Pencil,
   Plus,
   Sparkles,
+  Store,
   Tag as TagIcon,
   Trash2,
   Wand2,
   X,
 } from "lucide-react";
 import SpaceSectionHeader from "@/components/space/SpaceSectionHeader";
+import EduHubImportModal from "@/components/space/EduHubImportModal";
 import { isValidSkillName, slugifySkillName } from "@/lib/skill-slug";
 import {
   createSkill,
@@ -80,6 +82,7 @@ export default function SkillsSection() {
   const [editor, setEditor] = useState<SkillEditorState | null>(null);
   const [viewer, setViewer] = useState<SkillViewerState | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const [filterTag, setFilterTag] = useState<string | "all" | "untagged">(
     "all",
@@ -402,13 +405,22 @@ export default function SkillsSection() {
           </span>
         }
         action={
-          <button
-            onClick={openCreate}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--primary-foreground)] shadow-sm transition-opacity hover:opacity-90"
-          >
-            <Plus size={13} strokeWidth={2} />
-            {t("New skill")}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setImportOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--foreground)] shadow-sm transition-colors hover:bg-[var(--muted)]/50"
+            >
+              <Store size={13} strokeWidth={1.9} />
+              {t("Import from EduHub")}
+            </button>
+            <button
+              onClick={openCreate}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-1.5 text-[12.5px] font-medium text-[var(--primary-foreground)] shadow-sm transition-opacity hover:opacity-90"
+            >
+              <Plus size={13} strokeWidth={2} />
+              {t("New skill")}
+            </button>
+          </div>
         }
       />
 
@@ -959,6 +971,13 @@ export default function SkillsSection() {
             </div>
           </div>
         </div>
+      )}
+
+      {importOpen && (
+        <EduHubImportModal
+          onClose={() => setImportOpen(false)}
+          onInstalled={() => void load()}
+        />
       )}
     </div>
   );
