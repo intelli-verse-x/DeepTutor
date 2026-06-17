@@ -131,7 +131,9 @@ export async function saveAgent(agent: ImportAgent): Promise<void> {
 
 export async function getAgents(): Promise<ImportAgent[]> {
   try {
-    return (await tx<ImportAgent[]>("readonly", (store) => store.getAll())) ?? [];
+    return (
+      (await tx<ImportAgent[]>("readonly", (store) => store.getAll())) ?? []
+    );
   } catch {
     return [];
   }

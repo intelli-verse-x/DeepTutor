@@ -44,7 +44,9 @@ function scopedKey(prefix: string, scopeKey?: string): string {
 function readSession(scopeKey?: string): boolean | null {
   if (typeof window === "undefined") return null;
   try {
-    const v = window.sessionStorage.getItem(scopedKey(SESSION_KEY_PREFIX, scopeKey));
+    const v = window.sessionStorage.getItem(
+      scopedKey(SESSION_KEY_PREFIX, scopeKey),
+    );
     return v === "on" ? true : v === "off" ? false : null;
   } catch {
     return null;
@@ -116,8 +118,8 @@ export function useVoiceAutoplay(scopeKey?: string) {
   const [stateScopeKey, setStateScopeKey] = useState<string | undefined>(
     normalizedScopeKey,
   );
-  const [sessionOverride, setSessionOverride] = useState<boolean | null>(
-    () => readSession(normalizedScopeKey),
+  const [sessionOverride, setSessionOverride] = useState<boolean | null>(() =>
+    readSession(normalizedScopeKey),
   );
   if (stateScopeKey !== normalizedScopeKey) {
     setStateScopeKey(normalizedScopeKey);
@@ -160,7 +162,10 @@ export function useVoiceAutoplay(scopeKey?: string) {
   const markPrompted = useCallback(() => {
     if (typeof window === "undefined") return;
     try {
-      window.sessionStorage.setItem(scopedKey(PROMPTED_KEY_PREFIX, normalizedScopeKey), "1");
+      window.sessionStorage.setItem(
+        scopedKey(PROMPTED_KEY_PREFIX, normalizedScopeKey),
+        "1",
+      );
     } catch {
       // ignore
     }
@@ -174,8 +179,9 @@ export function useVoiceAutoplay(scopeKey?: string) {
     if (typeof window === "undefined") return false;
     try {
       return (
-        window.sessionStorage.getItem(scopedKey(PROMPTED_KEY_PREFIX, normalizedScopeKey)) !==
-        "1"
+        window.sessionStorage.getItem(
+          scopedKey(PROMPTED_KEY_PREFIX, normalizedScopeKey),
+        ) !== "1"
       );
     } catch {
       return false;

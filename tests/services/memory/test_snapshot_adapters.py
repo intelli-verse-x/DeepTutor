@@ -109,9 +109,7 @@ def test_missing_config_uses_dir_id_as_name(partner_tree: Path) -> None:
     assert entities[0].metadata["partner_name"] == "bot3"
 
 
-def test_non_admin_scope_sees_no_partners(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_non_admin_scope_sees_no_partners(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A regular user's memory view must not surface admin partner chats."""
     admin_root = tmp_path / "admin"
     user_root = tmp_path / "users" / "u1" / "workspace"

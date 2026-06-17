@@ -10,12 +10,12 @@ from typing import Any
 
 import pytest
 
-import deeptutor.agents.visualize.pipeline as visualize_pipeline
 from deeptutor.agents.chat.capability import ChatCapability
 from deeptutor.agents.question.capability import DeepQuestionCapability
 from deeptutor.agents.research.capability import DeepResearchCapability
-from deeptutor.capabilities.solve.capability import DeepSolveCapability
 from deeptutor.agents.visualize.capability import VisualizeCapability
+import deeptutor.agents.visualize.pipeline as visualize_pipeline
+from deeptutor.capabilities.solve.capability import DeepSolveCapability
 from deeptutor.core.context import Attachment, UnifiedContext
 from deeptutor.core.stream import StreamEvent, StreamEventType
 from deeptutor.core.stream_bus import StreamBus
@@ -130,6 +130,7 @@ async def test_chat_capability_streams_content_and_geogebra_context(
     )
     assert "GGB commands" in captured["process"]["message"]
 
+
 @pytest.mark.asyncio
 async def test_deep_solve_capability_runs_chat_loop_in_solve_mode(
     monkeypatch: pytest.MonkeyPatch,
@@ -149,9 +150,7 @@ async def test_deep_solve_capability_runs_chat_loop_in_solve_mode(
             captured["attachments"] = list(context.attachments or [])
             await stream.content("final solution", source="chat", stage="responding")
 
-    monkeypatch.setattr(
-        "deeptutor.capabilities.solve.capability.AgenticChatPipeline", FakePipeline
-    )
+    monkeypatch.setattr("deeptutor.capabilities.solve.capability.AgenticChatPipeline", FakePipeline)
 
     context = UnifiedContext(
         user_message="solve x^2=4",
@@ -281,8 +280,8 @@ async def test_deep_research_capability_delegates_to_pipeline(
     in the capability module so we can assert what it was called with
     without spinning up real LLM I/O.
     """
-    import deeptutor.agents.research.request_config  # noqa: F401
     import deeptutor.agents.research.capability as deep_research_mod
+    import deeptutor.agents.research.request_config  # noqa: F401
 
     captured: dict[str, Any] = {}
 

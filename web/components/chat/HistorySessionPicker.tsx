@@ -156,7 +156,8 @@ export default function HistorySessionPicker({
     ? sessions.find((s) => sessionKey(s) === activeId)
     : undefined;
   const activeDetail = activeId ? details[activeId] : undefined;
-  const activeLoading = previewLoadingId !== null && previewLoadingId === activeId;
+  const activeLoading =
+    previewLoadingId !== null && previewLoadingId === activeId;
 
   return (
     <PickerShell

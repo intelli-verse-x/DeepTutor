@@ -14,18 +14,18 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from deeptutor.i18n import StatusI18n
 from deeptutor.agents._shared.capability_result import emit_capability_result
-from deeptutor.runtime.request_contracts import (
-    VisualizeRequestConfig,
-    get_capability_request_schema,
-    validate_visualize_request_config,
-)
 from deeptutor.core.agentic.usage import UsageTracker
 from deeptutor.core.capability_protocol import BaseCapability, CapabilityManifest
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
 from deeptutor.core.trace import merge_trace_metadata
+from deeptutor.i18n import StatusI18n
+from deeptutor.runtime.request_contracts import (
+    VisualizeRequestConfig,
+    get_capability_request_schema,
+    validate_visualize_request_config,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -181,11 +181,8 @@ export default function CreateKbModal({
     }
   };
 
-  const submitLabel = mode === "new"
-    ? t("Create")
-    : linkIsObsidian
-      ? t("Connect")
-      : t("Link");
+  const submitLabel =
+    mode === "new" ? t("Create") : linkIsObsidian ? t("Connect") : t("Link");
 
   return (
     <Modal
@@ -226,7 +223,12 @@ export default function CreateKbModal({
     >
       <div className="space-y-4 px-5 py-4">
         {/* New vs. link existing */}
-        <ModeToggle mode={mode} onChange={setMode} disabled={submitting} t={t} />
+        <ModeToggle
+          mode={mode}
+          onChange={setMode}
+          disabled={submitting}
+          t={t}
+        />
 
         <div>
           <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
@@ -298,23 +300,27 @@ function ModeToggle({
   disabled: boolean;
   t: TFn;
 }) {
-  const options: { id: Mode; label: string; hint: string; icon: typeof Plus }[] =
-    [
-      {
-        id: "new",
-        label: t("Create new"),
-        hint: t("Upload documents and build a fresh index."),
-        icon: Plus,
-      },
-      {
-        id: "link",
-        label: t("Link existing"),
-        hint: t(
-          "Reuse an index you already built — read in place, no upload or re-index.",
-        ),
-        icon: Link2,
-      },
-    ];
+  const options: {
+    id: Mode;
+    label: string;
+    hint: string;
+    icon: typeof Plus;
+  }[] = [
+    {
+      id: "new",
+      label: t("Create new"),
+      hint: t("Upload documents and build a fresh index."),
+      icon: Plus,
+    },
+    {
+      id: "link",
+      label: t("Link existing"),
+      hint: t(
+        "Reuse an index you already built — read in place, no upload or re-index.",
+      ),
+      icon: Link2,
+    },
+  ];
   return (
     <div className="grid grid-cols-2 gap-2">
       {options.map((opt) => {
@@ -424,7 +430,9 @@ function NewModeFields({
             <span className="flex items-center gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               {providerNeedsKey
-                ? t("This engine needs an API key. Configure it before creating.")
+                ? t(
+                    "This engine needs an API key. Configure it before creating.",
+                  )
                 : t(
                     "This engine isn't installed on the server. Install it before creating.",
                   )}
@@ -505,7 +513,9 @@ function LinkModeFields({
                 onClick={() => setLinkSource(p.id)}
                 title={
                   !p.linkable
-                    ? t("This engine's index lives in the cloud and can't be linked.")
+                    ? t(
+                        "This engine's index lives in the cloud and can't be linked.",
+                      )
                     : undefined
                 }
                 className={`group flex flex-col gap-1 rounded-2xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -554,7 +564,9 @@ function LinkModeFields({
               )}
             </div>
             <span className="text-[11.5px] leading-snug text-[var(--muted-foreground)]">
-              {t("A live Obsidian vault — browsed and edited in place, no index.")}
+              {t(
+                "A live Obsidian vault — browsed and edited in place, no index.",
+              )}
             </span>
           </button>
         </div>
@@ -569,7 +581,9 @@ function LinkModeFields({
             value={folderPath}
             onChange={(event) => setFolderPath(event.target.value)}
             disabled={submitting}
-            placeholder={linkIsObsidian ? EXAMPLE_VAULT_PATH : EXAMPLE_INDEX_PATH}
+            placeholder={
+              linkIsObsidian ? EXAMPLE_VAULT_PATH : EXAMPLE_INDEX_PATH
+            }
             className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-[12.5px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
           />
           {!linkIsObsidian && (
@@ -610,9 +624,7 @@ function ProbeVerdict({ probe, t }: { probe: LinkedFolderProbe; t: TFn }) {
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           {t("This folder can't be linked")}
         </span>
-        {probe.error && (
-          <p className="mt-1 leading-relaxed">{probe.error}</p>
-        )}
+        {probe.error && <p className="mt-1 leading-relaxed">{probe.error}</p>}
       </div>
     );
   }
@@ -625,9 +637,7 @@ function ProbeVerdict({ probe, t }: { probe: LinkedFolderProbe; t: TFn }) {
         {t("Ready index found")}
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-[var(--muted-foreground)]">
-        {probe.version && (
-          <span className="font-mono">{probe.version}</span>
-        )}
+        {probe.version && <span className="font-mono">{probe.version}</span>}
         {probe.doc_count != null && (
           <span>{t("{{count}} documents", { count: probe.doc_count })}</span>
         )}

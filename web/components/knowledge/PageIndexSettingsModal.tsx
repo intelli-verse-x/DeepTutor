@@ -56,7 +56,10 @@ export default function PageIndexSettingsModal({
     };
   }, [isOpen]);
 
-  const persist = async (payload: { api_key?: string; api_base_url?: string }) => {
+  const persist = async (payload: {
+    api_key?: string;
+    api_base_url?: string;
+  }) => {
     setSaving(true);
     setError(null);
     try {

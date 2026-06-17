@@ -112,7 +112,8 @@ export default function KnowledgeHome({
   );
   const kbCountByProvider = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const kb of kbs) counts[kbProvider(kb)] = (counts[kbProvider(kb)] ?? 0) + 1;
+    for (const kb of kbs)
+      counts[kbProvider(kb)] = (counts[kbProvider(kb)] ?? 0) + 1;
     return counts;
   }, [kbs]);
 
@@ -184,9 +185,7 @@ export default function KnowledgeHome({
                         {p.default_mode}
                       </span>
                     )}
-                    {count > 0 && (
-                      <span>{t("{{count}} KB", { count })}</span>
-                    )}
+                    {count > 0 && <span>{t("{{count}} KB", { count })}</span>}
                     <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-60" />
                   </div>
                 </button>

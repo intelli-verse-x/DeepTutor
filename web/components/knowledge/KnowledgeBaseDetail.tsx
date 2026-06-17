@@ -115,7 +115,8 @@ export default function KnowledgeBaseDetail({
   const lastIndexedLabel = formatKnowledgeTimestamp(meta.last_indexed_at);
 
   const isReindexingLocally =
-    (task?.kind === "reindex" || task?.kind === "retry") && task.executing === true;
+    (task?.kind === "reindex" || task?.kind === "retry") &&
+    task.executing === true;
   const status = resolveKbStatus(kb);
   const canRetry = status === "error" && !kb.read_only;
 

@@ -220,7 +220,9 @@ function CenteredStatus({
         {icon}
       </span>
       <div className="space-y-1">
-        <p className="text-[14px] font-medium text-[var(--foreground)]">{title}</p>
+        <p className="text-[14px] font-medium text-[var(--foreground)]">
+          {title}
+        </p>
         {subtitle ? (
           <p className="mx-auto max-w-sm text-[12px] leading-relaxed text-[var(--muted-foreground)]">
             {subtitle}

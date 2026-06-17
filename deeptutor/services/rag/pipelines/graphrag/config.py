@@ -93,9 +93,7 @@ def query_config_from_settings() -> GraphRagQueryConfig:
         return GraphRagQueryConfig(
             response_type=str(settings.get("response_type") or "Multiple Paragraphs"),
             community_level=int(settings.get("community_level", 2)),
-            dynamic_community_selection=bool(
-                settings.get("dynamic_community_selection", False)
-            ),
+            dynamic_community_selection=bool(settings.get("dynamic_community_selection", False)),
         )
     except Exception:
         return GraphRagQueryConfig()

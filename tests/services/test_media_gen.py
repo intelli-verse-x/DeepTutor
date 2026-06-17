@@ -42,7 +42,9 @@ def _patch_http(
     captured: dict[str, Any] = {"posts": [], "gets": []}
 
     async def fake_post(self: httpx.AsyncClient, url: str, **kwargs: Any) -> httpx.Response:
-        captured["posts"].append({"url": url, "json": kwargs.get("json"), "headers": kwargs.get("headers")})
+        captured["posts"].append(
+            {"url": url, "json": kwargs.get("json"), "headers": kwargs.get("headers")}
+        )
         resp = post(url, kwargs) if callable(post) else post
         resp.request = httpx.Request("POST", url)
         return resp
@@ -212,9 +214,7 @@ def _media_catalog() -> dict[str, Any]:
                         "binding": "volcengine",
                         "base_url": "",
                         "api_key": "ark-key",
-                        "models": [
-                            {"id": "m1", "model": "doubao-seedream-3", "size": "1024x1024"}
-                        ],
+                        "models": [{"id": "m1", "model": "doubao-seedream-3", "size": "1024x1024"}],
                     }
                 ],
             },
@@ -227,7 +227,9 @@ def _media_catalog() -> dict[str, Any]:
                         "binding": "volcengine",
                         "base_url": "",
                         "api_key": "ark-key",
-                        "models": [{"id": "m2", "model": "doubao-seedance-1", "aspect_ratio": "9:16"}],
+                        "models": [
+                            {"id": "m2", "model": "doubao-seedance-1", "aspect_ratio": "9:16"}
+                        ],
                     }
                 ],
             },
@@ -288,7 +290,9 @@ def test_resolve_imagegen_config_raises_without_model() -> None:
 @pytest.mark.asyncio
 async def test_generate_image_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = base64.b64encode(b"IMG").decode("ascii")
-    captured = _patch_http(monkeypatch, post=httpx.Response(200, json={"data": [{"b64_json": payload}]}))
+    captured = _patch_http(
+        monkeypatch, post=httpx.Response(200, json={"data": [{"b64_json": payload}]})
+    )
     images = await generate_image("a tree", catalog=_media_catalog(), size="512x512")
     assert images == [(b"IMG", "image/png")]
     assert captured["posts"][0]["json"]["size"] == "512x512"

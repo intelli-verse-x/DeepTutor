@@ -450,9 +450,7 @@ async def test_midloop_llm_failure_salvages_turn_with_forced_finish(
             class _Completions:
                 async def create(self, **kwargs):
                     parent.call_count += 1
-                    parent.calls.append(
-                        {**kwargs, "messages": list(kwargs.get("messages") or [])}
-                    )
+                    parent.calls.append({**kwargs, "messages": list(kwargs.get("messages") or [])})
                     if parent.call_count == 1:
                         return _async_llm_stream(
                             [

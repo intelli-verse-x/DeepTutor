@@ -98,9 +98,7 @@ class VoiceAutoplayUpdate(BaseModel):
 
 
 class ChatResponseTimeoutUpdate(BaseModel):
-    chat_response_timeout: int = Field(
-        ge=CHAT_RESPONSE_TIMEOUT_MIN, le=CHAT_RESPONSE_TIMEOUT_MAX
-    )
+    chat_response_timeout: int = Field(ge=CHAT_RESPONSE_TIMEOUT_MIN, le=CHAT_RESPONSE_TIMEOUT_MAX)
 
 
 class ThemeUpdate(BaseModel):

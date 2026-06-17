@@ -234,7 +234,9 @@ function entityDeepLinkUrl(surface: Surface, ent: Entity): string | null {
     case "partner": {
       // Partner entity.id is `partnerId:sessionKey`. Deep-link to the partner.
       const partnerId = asString(m.partner_id) || ent.id.split(":")[0];
-      return partnerId ? `/partners/${encodeURIComponent(partnerId)}` : "/partners";
+      return partnerId
+        ? `/partners/${encodeURIComponent(partnerId)}`
+        : "/partners";
     }
     case "quiz": {
       // Quiz entity.id is `session:question`. Deep-link to the session.

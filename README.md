@@ -44,6 +44,8 @@
 
 ### 📦 Releases
 
+> **[2026.6.17]** [v1.4.6](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.6) — Consolidation across four surfaces: Space becomes a learning dashboard with importable **My Agents** and a top-level Memory, the **Knowledge Center** adds GraphRAG / PageIndex / LightRAG engines plus linked-KB and Obsidian mounts, Settings opens up document parsing / voice / image+video, and LLM capabilities are gated per assigned model.
+
 > **[2026.6.14]** [v1.4.5](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.5) — Guided Learning rebuilt on the chat agent loop with a hard per-type mastery gate and a `/learning` dashboard, a new extensible loop-plugin framework, plus Markdown export / save-to-notebook for Partner conversations.
 
 > **[2026.6.13]** [v1.4.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.4) — Install community skills from [ClawHub](https://clawhub.ai/) with `deeptutor skill install` behind a security gate, plus real in-browser DOCX/XLSX previews for knowledge-base files.

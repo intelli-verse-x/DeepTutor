@@ -21,9 +21,7 @@ class DoclingConfig:
 
 def resolve_docling_config() -> DoclingConfig:
     slice_ = (
-        load_document_parsing_settings()
-        .get("engines", {})
-        .get(DOCUMENT_PARSING_ENGINE_DOCLING, {})
+        load_document_parsing_settings().get("engines", {}).get(DOCUMENT_PARSING_ENGINE_DOCLING, {})
     )
     return DoclingConfig(
         do_ocr=bool(slice_.get("do_ocr", False)),

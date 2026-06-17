@@ -27,10 +27,10 @@ from deeptutor.agents.research.request_config import (
     build_research_runtime_config,
     validate_research_request_config,
 )
-from deeptutor.runtime.request_contracts import get_capability_request_schema
 from deeptutor.core.capability_protocol import BaseCapability, CapabilityManifest
 from deeptutor.core.context import UnifiedContext
 from deeptutor.core.stream_bus import StreamBus
+from deeptutor.runtime.request_contracts import get_capability_request_schema
 from deeptutor.services.config import load_config_with_main
 
 

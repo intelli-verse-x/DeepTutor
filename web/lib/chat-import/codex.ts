@@ -82,7 +82,10 @@ async function walkJsonl(
         entry.name,
       ]);
     } else if (entry.name.endsWith(".jsonl")) {
-      out.push({ handle: entry as FileSystemFileHandle, date: dateFromTrail(trail) });
+      out.push({
+        handle: entry as FileSystemFileHandle,
+        date: dateFromTrail(trail),
+      });
     }
   }
 }

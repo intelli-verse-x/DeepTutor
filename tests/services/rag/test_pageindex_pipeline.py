@@ -148,8 +148,12 @@ def test_delete_drops_cloud_docs_and_local_dir(tmp_path) -> None:
 
 
 def test_factory_dispatches_by_provider(tmp_path) -> None:
-    assert type(get_pipeline("pageindex", kb_base_dir=str(tmp_path))).__name__ == "PageIndexPipeline"
-    assert type(get_pipeline("llamaindex", kb_base_dir=str(tmp_path))).__name__ == "LlamaIndexPipeline"
+    assert (
+        type(get_pipeline("pageindex", kb_base_dir=str(tmp_path))).__name__ == "PageIndexPipeline"
+    )
+    assert (
+        type(get_pipeline("llamaindex", kb_base_dir=str(tmp_path))).__name__ == "LlamaIndexPipeline"
+    )
     # Legacy / unknown providers fall back to the default engine.
     assert (
         type(get_pipeline("raganything", kb_base_dir=str(tmp_path))).__name__

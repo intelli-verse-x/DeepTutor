@@ -9,8 +9,8 @@ from typing import Any, Dict
 
 import pytest
 
-from deeptutor.services.rag.service import RAGService
 import deeptutor.services.rag.service as rag_service_module
+from deeptutor.services.rag.service import RAGService
 from deeptutor.services.rag.smart_retriever import SmartRetriever
 
 
@@ -168,9 +168,7 @@ async def test_search_forwards_lightrag_native_logs_to_event_sink(
         lightrag_logger.setLevel(original_level)
 
     raw_logs = [
-        (message, metadata)
-        for event_type, message, metadata in events
-        if event_type == "raw_log"
+        (message, metadata) for event_type, message, metadata in events if event_type == "raw_log"
     ]
     assert any(
         message == "Final context: 14 entities, 13 relations, 1 chunks"
@@ -266,11 +264,7 @@ async def test_search_filters_noisy_vector_and_embedding_logs(
         lightrag_logger.setLevel(original_lightrag_level)
         lightrag_logger.propagate = original_lightrag_propagate
 
-    raw_messages = [
-        message
-        for event_type, message, _metadata in events
-        if event_type == "raw_log"
-    ]
+    raw_messages = [message for event_type, message, _metadata in events if event_type == "raw_log"]
     assert "Raw search results: 14 entities, 13 relations, 0 vector chunks" in raw_messages
     assert not any(message.startswith("Load ") for message in raw_messages)
     assert not any(message.startswith("Init ") for message in raw_messages)

@@ -63,9 +63,8 @@ interface DashboardGroup {
 function distinctAgentSources(sessions: SessionSummary[]): number {
   const seen = new Set<string>();
   for (const s of sessions) {
-    const src = (
-      s.preferences as { import?: { source?: string } } | undefined
-    )?.import?.source;
+    const src = (s.preferences as { import?: { source?: string } } | undefined)
+      ?.import?.source;
     if (src === "claude_code" || src === "codex") seen.add(src);
   }
   return seen.size;
@@ -197,8 +196,7 @@ export default function SpaceDashboard() {
       item
         .load()
         .then((n) => {
-          if (!cancelled)
-            setCounts((prev) => ({ ...prev, [item.key]: n }));
+          if (!cancelled) setCounts((prev) => ({ ...prev, [item.key]: n }));
         })
         .catch(() => {
           /* leave undefined → tile just omits the count */

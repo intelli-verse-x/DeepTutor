@@ -173,9 +173,7 @@ def register(app: typer.Typer) -> None:
         provider: str | None = typer.Argument(
             None, help="登录方式：github | google（不填则在终端询问）。"
         ),
-        hub: str | None = typer.Option(
-            None, "--hub", help="Target hub (default from settings)."
-        ),
+        hub: str | None = typer.Option(None, "--hub", help="Target hub (default from settings)."),
         no_browser: bool = typer.Option(
             False, "--no-browser", help="不自动打开浏览器，只打印授权链接。"
         ),
@@ -196,9 +194,7 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(code=1)
         base_url = getattr(provider_obj, "base_url", None)
         if not base_url:
-            console.print(
-                f"[bold red]Hub `{target_hub}` 不支持网页登录（非 clawhub 型）。[/]"
-            )
+            console.print(f"[bold red]Hub `{target_hub}` 不支持网页登录（非 clawhub 型）。[/]")
             raise typer.Exit(code=1)
         origin = hub_origin_from_base(str(base_url))
 
@@ -231,9 +227,7 @@ def register(app: typer.Typer) -> None:
 
     @app.command("logout")
     def skill_logout(
-        hub: str | None = typer.Option(
-            None, "--hub", help="Target hub (default from settings)."
-        ),
+        hub: str | None = typer.Option(None, "--hub", help="Target hub (default from settings)."),
     ) -> None:
         """清除本地保存的某个 hub 登录令牌。"""
         from deeptutor.services.skill import credentials
@@ -257,9 +251,7 @@ def register(app: typer.Typer) -> None:
         track: str | None = typer.Option(
             None, "--track", help="Track (skips the track prompt when set)."
         ),
-        hub: str | None = typer.Option(
-            None, "--hub", help="Target hub (default from settings)."
-        ),
+        hub: str | None = typer.Option(None, "--hub", help="Target hub (default from settings)."),
         token: str | None = typer.Option(
             None, "--token", help="Publish token; else env / `deeptutor skills login`."
         ),
@@ -364,8 +356,7 @@ def register(app: typer.Typer) -> None:
             raise typer.Exit(code=1)
 
         console.print(
-            f"[bold green]Published[/] [bold]{outcome.slug}@{outcome.version}[/] "
-            f"→ {outcome.hub}"
+            f"[bold green]Published[/] [bold]{outcome.slug}@{outcome.version}[/] → {outcome.hub}"
         )
         console.print(
             f"  [dim]install with:[/] deeptutor skill install {outcome.hub}:{outcome.slug}"
@@ -376,9 +367,7 @@ def register(app: typer.Typer) -> None:
         directory: str | None = typer.Argument(
             None, help="新版本的 skill 目录（升级新版本时用；回退不需要）。"
         ),
-        hub: str | None = typer.Option(
-            None, "--hub", help="Target hub (default from settings)."
-        ),
+        hub: str | None = typer.Option(None, "--hub", help="Target hub (default from settings)."),
         token: str | None = typer.Option(
             None, "--token", help="Publish token; else env / `deeptutor skills login`."
         ),
@@ -456,9 +445,7 @@ def register(app: typer.Typer) -> None:
             if len([v for v in versions if v != current]) == 0:
                 console.print(f"[dim]{chosen_slug} 只有一个版本（{current}），无法回退。[/]")
                 raise typer.Exit(code=0)
-            version_opts = [
-                Option(v, "← 当前 latest" if v == current else "", v) for v in versions
-            ]
+            version_opts = [Option(v, "← 当前 latest" if v == current else "", v) for v in versions]
             target_version = select_one(version_opts, "回退 latest 到哪个版本？")
             if target_version == current:
                 console.print("[dim]已是当前 latest，无需回退。[/]")
@@ -469,8 +456,12 @@ def register(app: typer.Typer) -> None:
             ):
                 console.print("[dim]已取消。[/]")
                 raise typer.Exit(code=0)
+            tag_setter = getattr(provider, "set_dist_tag", None)
+            if not callable(tag_setter):
+                console.print(f"[bold red]Hub `{target_hub}` 不支持回退 latest。[/]")
+                raise typer.Exit(code=1)
             try:
-                provider.set_dist_tag(chosen_slug, version=target_version, token=tok)
+                tag_setter(chosen_slug, version=target_version, token=tok)
             except HubError as exc:
                 console.print(f"[bold red]回退失败：[/] {exc}")
                 raise typer.Exit(code=1)

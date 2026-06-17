@@ -125,7 +125,11 @@ function CapMenuItem({
         </div>
       </div>
       {selected && (
-        <Check size={14} strokeWidth={2} className="shrink-0 text-[var(--primary)]" />
+        <Check
+          size={14}
+          strokeWidth={2}
+          className="shrink-0 text-[var(--primary)]"
+        />
       )}
     </button>
   );
@@ -771,7 +775,9 @@ export default memo(function ChatComposer({
                         />
                       ))}
                     {(() => {
-                      const loopCaps = capabilities.filter((cap) => cap.loopEngine);
+                      const loopCaps = capabilities.filter(
+                        (cap) => cap.loopEngine,
+                      );
                       if (loopCaps.length === 0) return null;
                       const loopSelected = loopCaps.some(
                         (cap) => cap.value === activeCap.value,
@@ -784,7 +790,10 @@ export default memo(function ChatComposer({
                           onFocus={() => setMoreCapsOpen(true)}
                           onBlur={(event) => {
                             const next = event.relatedTarget;
-                            if (!next || !event.currentTarget.contains(next as Node)) {
+                            if (
+                              !next ||
+                              !event.currentTarget.contains(next as Node)
+                            ) {
                               setMoreCapsOpen(false);
                             }
                           }}
@@ -828,7 +837,9 @@ export default memo(function ChatComposer({
                               click/focus also open it for touch and keyboard. */}
                           <div
                             className={`absolute bottom-0 left-full z-50 pl-1.5 transition-opacity duration-150 ${
-                              moreCapsOpen ? "visible opacity-100" : "invisible opacity-0"
+                              moreCapsOpen
+                                ? "visible opacity-100"
+                                : "invisible opacity-0"
                             }`}
                           >
                             <div className="w-[240px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--popover)] py-1 shadow-lg backdrop-blur-md">
@@ -893,7 +904,8 @@ export default memo(function ChatComposer({
                             onSelectHistoryPicker();
                           else if (key === "my_agents") onSelectAgentsPicker();
                           else if (key === "books") onSelectBookPicker();
-                          else if (key === "notebooks") onSelectNotebookPicker();
+                          else if (key === "notebooks")
+                            onSelectNotebookPicker();
                           else if (key === "question_bank")
                             onSelectQuestionBankPicker();
                           else if (key === "persona") onSelectPersonaPicker();

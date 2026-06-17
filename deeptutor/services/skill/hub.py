@@ -388,9 +388,7 @@ class ClawHubProvider:
                 detail = str(response.json().get("error") or "")
             except ValueError:
                 detail = response.text[:200]
-            raise HubError(
-                f"{self.name}: publish failed (HTTP {response.status_code}): {detail}"
-            )
+            raise HubError(f"{self.name}: publish failed (HTTP {response.status_code}): {detail}")
         try:
             return response.json()
         except ValueError:
@@ -411,7 +409,9 @@ class ClawHubProvider:
         except httpx.HTTPError as exc:
             raise HubError(f"{self.name}: request failed: {exc}") from exc
         if response.status_code in (401, 403):
-            raise HubError(f"{self.name}: not authenticated — run `skill login` or pass a valid token.")
+            raise HubError(
+                f"{self.name}: not authenticated — run `skill login` or pass a valid token."
+            )
         if response.status_code >= 400:
             raise HubError(f"{self.name}: HTTP {response.status_code}: {response.text[:200]}")
         try:
@@ -574,9 +574,7 @@ def get_hub_provider(name: str) -> SkillHubProvider:
                 raise HubError(f"Hub `{hub}` is missing fetch_cmd in skill_hubs settings.")
             return CommandProvider(hub, fetch_cmd=fetch_cmd)
         raise HubError(f"Hub `{hub}` has unknown type `{kind}` in skill_hubs settings.")
-    raise HubError(
-        f"Unknown hub `{hub}`. Configure it in settings/skill_hubs.json."
-    )
+    raise HubError(f"Unknown hub `{hub}`. Configure it in settings/skill_hubs.json.")
 
 
 # ── orchestration ─────────────────────────────────────────────────────────
@@ -663,8 +661,21 @@ class SkillPreflight:
 # before upload rather than after a server-side ``review`` verdict.
 _DANGEROUS_BINARY_EXT = frozenset(
     {
-        ".exe", ".dll", ".so", ".dylib", ".bin", ".msi", ".dmg", ".pkg",
-        ".app", ".bat", ".cmd", ".scr", ".com", ".jar", ".apk",
+        ".exe",
+        ".dll",
+        ".so",
+        ".dylib",
+        ".bin",
+        ".msi",
+        ".dmg",
+        ".pkg",
+        ".app",
+        ".bat",
+        ".cmd",
+        ".scr",
+        ".com",
+        ".jar",
+        ".apk",
     }
 )
 
@@ -692,7 +703,9 @@ def preflight_skill_dir(directory: str | Path) -> SkillPreflight:
     else:
         fm = _read_frontmatter(skill_md)
         if not str(fm.get("name") or "").strip():
-            warnings.append("SKILL.md frontmatter has no `name:` (display name falls back to slug).")
+            warnings.append(
+                "SKILL.md frontmatter has no `name:` (display name falls back to slug)."
+            )
         if not str(fm.get("description") or "").strip():
             warnings.append(
                 "SKILL.md frontmatter has no `description:` — agents rely on it to decide when to use the skill."

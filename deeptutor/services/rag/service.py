@@ -62,9 +62,7 @@ class RAGService:
 
     def _get_pipeline(self, provider: str):
         if provider not in self._pipelines:
-            self._pipelines[provider] = get_pipeline(
-                name=provider, kb_base_dir=self.kb_base_dir
-            )
+            self._pipelines[provider] = get_pipeline(name=provider, kb_base_dir=self.kb_base_dir)
         return self._pipelines[provider]
 
     async def initialize(self, kb_name: str, file_paths: List[str], **kwargs) -> bool:
@@ -202,10 +200,14 @@ class RAGService:
                 message.startswith("Load ") or message.startswith("Init ")
             ):
                 return True
-            if logger_name.startswith("deeptutor.services.embedding.") and (
-                message.startswith("Successfully generated ")
-                or message.startswith("Generated ")
-            ) and "embedding" in message.lower():
+            if (
+                logger_name.startswith("deeptutor.services.embedding.")
+                and (
+                    message.startswith("Successfully generated ")
+                    or message.startswith("Generated ")
+                )
+                and "embedding" in message.lower()
+            ):
                 return True
             return False
 

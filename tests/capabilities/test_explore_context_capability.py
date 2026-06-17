@@ -76,9 +76,7 @@ def _fake_stream(briefing_chunks: list[str]):
 @pytest.fixture
 def _force_single_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the explorer onto its single-pass (llm_stream) fallback path."""
-    monkeypatch.setattr(
-        explorer_mod, "can_use_native_tool_calling", lambda **_kwargs: False
-    )
+    monkeypatch.setattr(explorer_mod, "can_use_native_tool_calling", lambda **_kwargs: False)
 
 
 @pytest.mark.asyncio
@@ -238,9 +236,13 @@ async def test_loop_reads_source_then_writes_investigation(
     investigation grounded in the loaded full text."""
     rounds = [
         # Round 0: ask to read the attached transcript.
-        [_FakeChunk(_FakeDelta(tool_calls=[
-            _FakeToolCall(0, "call_1", "read_source", '{"source_id": "hs-x"}')
-        ]))],
+        [
+            _FakeChunk(
+                _FakeDelta(
+                    tool_calls=[_FakeToolCall(0, "call_1", "read_source", '{"source_id": "hs-x"}')]
+                )
+            )
+        ],
         # Round 1: no tool calls → this text is the investigation.
         [_FakeChunk(_FakeDelta(content="The other agent rewrote the nav and shipped it."))],
     ]

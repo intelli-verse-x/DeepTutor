@@ -68,9 +68,7 @@ def test_source_validation_rejects_unknown() -> None:
 
 
 def test_source_is_normalized_lowercase() -> None:
-    assert ChatHistoryImportRequest(source="Claude_Code", sessions=[]).source == (
-        "claude_code"
-    )
+    assert ChatHistoryImportRequest(source="Claude_Code", sessions=[]).source == ("claude_code")
 
 
 def test_import_endpoint_persists_and_dedups(store: SQLiteSessionStore) -> None:
@@ -109,9 +107,7 @@ def test_empty_content_messages_are_dropped(store: SQLiteSessionStore) -> None:
 def test_session_with_only_empty_messages_is_skipped(
     store: SQLiteSessionStore,
 ) -> None:
-    res = asyncio.run(
-        import_chat_history(_payload(messages=[{"role": "user", "content": "  "}]))
-    )
+    res = asyncio.run(import_chat_history(_payload(messages=[{"role": "user", "content": "  "}])))
     assert res["imported"] == 0
     assert res["skipped"] == 1
 
@@ -137,9 +133,7 @@ def test_reimport_backfills_agent_attribution(store: SQLiteSessionStore) -> None
 
     # Re-syncing under an agent backfills attribution without duplicating the
     # session or re-adding messages.
-    again = asyncio.run(
-        import_chat_history(_payload(agent_id="codex-a1", agent_name="Research"))
-    )
+    again = asyncio.run(import_chat_history(_payload(agent_id="codex-a1", agent_name="Research")))
     assert again["imported"] == 0
     assert again["skipped"] == 1
     listed = asyncio.run(list_imported_chat_history(limit=50, offset=0))

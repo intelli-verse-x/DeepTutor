@@ -15,7 +15,11 @@ def test_graphrag_defaults_and_clamp(tmp_path: Path) -> None:
     assert defaults["dynamic_community_selection"] is False
 
     saved = svc.save_graphrag(
-        {"community_level": 99, "dynamic_community_selection": "yes", "response_type": "  Single Paragraph  "}
+        {
+            "community_level": 99,
+            "dynamic_community_selection": "yes",
+            "response_type": "  Single Paragraph  ",
+        }
     )
     assert saved["community_level"] == 5  # clamped to max
     assert saved["dynamic_community_selection"] is True

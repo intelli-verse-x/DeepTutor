@@ -100,9 +100,7 @@ export async function scanClaude(
       const aiTitle = head.find(
         (r) => r.type === "ai-title" && r.aiTitle,
       )?.aiTitle;
-      const firstUser = head
-        .map(toMessage)
-        .find((m) => m?.role === "user");
+      const firstUser = head.map(toMessage).find((m) => m?.role === "user");
       sessions.push({
         externalId: handle.name.replace(/\.jsonl$/, ""),
         provisionalTitle:

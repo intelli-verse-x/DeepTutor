@@ -236,9 +236,7 @@ class TestChatAttachments:
         assert _create(client, start=False).status_code == 200
 
         data = yaml.safe_load(
-            (isolated_root / "partners" / "ada" / "config.yaml").read_text(
-                encoding="utf-8"
-            )
+            (isolated_root / "partners" / "ada" / "config.yaml").read_text(encoding="utf-8")
         )
         assert data["auto_start"] is False
 

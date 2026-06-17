@@ -225,7 +225,10 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   {
     key: "chat",
     label: { zh: "聊天", en: "Chat" },
-    blurb: { zh: "工具、MCP 服务器与能力", en: "Tools, MCP servers, and capabilities" },
+    blurb: {
+      zh: "工具、MCP 服务器与能力",
+      en: "Tools, MCP servers, and capabilities",
+    },
     icon: MessagesSquare,
     href: "/settings/chat",
     children: CHAT_CHILDREN,
@@ -233,7 +236,10 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   {
     key: "memory",
     label: { zh: "记忆", en: "Memory" },
-    blurb: { zh: "分块、预算、去重与引用策略", en: "Chunking, budget, dedup, and reference policies" },
+    blurb: {
+      zh: "分块、预算、去重与引用策略",
+      en: "Chunking, budget, dedup, and reference policies",
+    },
     icon: BrainCircuit,
     href: "/settings/memory",
   },

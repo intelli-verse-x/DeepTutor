@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from deeptutor.services.rag.factory import (
     DEFAULT_PROVIDER,
@@ -35,7 +35,9 @@ class ProviderIndexProbe:
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
-def inspect_provider_index(provider: str | None, storage_dir: str | Path | None) -> ProviderIndexProbe:
+def inspect_provider_index(
+    provider: str | None, storage_dir: str | Path | None
+) -> ProviderIndexProbe:
     """Inspect one provider storage directory using real provider artifacts."""
     resolved = normalize_provider_name(provider)
     path = Path(storage_dir) if storage_dir is not None else None
@@ -189,11 +191,7 @@ def _inspect_graphrag(storage_dir: Path) -> ProviderIndexProbe:
     from deeptutor.services.rag.pipelines.graphrag import storage
 
     out = storage.output_dir(storage_dir)
-    tables = [
-        name
-        for name in storage.OUTPUT_TABLES
-        if (out / f"{name}.parquet").exists()
-    ]
+    tables = [name for name in storage.OUTPUT_TABLES if (out / f"{name}.parquet").exists()]
     if not storage.has_output(storage_dir):
         return ProviderIndexProbe(
             GRAPHRAG_PROVIDER,

@@ -170,9 +170,7 @@ class ImagegenTool(BaseTool):
             return ToolResult(content=f"Image generation failed: {exc}", success=False)
 
         run_dir = _run_dir(kwargs.get("_workspace_dir"), "imagegen")
-        artifacts = _write_media(
-            run_dir, images, stem=_slug(prompt, "image"), default_ext="png"
-        )
+        artifacts = _write_media(run_dir, images, stem=_slug(prompt, "image"), default_ext="png")
         return _artifact_result(
             artifacts,
             empty_message="Image generation produced no saved files.",

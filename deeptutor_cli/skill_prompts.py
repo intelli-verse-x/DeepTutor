@@ -170,16 +170,22 @@ def collect_classification(defaults: dict[str, Any], *, locale: str = "zh") -> d
     )
     domains = select_domains(preselected=_as_list(defaults, "domains"), locale=locale)
     stages = select_many(
-        STAGE_OPTIONS, "学段 stages — 可选；空=全学段通用",
-        preselected=_as_list(defaults, "stages"), locale=locale,
+        STAGE_OPTIONS,
+        "学段 stages — 可选；空=全学段通用",
+        preselected=_as_list(defaults, "stages"),
+        locale=locale,
     )
     forms = select_many(
-        FORM_OPTIONS, "形式 forms — 可选；技能如何与用户交互",
-        preselected=_as_list(defaults, "forms"), locale=locale,
+        FORM_OPTIONS,
+        "形式 forms — 可选；技能如何与用户交互",
+        preselected=_as_list(defaults, "forms"),
+        locale=locale,
     )
     audiences = select_many(
-        AUDIENCE_OPTIONS, "受众 audiences — 可选；空=面向学习者",
-        preselected=_as_list(defaults, "audiences"), locale=locale,
+        AUDIENCE_OPTIONS,
+        "受众 audiences — 可选；空=面向学习者",
+        preselected=_as_list(defaults, "audiences"),
+        locale=locale,
     )
     tags_default = ",".join(_as_list(defaults, "tags"))
     tags = typer.prompt(

@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bot,
@@ -63,7 +57,13 @@ import {
 const UNGROUPED_PREFIX = "ungrouped:";
 
 type CardView =
-  | { kind: "agent"; key: string; agent: ImportAgent; count: number; latest: number }
+  | {
+      kind: "agent";
+      key: string;
+      agent: ImportAgent;
+      count: number;
+      latest: number;
+    }
   | {
       kind: "ungrouped";
       key: string;
@@ -118,8 +118,7 @@ export default function MyAgentsSection() {
 
   const { cards, byCard } = useMemo(() => {
     const ordered = [...registry].sort(
-      (a, b) =>
-        (b.lastSyncAt || b.createdAt) - (a.lastSyncAt || a.createdAt),
+      (a, b) => (b.lastSyncAt || b.createdAt) - (a.lastSyncAt || a.createdAt),
     );
     const owner = assignSessionsToAgents(sessions, ordered);
     const byCard = new Map<string, SessionSummary[]>();
@@ -327,7 +326,9 @@ export default function MyAgentsSection() {
           </div>
 
           {note && (
-            <p className="text-[11.5px] text-[var(--muted-foreground)]">{note}</p>
+            <p className="text-[11.5px] text-[var(--muted-foreground)]">
+              {note}
+            </p>
           )}
 
           <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-sm">

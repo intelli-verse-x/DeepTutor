@@ -230,7 +230,8 @@ export function invalidateKnowledgeCaches() {
   invalidateClientCache(KNOWLEDGE_CACHE_PREFIX);
 }
 
-const PAGEINDEX_CONFIG_PATH = "/api/v1/knowledge/rag-pipelines/pageindex/config";
+const PAGEINDEX_CONFIG_PATH =
+  "/api/v1/knowledge/rag-pipelines/pageindex/config";
 
 export async function getPageIndexConfig(options?: {
   force?: boolean;
@@ -358,13 +359,15 @@ async function updateEngineConfig<T>(
 
 export const getGraphRagConfig = (options?: { force?: boolean }) =>
   getEngineConfig<GraphRagConfig>("graphrag", "graphrag-config", options);
-export const updateGraphRagConfig = (payload: Partial<Omit<GraphRagConfig, "version">>) =>
-  updateEngineConfig<GraphRagConfig>("graphrag", payload);
+export const updateGraphRagConfig = (
+  payload: Partial<Omit<GraphRagConfig, "version">>,
+) => updateEngineConfig<GraphRagConfig>("graphrag", payload);
 
 export const getLightRagConfig = (options?: { force?: boolean }) =>
   getEngineConfig<LightRagConfig>("lightrag", "lightrag-config", options);
-export const updateLightRagConfig = (payload: Partial<Omit<LightRagConfig, "version">>) =>
-  updateEngineConfig<LightRagConfig>("lightrag", payload);
+export const updateLightRagConfig = (
+  payload: Partial<Omit<LightRagConfig, "version">>,
+) => updateEngineConfig<LightRagConfig>("lightrag", payload);
 
 export async function getEnginePreflight(
   provider: string,
@@ -401,11 +404,14 @@ export async function setEngineActiveModel(
   profileId: string,
   modelId: string,
 ): Promise<ModelKindOptions> {
-  const res = await apiFetch(apiUrl("/api/v1/knowledge/rag-pipelines/active-model"), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind, profile_id: profileId, model_id: modelId }),
-  });
+  const res = await apiFetch(
+    apiUrl("/api/v1/knowledge/rag-pipelines/active-model"),
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, profile_id: profileId, model_id: modelId }),
+    },
+  );
   if (!res.ok) {
     throw new Error(await readErrorDetail(res, "Failed to switch model"));
   }
@@ -418,7 +424,9 @@ export async function updateRagProviderMode(
   mode: string,
 ): Promise<{ provider: string; mode: string }> {
   const res = await apiFetch(
-    apiUrl(`/api/v1/knowledge/rag-providers/${encodeURIComponent(provider)}/mode`),
+    apiUrl(
+      `/api/v1/knowledge/rag-providers/${encodeURIComponent(provider)}/mode`,
+    ),
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -426,7 +434,9 @@ export async function updateRagProviderMode(
     },
   );
   if (!res.ok) {
-    throw new Error(await readErrorDetail(res, "Failed to update retrieval mode"));
+    throw new Error(
+      await readErrorDetail(res, "Failed to update retrieval mode"),
+    );
   }
   // The provider list's `default_mode` depends on this; refresh it.
   invalidateKnowledgeCaches();
@@ -559,10 +569,16 @@ export async function connectObsidianVault(payload: {
     body: JSON.stringify({ name: payload.name, vault_path: payload.vaultPath }),
   });
   if (!res.ok) {
-    throw new Error(await readErrorDetail(res, "Failed to connect Obsidian vault"));
+    throw new Error(
+      await readErrorDetail(res, "Failed to connect Obsidian vault"),
+    );
   }
   invalidateKnowledgeCaches();
-  return (await res.json()) as { status: string; name: string; vault_path: string };
+  return (await res.json()) as {
+    status: string;
+    name: string;
+    vault_path: string;
+  };
 }
 
 export interface LinkedFolderProbe {
@@ -730,10 +746,7 @@ export async function retryKnowledgeBase(
     { method: "POST" },
   );
   if (!res.ok) {
-    const detail = await readErrorDetail(
-      res,
-      `Retry failed (${res.status})`,
-    );
+    const detail = await readErrorDetail(res, `Retry failed (${res.status})`);
     throw new Error(
       withDockerUpgradeHint(detail, res.status, "Knowledge retry"),
     );

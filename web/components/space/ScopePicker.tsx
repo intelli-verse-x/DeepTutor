@@ -149,7 +149,9 @@ export default function ScopePicker({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[12.5px] font-medium text-[var(--foreground)]">
-                      {unit === "dates" ? formatDay(group.label, lang) : group.label}
+                      {unit === "dates"
+                        ? formatDay(group.label, lang)
+                        : group.label}
                     </span>
                     {group.sublabel ? (
                       <span className="block truncate text-[10.5px] text-[var(--muted-foreground)]/80">

@@ -189,7 +189,11 @@ export default function KbDocumentList({
       // Keep the preview pointed at the moved file if it was selected.
       if (selectedFile === source) {
         const moved = files.find((f) => f.name === source);
-        onSelect({ ...(moved ?? { name: newPath }), name: newPath, type: "file" });
+        onSelect({
+          ...(moved ?? { name: newPath }),
+          name: newPath,
+          type: "file",
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -317,7 +321,11 @@ export default function KbDocumentList({
             title={node.path}
             className="flex min-w-0 flex-1 items-center gap-2 text-left"
           >
-            <Icon size={13} strokeWidth={1.6} className={`shrink-0 ${spec.tint}`} />
+            <Icon
+              size={13}
+              strokeWidth={1.6}
+              className={`shrink-0 ${spec.tint}`}
+            />
             <div className="min-w-0 flex-1">
               <div className="truncate text-[12px] font-medium text-[var(--foreground)]">
                 {node.name}

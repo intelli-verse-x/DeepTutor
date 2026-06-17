@@ -72,8 +72,10 @@ def test_run_login_captures_token_and_rejects_bad_state() -> None:
     assert thread.is_alive()  # still waiting for a valid callback
 
     # Correct state → token captured.
-    good = base + "?" + urllib.parse.urlencode(
-        {"state": state, "token": "eduhub_abc", "login": "alice"}
+    good = (
+        base
+        + "?"
+        + urllib.parse.urlencode({"state": state, "token": "eduhub_abc", "login": "alice"})
     )
     with urllib.request.urlopen(good, timeout=5) as resp:
         assert resp.status == 200

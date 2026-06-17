@@ -6,6 +6,6 @@ before publishing to PyPI; the web sidebar badge and CLI banner read from this
 file directly.
 """
 
-__version__ = "1.4.5"
+__version__ = "1.4.6"
 
 __all__ = ("__version__",)

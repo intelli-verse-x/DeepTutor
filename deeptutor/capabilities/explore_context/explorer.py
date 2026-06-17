@@ -486,7 +486,7 @@ class ContextExplorer:
             return {str(k): str(v) for k, v in idx.items()}
         return {}
 
-    def _token_kwargs(self, max_tokens: int) -> dict[str, int]:
+    def _token_kwargs(self, max_tokens: int) -> dict[str, Any]:
         if not self.model:
             return {}
         return get_token_limit_kwargs(self.model, max_tokens)
@@ -527,9 +527,7 @@ def _content_chars(message: dict[str, Any]) -> int:
     return 0
 
 
-def _assistant_with_tool_calls(
-    content: str, tool_calls: list[dict[str, Any]]
-) -> dict[str, Any]:
+def _assistant_with_tool_calls(content: str, tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "role": "assistant",
         "content": content or None,

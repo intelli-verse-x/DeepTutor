@@ -39,6 +39,7 @@ import logging
 import re
 from typing import Any
 
+from deeptutor.agents._shared.capability_result import emit_capability_result
 from deeptutor.agents._shared.tool_composition import (
     ToolMountFlags,
     compose_enabled_tools,
@@ -53,7 +54,6 @@ from deeptutor.agents.research.data_structures import (
     TopicStatus,
 )
 from deeptutor.agents.research.utils.citation_manager import CitationManager
-from deeptutor.agents._shared.capability_result import emit_capability_result
 from deeptutor.core.agentic import (
     DispatchOutcome,
     LabeledStepResult,

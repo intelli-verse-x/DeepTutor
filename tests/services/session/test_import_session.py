@@ -40,9 +40,7 @@ def _import(store: SQLiteSessionStore, ext: str = "abc", title: str = "Imported"
 
 
 def test_make_imported_session_id_prefix_and_sanitize() -> None:
-    assert make_imported_session_id("claude_code", "uuid-1").startswith(
-        "imported_claude_code_"
-    )
+    assert make_imported_session_id("claude_code", "uuid-1").startswith("imported_claude_code_")
     unsafe = make_imported_session_id("x/y", "a/b.c")
     assert unsafe.startswith("imported_")
     assert "/" not in unsafe and "." not in unsafe

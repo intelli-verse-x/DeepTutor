@@ -72,7 +72,8 @@ export default function ImportWizard({
   );
   const unit = scan ? selectionUnit(scan.source) : "projects";
   const selectedRefs = useMemo(
-    () => groups.filter((g) => selectedKeys.has(g.key)).flatMap((g) => g.sessions),
+    () =>
+      groups.filter((g) => selectedKeys.has(g.key)).flatMap((g) => g.sessions),
     [groups, selectedKeys],
   );
 

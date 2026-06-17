@@ -129,7 +129,9 @@ function LeafCard({
               >
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
-                    chip.ok ? "bg-emerald-500" : "bg-[var(--muted-foreground)]/50"
+                    chip.ok
+                      ? "bg-emerald-500"
+                      : "bg-[var(--muted-foreground)]/50"
                   }`}
                 />
                 {tr(chip.label)}

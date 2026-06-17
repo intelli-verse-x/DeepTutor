@@ -871,8 +871,7 @@ async def run_upload_processing_task(
                     task_id,
                     error_msg,
                     details="\n".join(
-                        f"{failure.file_path}: {failure.error}"
-                        for failure in index_result.failures
+                        f"{failure.file_path}: {failure.error}" for failure in index_result.failures
                     ),
                 )
                 return
@@ -1961,9 +1960,7 @@ async def upload_files(
         # validated against ``allowed_extensions`` during extraction and the
         # archive itself is never indexed (``safe_extract_zip`` skips ``.zip``).
         upload_extensions = allowed_extensions | {".zip"}
-        _validate_upload_batch(
-            files, allowed_extensions=upload_extensions, rel_paths=rel_paths
-        )
+        _validate_upload_batch(files, allowed_extensions=upload_extensions, rel_paths=rel_paths)
         uploaded_files, uploaded_file_paths = _save_uploaded_files(
             files, raw_dir, allowed_extensions=upload_extensions, rel_paths=rel_paths
         )
@@ -2020,9 +2017,7 @@ async def create_knowledge_base(
         _assert_provider_ready(rag_provider)
         _enforce_provider_formats(rag_provider, files)
         allowed_extensions = FileTypeRouter.get_supported_extensions()
-        _validate_upload_batch(
-            files, allowed_extensions=allowed_extensions, rel_paths=rel_paths
-        )
+        _validate_upload_batch(files, allowed_extensions=allowed_extensions, rel_paths=rel_paths)
 
         logger.info(f"Creating KB: {name} (provider={rag_provider})")
         task_id = _build_unique_task_id("kb_init", name)

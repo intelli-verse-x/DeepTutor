@@ -287,7 +287,10 @@ export default function PickerShell({
             onMouseDown={(e) => e.stopPropagation()}
             // Own GPU layer keeps the expand transform crisp (no sub-pixel
             // shimmer) and isolates it from the blurred backdrop's compositing.
-            style={{ willChange: "transform, opacity", backfaceVisibility: "hidden" }}
+            style={{
+              willChange: "transform, opacity",
+              backfaceVisibility: "hidden",
+            }}
             initial={cardInitial}
             animate={cardAnimate}
             exit={cardExit}

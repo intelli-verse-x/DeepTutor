@@ -178,7 +178,12 @@ def _coerce_commands(raw: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for item in raw:
         if isinstance(item, dict) and str(item.get("command") or "").strip():
-            out.append({"command": str(item["command"]).strip(), "description": str(item.get("description") or "")})
+            out.append(
+                {
+                    "command": str(item["command"]).strip(),
+                    "description": str(item.get("description") or ""),
+                }
+            )
         elif isinstance(item, str) and item.strip():
             out.append({"command": item.strip(), "description": ""})
     return out

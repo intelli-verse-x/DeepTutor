@@ -30,18 +30,24 @@ _MODEL_DIR_HINTS = ("docling", "ds4sd")
 def _docling_models_ready() -> bool:
     """Best-effort, fail-closed check for downloaded Docling models."""
     artifacts = os.environ.get("DOCLING_ARTIFACTS_PATH")
-    if artifacts and Path(artifacts).expanduser().is_dir() and any(
-        Path(artifacts).expanduser().iterdir()
+    if (
+        artifacts
+        and Path(artifacts).expanduser().is_dir()
+        and any(Path(artifacts).expanduser().iterdir())
     ):
         return True
     hf_home = os.environ.get("HF_HOME")
-    hub = (Path(hf_home).expanduser() if hf_home else Path.home() / ".cache" / "huggingface") / "hub"
+    hub = (
+        Path(hf_home).expanduser() if hf_home else Path.home() / ".cache" / "huggingface"
+    ) / "hub"
     try:
         if hub.is_dir():
             for child in hub.iterdir():
                 name = child.name.lower()
-                if child.is_dir() and any(h in name for h in _MODEL_DIR_HINTS) and any(
-                    child.iterdir()
+                if (
+                    child.is_dir()
+                    and any(h in name for h in _MODEL_DIR_HINTS)
+                    and any(child.iterdir())
                 ):
                     return True
     except Exception:
@@ -127,9 +133,7 @@ class DoclingParser:
             pipeline_options.do_ocr = config.do_ocr
             pipeline_options.do_table_structure = config.do_table_structure
             return DocumentConverter(
-                format_options={
-                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
-                }
+                format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
             )
         except Exception:
             return DocumentConverter()

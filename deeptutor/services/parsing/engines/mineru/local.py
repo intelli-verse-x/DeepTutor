@@ -55,7 +55,7 @@ def check_mineru_installed():
 
 def parse_pdf_with_mineru(
     pdf_path: str,
-    output_base_dir: str = None,
+    output_base_dir: str | None = None,
     on_output: Callable[[str], None] | None = None,
     cli_command: str | None = None,
     extra_env: dict[str, str] | None = None,
@@ -94,40 +94,40 @@ def parse_pdf_with_mineru(
             return False
         print(f"✓ Detected MinerU command: {mineru_cmd}")
 
-    pdf_path = Path(pdf_path).resolve()
-    if not pdf_path.exists():
-        print(f"✗ Error: PDF file does not exist: {pdf_path}")
+    pdf_file = Path(pdf_path).resolve()
+    if not pdf_file.exists():
+        print(f"✗ Error: PDF file does not exist: {pdf_file}")
         return False
 
-    if not pdf_path.suffix.lower() == ".pdf":
-        print(f"✗ Error: File is not PDF format: {pdf_path}")
+    if not pdf_file.suffix.lower() == ".pdf":
+        print(f"✗ Error: File is not PDF format: {pdf_file}")
         return False
 
     # Project root is 3 levels up from deeptutor/tools/question/
     project_root = Path(__file__).parent.parent.parent.parent
     if output_base_dir is None:
-        output_base_dir = project_root / "reference_papers"
+        base_dir = project_root / "reference_papers"
     else:
-        output_base_dir = Path(output_base_dir)
+        base_dir = Path(output_base_dir)
 
-    output_base_dir.mkdir(parents=True, exist_ok=True)
+    base_dir.mkdir(parents=True, exist_ok=True)
 
-    pdf_name = pdf_path.stem
-    output_dir = output_base_dir / pdf_name
+    pdf_name = pdf_file.stem
+    output_dir = base_dir / pdf_name
 
     if output_dir.exists():
         print(f"⚠️ Directory already exists, replacing: {output_dir.name}")
         shutil.rmtree(output_dir)
 
-    print(f"📄 PDF file: {pdf_path}")
+    print(f"📄 PDF file: {pdf_file}")
     print(f"📁 Output directory: {output_dir}")
     print("→ Starting parsing...")
 
     try:
-        temp_output = output_base_dir / "temp_mineru_output"
+        temp_output = base_dir / "temp_mineru_output"
         temp_output.mkdir(parents=True, exist_ok=True)
 
-        cmd = [mineru_cmd, "-p", str(pdf_path), "-o", str(temp_output)]
+        cmd = [mineru_cmd, "-p", str(pdf_file), "-o", str(temp_output)]
 
         print(f"🔧 Executing command: {' '.join(cmd)}")
 

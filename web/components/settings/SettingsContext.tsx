@@ -232,8 +232,16 @@ export function defaultCatalog(): Catalog {
       search: { active_profile_id: null, profiles: [] },
       tts: { active_profile_id: null, active_model_id: null, profiles: [] },
       stt: { active_profile_id: null, active_model_id: null, profiles: [] },
-      imagegen: { active_profile_id: null, active_model_id: null, profiles: [] },
-      videogen: { active_profile_id: null, active_model_id: null, profiles: [] },
+      imagegen: {
+        active_profile_id: null,
+        active_model_id: null,
+        profiles: [],
+      },
+      videogen: {
+        active_profile_id: null,
+        active_model_id: null,
+        profiles: [],
+      },
     },
   };
 }

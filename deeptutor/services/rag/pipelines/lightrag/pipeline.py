@@ -103,9 +103,7 @@ class LightRagPipeline:
                 file_name=path.name,
                 doc_id=doc.source_hash or path.stem,
             )
-            doc_error = storage.document_error(
-                Path(rag.working_dir), doc.source_hash or path.stem
-            )
+            doc_error = storage.document_error(Path(rag.working_dir), doc.source_hash or path.stem)
             if doc_error:
                 raise RuntimeError(f"{path.name}: {doc_error}")
             inserted += 1
@@ -150,9 +148,7 @@ class LightRagPipeline:
         kb_dir = resolve_kb_dir(self.kb_base_dir, kb_name)
         existing = resolve_storage_dir_for_read(kb_dir, None)
         is_update = existing is not None and storage.has_output(existing)
-        root_dir = (
-            existing if is_update else resolve_storage_dir_for_rebuild(kb_dir, None)
-        )
+        root_dir = existing if is_update else resolve_storage_dir_for_rebuild(kb_dir, None)
 
         self.logger.info(
             "Adding %d document(s) to LightRAG KB '%s' (update=%s)",
@@ -195,8 +191,7 @@ class LightRagPipeline:
             return {
                 "query": query,
                 "answer": (
-                    "This LightRAG knowledge base has no index yet. "
-                    "Add documents before querying."
+                    "This LightRAG knowledge base has no index yet. Add documents before querying."
                 ),
                 "content": "",
                 "sources": [],

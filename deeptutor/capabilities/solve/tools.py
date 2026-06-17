@@ -18,8 +18,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from deeptutor.core.tool_protocol import BaseTool, ToolDefinition, ToolParameter, ToolResult
 from deeptutor.capabilities.solve.session import get_session
+from deeptutor.core.tool_protocol import BaseTool, ToolDefinition, ToolParameter, ToolResult
 
 # Tool names the pipeline mounts together when a solve turn is active. Kept
 # here so the mount policy and the registration list can't disagree.
@@ -34,7 +34,9 @@ def _resolve_session_id(kwargs: dict[str, Any]) -> str:
     return str(kwargs.get("_solve_session_id") or "").strip()
 
 
-def _json_result(payload: dict[str, Any], *, meta_key: str, extra_meta: dict[str, Any] | None = None) -> ToolResult:
+def _json_result(
+    payload: dict[str, Any], *, meta_key: str, extra_meta: dict[str, Any] | None = None
+) -> ToolResult:
     metadata: dict[str, Any] = {meta_key: payload}
     if extra_meta:
         metadata.update(extra_meta)

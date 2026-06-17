@@ -236,7 +236,11 @@ function TextOnlyPanel() {
     >
       <SettingRow
         title={t("Model status")}
-        control={<ReadinessBadge readiness={{ ready: true, reason: "ready", message: "" }} />}
+        control={
+          <ReadinessBadge
+            readiness={{ ready: true, reason: "ready", message: "" }}
+          />
+        }
       />
     </SettingSection>
   );
@@ -300,7 +304,10 @@ function DoclingPanel({
         "Structured conversion of PDF/Office/HTML/images. Downloads layout/table models on first run.",
       )}
     >
-      <SettingRow title={t("Model status")} control={<ReadinessBadge readiness={readiness} />} />
+      <SettingRow
+        title={t("Model status")}
+        control={<ReadinessBadge readiness={readiness} />}
+      />
       <SettingRow
         title={t("Allow automatic model download")}
         description={t(

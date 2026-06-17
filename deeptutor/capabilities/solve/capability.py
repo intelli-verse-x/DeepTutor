@@ -78,9 +78,7 @@ class DeepSolveCapability(BaseCapability):
         except Exception as exc:  # pragma: no cover - defensive config read
             logger.warning("Failed to load solve params, using defaults: %s", exc)
             params = {}
-        context.metadata["solve_max_replans"] = int(
-            params.get("max_replans", DEFAULT_MAX_REPLANS)
-        )
+        context.metadata["solve_max_replans"] = int(params.get("max_replans", DEFAULT_MAX_REPLANS))
         pipeline = AgenticChatPipeline(
             language=context.language,
             max_rounds=params.get("max_rounds"),

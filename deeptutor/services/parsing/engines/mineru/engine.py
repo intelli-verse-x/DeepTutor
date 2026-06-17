@@ -37,9 +37,7 @@ class MinerUParser:
         return frozenset({".pdf"})
 
     def signature(self, config: MinerUConfig) -> ParserSignature:
-        version = (
-            f"cloud:{config.api_base_url}" if config.is_cloud else package_version("mineru")
-        )
+        version = f"cloud:{config.api_base_url}" if config.is_cloud else package_version("mineru")
         return ParserSignature.build(
             "mineru",
             version,

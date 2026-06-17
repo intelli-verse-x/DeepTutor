@@ -42,8 +42,7 @@ export default function ResearchOutlineEditor({
     externalStatus === "done" ||
     localConfirmed;
 
-  const displayCollapsed =
-    locked && (userToggled ? collapsed : true);
+  const displayCollapsed = locked && (userToggled ? collapsed : true);
 
   const toggleCollapsed = useCallback(() => {
     const wasAutoCollapsed = locked && !userToggled;

@@ -6,7 +6,6 @@ import json
 
 import pytest
 
-from deeptutor.core.context import UnifiedContext
 from deeptutor.capabilities.solve import SOLVE_TOOL_NAMES, SolveLoopCapability
 from deeptutor.capabilities.solve.session import SolveSession, get_session
 from deeptutor.capabilities.solve.tools import (
@@ -14,6 +13,7 @@ from deeptutor.capabilities.solve.tools import (
     SolvePlanTool,
     SolveReplanTool,
 )
+from deeptutor.core.context import UnifiedContext
 
 
 def _solve_context(session_id: str = "t1") -> UnifiedContext:
@@ -99,7 +99,9 @@ async def test_replan_is_budget_limited() -> None:
     await SolvePlanTool().execute(_solve_session_id=sid, analysis="a", steps=[{"goal": "g1"}])
     get_session(sid).max_replans = 1
 
-    ok = await SolveReplanTool().execute(_solve_session_id=sid, reason="wrong", steps=[{"goal": "g2"}])
+    ok = await SolveReplanTool().execute(
+        _solve_session_id=sid, reason="wrong", steps=[{"goal": "g2"}]
+    )
     assert ok.success is True
     refused = await SolveReplanTool().execute(
         _solve_session_id=sid, reason="again", steps=[{"goal": "g3"}]

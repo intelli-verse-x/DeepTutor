@@ -192,7 +192,9 @@ export default function MyAgentsPicker({
       if (activeAgent !== ALL && ownerKey !== activeAgent) continue;
       if (keyword) {
         const title = String(session.title || "").toLowerCase();
-        const last = normalizeMessageContent(session.last_message).toLowerCase();
+        const last = normalizeMessageContent(
+          session.last_message,
+        ).toLowerCase();
         if (!title.includes(keyword) && !last.includes(keyword)) continue;
       }
       const meta = readImportMeta(session);
@@ -357,7 +359,10 @@ export default function MyAgentsPicker({
                 <Loader2 className="h-5 w-5 animate-spin text-[var(--muted-foreground)]" />
               </div>
             ) : groups.length ? (
-              <div key={activeAgent} className="animate-fade-in divide-y divide-[var(--border)]">
+              <div
+                key={activeAgent}
+                className="animate-fade-in divide-y divide-[var(--border)]"
+              >
                 {groups.map((group) => {
                   const ids = group.sessions.map((s) => s.session_id || s.id);
                   const selectedInGroup = ids.filter((id) =>
@@ -543,7 +548,11 @@ function PreviewPane({
   onBack,
   onToggleSelect,
 }: {
-  preview: { session: SessionSummary; detail: SessionDetail | null; loading: boolean };
+  preview: {
+    session: SessionSummary;
+    detail: SessionDetail | null;
+    loading: boolean;
+  };
   selected: boolean;
   onBack: () => void;
   onToggleSelect: () => void;

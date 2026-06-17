@@ -5,7 +5,8 @@ export type AppLanguage = "en" | "zh";
 export const ACTIVE_SESSION_STORAGE_KEY = "deeptutor.activeSessionId.tab";
 export const LANGUAGE_STORAGE_KEY = "deeptutor-language";
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = "deeptutor.sidebarCollapsed";
-export const CHAT_RESPONSE_TIMEOUT_STORAGE_KEY = "deeptutor.chatResponseTimeout";
+export const CHAT_RESPONSE_TIMEOUT_STORAGE_KEY =
+  "deeptutor.chatResponseTimeout";
 
 // Mirror of the per-user ``chat_response_timeout`` UI preference. Cached in
 // localStorage so the chat watchdog (a separate provider from Settings) can
@@ -23,7 +24,8 @@ export function clampChatResponseTimeout(seconds: number): number {
 }
 
 export function readStoredChatResponseTimeout(): number {
-  if (typeof window === "undefined") return DEFAULT_CHAT_RESPONSE_TIMEOUT_SECONDS;
+  if (typeof window === "undefined")
+    return DEFAULT_CHAT_RESPONSE_TIMEOUT_SECONDS;
   try {
     const raw = window.localStorage.getItem(CHAT_RESPONSE_TIMEOUT_STORAGE_KEY);
     const parsed = raw ? Number.parseInt(raw, 10) : NaN;

@@ -63,11 +63,11 @@ export default function KbDocumentsSection({
             "This knowledge base is in Error state. Retry indexing from the existing documents before uploading new files.",
           )
         : status !== "ready"
-        ? t(
-            "This knowledge base is currently {{status}} and cannot accept uploads yet.",
-            { status: status.replaceAll("_", " ") },
-          )
-        : null
+          ? t(
+              "This knowledge base is currently {{status}} and cannot accept uploads yet.",
+              { status: status.replaceAll("_", " ") },
+            )
+          : null
     : null;
 
   const selection = validateFiles(files, uploadPolicy, t);

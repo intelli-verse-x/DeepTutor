@@ -1325,7 +1325,9 @@ function TraceRowItem({
                 // "联网搜索 …" at a glance — the colour drop is the only cue
                 // separating the two, no pill chrome.
                 <div className="flex items-baseline gap-1.5">
-                  <span className={`shrink-0 ${active ? "dt-breathing-text" : ""}`}>
+                  <span
+                    className={`shrink-0 ${active ? "dt-breathing-text" : ""}`}
+                  >
                     {headline}
                   </span>
                   <span

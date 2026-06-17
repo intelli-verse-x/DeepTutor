@@ -281,9 +281,7 @@ export default function MemoryGraph() {
             />
           )}
 
-          {hover && (
-            <HoverCard hover={hover} view={view} />
-          )}
+          {hover && <HoverCard hover={hover} view={view} />}
         </div>
 
         {graph && !loading && <Legend graph={graph} />}
@@ -916,13 +914,7 @@ function Legend({ graph }: { graph: MemoryGraph }) {
 
 // ─────────────────────────────────────────────────────── HoverCard
 
-function HoverCard({
-  hover,
-  view,
-}: {
-  hover: HoverState;
-  view: ViewState;
-}) {
+function HoverCard({ hover, view }: { hover: HoverState; view: ViewState }) {
   const { t } = useTranslation();
   const { node } = hover;
   // Anchor the tooltip to the *node's* screen position (not the

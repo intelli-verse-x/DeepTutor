@@ -58,7 +58,9 @@ class SolveLoopCapability:
             # capability forwards ``max_replans`` into metadata); never the model.
             session = get_session(session_id)
             try:
-                session.max_replans = int(context.metadata.get("solve_max_replans", DEFAULT_MAX_REPLANS))
+                session.max_replans = int(
+                    context.metadata.get("solve_max_replans", DEFAULT_MAX_REPLANS)
+                )
             except (TypeError, ValueError):
                 session.max_replans = DEFAULT_MAX_REPLANS
             updated = dict(kwargs)

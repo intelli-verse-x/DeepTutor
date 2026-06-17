@@ -16,9 +16,24 @@ from .config import MarkItDownConfig, resolve_markitdown_config
 # what it can't read and we surface an empty result rather than crash.
 _SUPPORTED = frozenset(
     {
-        ".pdf", ".docx", ".pptx", ".xlsx", ".xls", ".html", ".htm",
-        ".csv", ".json", ".xml", ".txt", ".md", ".epub",
-        ".png", ".jpg", ".jpeg", ".gif", ".webp",
+        ".pdf",
+        ".docx",
+        ".pptx",
+        ".xlsx",
+        ".xls",
+        ".html",
+        ".htm",
+        ".csv",
+        ".json",
+        ".xml",
+        ".txt",
+        ".md",
+        ".epub",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
     }
 )
 
@@ -73,11 +88,7 @@ class MarkItDownParser:
         except Exception as exc:  # noqa: BLE001 - surface as a parser error
             raise ParserError(f"markitdown failed to convert {Path(source_path).name}: {exc}")
 
-        text = (
-            getattr(result, "text_content", None)
-            or getattr(result, "markdown", None)
-            or ""
-        )
+        text = getattr(result, "text_content", None) or getattr(result, "markdown", None) or ""
         stem = Path(source_path).stem
         (workdir / f"{stem}.md").write_text(str(text), encoding="utf-8")
 

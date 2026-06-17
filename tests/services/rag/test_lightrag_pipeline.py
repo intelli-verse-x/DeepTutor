@@ -230,9 +230,7 @@ def test_lightrag_vision_adapter_preserves_messages(monkeypatch) -> None:
     assert result == "ok"
     assert captured["prompt"] == ""
     assert captured["image_data"] == "abc123"
-    assert captured["messages"] == [
-        {"role": "user", "content": [{"type": "text", "text": "hi"}]}
-    ]
+    assert captured["messages"] == [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
 
 
 def test_lightrag_query_initializes_raganything_before_aquery(monkeypatch) -> None:

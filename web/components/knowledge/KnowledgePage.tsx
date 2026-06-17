@@ -103,8 +103,7 @@ export default function KnowledgePage() {
   // Keep ?kb / ?engine in sync with the effective selection so deep links work.
   // The Overview view carries neither, so reloading the console stays on it.
   const urlKb = view === "kb" ? (selectedKbName ?? null) : null;
-  const urlEngine =
-    view === "engine" ? (selectedProvider?.id ?? null) : null;
+  const urlEngine = view === "engine" ? (selectedProvider?.id ?? null) : null;
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (

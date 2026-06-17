@@ -77,12 +77,15 @@ def _drop_unconfigured_generation_tools(tools: list[str]) -> list[str]:
         configured = {
             name
             for name in present
-            if (service.get_active_model(catalog, _GENERATION_TOOL_SERVICES[name]) or {}).get("model")
+            if (service.get_active_model(catalog, _GENERATION_TOOL_SERVICES[name]) or {}).get(
+                "model"
+            )
         }
     except Exception:
         logger.debug("generation-tool config probe failed; dropping them", exc_info=True)
         configured = set()
     return [name for name in tools if name not in _GENERATION_TOOL_SERVICES or name in configured]
+
 
 KB_SEED_MAX_KBS = 3
 KB_SEED_CHARS_PER_KB = 4000

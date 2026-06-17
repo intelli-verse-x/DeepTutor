@@ -87,7 +87,8 @@ const MODE_DESCRIPTIONS: Record<string, string> = {
   "lightrag:naive": "Plain vector retrieval, without the knowledge graph.",
   "lightrag:local": "Local context focused on the most relevant entities.",
   "lightrag:global": "Theme-level retrieval over global relationships.",
-  "lightrag:hybrid": "Combines local and global retrieval — a solid general default.",
+  "lightrag:hybrid":
+    "Combines local and global retrieval — a solid general default.",
   "lightrag:mix": "Fuses knowledge-graph and vector retrieval.",
 };
 
@@ -239,7 +240,9 @@ function NumberField({
         className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-[13px] text-[var(--foreground)] outline-none transition-colors focus:border-[var(--foreground)]/25 disabled:opacity-50"
       />
       {hint && (
-        <span className="text-[11px] text-[var(--muted-foreground)]">{hint}</span>
+        <span className="text-[11px] text-[var(--muted-foreground)]">
+          {hint}
+        </span>
       )}
     </label>
   );
@@ -385,17 +388,19 @@ function LlamaIndexForm({
   };
 
   const isHybrid = form.retrieval_profile === "hybrid";
-  const profiles: { id: LlamaIndexConfig["retrieval_profile"]; desc: string }[] =
-    [
-      {
-        id: "hybrid",
-        desc: "BM25 keyword + vector semantic retrieval, fused and re-ranked. More robust recall.",
-      },
-      {
-        id: "vector",
-        desc: "Vector semantic retrieval only. Faster, but leans entirely on embedding quality.",
-      },
-    ];
+  const profiles: {
+    id: LlamaIndexConfig["retrieval_profile"];
+    desc: string;
+  }[] = [
+    {
+      id: "hybrid",
+      desc: "BM25 keyword + vector semantic retrieval, fused and re-ranked. More robust recall.",
+    },
+    {
+      id: "vector",
+      desc: "Vector semantic retrieval only. Faster, but leans entirely on embedding quality.",
+    },
+  ];
 
   return (
     <div className="space-y-6 rounded-2xl border border-[var(--border)] p-4">
@@ -422,7 +427,9 @@ function LlamaIndexForm({
                   <span className="font-mono text-[12.5px] font-medium text-[var(--foreground)]">
                     {p.id}
                   </span>
-                  {active && <Check className="h-3.5 w-3.5 text-[var(--primary)]" />}
+                  {active && (
+                    <Check className="h-3.5 w-3.5 text-[var(--primary)]" />
+                  )}
                 </div>
                 <span className="text-[11.5px] leading-snug text-[var(--muted-foreground)]">
                   {t(p.desc)}
@@ -539,7 +546,10 @@ function PageIndexForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const persist = async (payload: { api_key?: string; api_base_url?: string }) => {
+  const persist = async (payload: {
+    api_key?: string;
+    api_base_url?: string;
+  }) => {
     setSaving(true);
     try {
       const next = await updatePageIndexConfig(payload);
@@ -679,9 +689,13 @@ function ToggleField({
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex flex-col">
-        <span className="text-[12px] font-medium text-[var(--foreground)]">{label}</span>
+        <span className="text-[12px] font-medium text-[var(--foreground)]">
+          {label}
+        </span>
         {hint && (
-          <span className="text-[11px] text-[var(--muted-foreground)]">{hint}</span>
+          <span className="text-[11px] text-[var(--muted-foreground)]">
+            {hint}
+          </span>
         )}
       </div>
       <button
@@ -729,7 +743,10 @@ function SaveButton({
 }
 
 /** Shared loader + dirty-tracking scaffold for the small engine config forms. */
-function useEngineForm<T>(load: () => Promise<T>, onError: (m: string) => void) {
+function useEngineForm<T>(
+  load: () => Promise<T>,
+  onError: (m: string) => void,
+) {
   const [loaded, setLoaded] = useState<T | null>(null);
   const [form, setForm] = useState<T | null>(null);
   const [saving, setSaving] = useState(false);
@@ -742,7 +759,9 @@ function useEngineForm<T>(load: () => Promise<T>, onError: (m: string) => void) 
         setLoaded(cfg);
         setForm(cfg);
       })
-      .catch((err) => onError(err instanceof Error ? err.message : String(err)));
+      .catch((err) =>
+        onError(err instanceof Error ? err.message : String(err)),
+      );
     return () => {
       cancelled = true;
     };
@@ -769,7 +788,10 @@ function GraphRagForm({
 }) {
   const { t } = useTranslation();
   const { form, setLoaded, setForm, saving, setSaving, dirty, patch } =
-    useEngineForm<GraphRagConfig>(() => getGraphRagConfig({ force: true }), onError);
+    useEngineForm<GraphRagConfig>(
+      () => getGraphRagConfig({ force: true }),
+      onError,
+    );
 
   if (!form) return <FormSkeleton />;
 
@@ -829,7 +851,10 @@ function LightRagForm({
 }) {
   const { t } = useTranslation();
   const { form, setLoaded, setForm, saving, setSaving, dirty, patch } =
-    useEngineForm<LightRagConfig>(() => getLightRagConfig({ force: true }), onError);
+    useEngineForm<LightRagConfig>(
+      () => getLightRagConfig({ force: true }),
+      onError,
+    );
 
   if (!form) return <FormSkeleton />;
 
@@ -888,7 +913,10 @@ function ModelsSection({
   onError: (message: string) => void;
 }) {
   const { t } = useTranslation();
-  const kinds = useMemo(() => ENGINE_MODEL_KINDS[providerId] ?? [], [providerId]);
+  const kinds = useMemo(
+    () => ENGINE_MODEL_KINDS[providerId] ?? [],
+    [providerId],
+  );
   const [data, setData] = useState<ModelOptionsByKind | null>(null);
   const [failed, setFailed] = useState(false);
   const [busyKind, setBusyKind] = useState<string | null>(null);
@@ -987,7 +1015,9 @@ function ModelsSection({
                 )}
                 {kind === "llm" && providerId === "lightrag" && (
                   <span className="text-[11px] text-[var(--muted-foreground)]">
-                    {t("Multimodal documents need a vision-capable chat model.")}
+                    {t(
+                      "Multimodal documents need a vision-capable chat model.",
+                    )}
                   </span>
                 )}
               </div>
@@ -1268,7 +1298,9 @@ export default function EngineDetail({
                     <div className="flex min-w-0 items-center gap-2">
                       <span
                         className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
-                          ready ? "bg-emerald-500" : "bg-[var(--muted-foreground)]"
+                          ready
+                            ? "bg-emerald-500"
+                            : "bg-[var(--muted-foreground)]"
                         }`}
                       />
                       <span className="truncate text-[13px] font-medium text-[var(--foreground)]">

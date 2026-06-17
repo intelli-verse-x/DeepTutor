@@ -284,9 +284,7 @@ export default function CapabilitiesSettingsPage() {
     <div data-tour="tour-capabilities">
       <SettingsPageHeader
         title={t("Capabilities")}
-        description={t(
-          "Per-capability LLM parameters and runtime knobs.",
-        )}
+        description={t("Per-capability LLM parameters and runtime knobs.")}
       />
 
       <SettingSection

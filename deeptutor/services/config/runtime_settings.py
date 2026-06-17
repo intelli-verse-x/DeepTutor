@@ -390,7 +390,9 @@ class RuntimeSettingsService:
 
     def save_document_parsing(self, settings: dict[str, Any]) -> dict[str, Any]:
         self._migrate_legacy_document_parsing_file()
-        payload = self._normalize_document_parsing({**DEFAULT_DOCUMENT_PARSING_SETTINGS, **settings})
+        payload = self._normalize_document_parsing(
+            {**DEFAULT_DOCUMENT_PARSING_SETTINGS, **settings}
+        )
         _atomic_write_json(self.path_for(DOCUMENT_PARSING_SETTINGS_NAME), payload)
         return payload
 
@@ -450,9 +452,7 @@ class RuntimeSettingsService:
         return payload
 
     def load_graphrag(self) -> dict[str, Any]:
-        return self._load_or_create(
-            "graphrag", DEFAULT_GRAPHRAG_SETTINGS, self._normalize_graphrag
-        )
+        return self._load_or_create("graphrag", DEFAULT_GRAPHRAG_SETTINGS, self._normalize_graphrag)
 
     def save_graphrag(self, settings: dict[str, Any]) -> dict[str, Any]:
         payload = self._normalize_graphrag({**DEFAULT_GRAPHRAG_SETTINGS, **settings})
@@ -460,9 +460,7 @@ class RuntimeSettingsService:
         return payload
 
     def load_lightrag(self) -> dict[str, Any]:
-        return self._load_or_create(
-            "lightrag", DEFAULT_LIGHTRAG_SETTINGS, self._normalize_lightrag
-        )
+        return self._load_or_create("lightrag", DEFAULT_LIGHTRAG_SETTINGS, self._normalize_lightrag)
 
     def save_lightrag(self, settings: dict[str, Any]) -> dict[str, Any]:
         payload = self._normalize_lightrag({**DEFAULT_LIGHTRAG_SETTINGS, **settings})

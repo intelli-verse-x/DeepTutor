@@ -46,10 +46,7 @@ export default function EduHubImportModal({
 }) {
   const { i18n } = useTranslation();
   const zh = i18n.language?.toLowerCase().startsWith("zh");
-  const tr = useCallback(
-    (cn: string, en: string) => (zh ? cn : en),
-    [zh],
-  );
+  const tr = useCallback((cn: string, en: string) => (zh ? cn : en), [zh]);
 
   const [status, setStatus] = useState<Status>({ kind: "idle" });
 
@@ -155,7 +152,10 @@ function StatusBanner({
   if (status.kind === "installing") {
     return (
       <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--muted)]/40 px-5 py-2.5 text-[12.5px] text-[var(--foreground)]">
-        <Loader2 size={14} className="animate-spin text-[var(--muted-foreground)]" />
+        <Loader2
+          size={14}
+          className="animate-spin text-[var(--muted-foreground)]"
+        />
         {tr(`正在导入 ${status.name}…`, `Importing ${status.name}…`)}
       </div>
     );

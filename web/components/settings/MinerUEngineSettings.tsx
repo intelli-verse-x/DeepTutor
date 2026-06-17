@@ -655,7 +655,9 @@ export function MinerUEngineSettings() {
       >
         <SettingRow
           title={t("Model version")}
-          description={t("pipeline is faster; vlm is the vision-language model.")}
+          description={t(
+            "pipeline is faster; vlm is the vision-language model.",
+          )}
           control={
             <select
               className={`${nativeSelectClass} w-40`}
@@ -721,7 +723,9 @@ export function MinerUEngineSettings() {
       <div className="flex items-center justify-between gap-3">
         <p className="text-[12px] text-[var(--muted-foreground)]">
           {message ||
-            t("MinerU settings are written to data/user/settings/document_parsing.json.")}
+            t(
+              "MinerU settings are written to data/user/settings/document_parsing.json.",
+            )}
         </p>
         <button
           onClick={save}

@@ -343,9 +343,10 @@ def test_document_parsing_fresh_default_engine_is_text_only(tmp_path: Path) -> N
 def test_mineru_allow_local_model_download_default_off_and_env(tmp_path: Path) -> None:
     service = RuntimeSettingsService(tmp_path / "settings", process_env={})
     assert service.load_mineru()["allow_local_model_download"] is False
-    assert service.save_mineru({"allow_local_model_download": True})[
-        "allow_local_model_download"
-    ] is True
+    assert (
+        service.save_mineru({"allow_local_model_download": True})["allow_local_model_download"]
+        is True
+    )
 
     env_service = RuntimeSettingsService(
         tmp_path / "settings2",

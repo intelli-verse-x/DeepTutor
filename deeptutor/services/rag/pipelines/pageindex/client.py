@@ -66,9 +66,7 @@ class PageIndexClient:
     @staticmethod
     def _json(resp: httpx.Response) -> dict[str, Any]:
         if resp.status_code >= 400:
-            raise PageIndexAPIError(
-                f"PageIndex API {resp.status_code}: {resp.text[:300]}"
-            )
+            raise PageIndexAPIError(f"PageIndex API {resp.status_code}: {resp.text[:300]}")
         try:
             data = resp.json()
         except Exception as exc:  # pragma: no cover - defensive
@@ -114,9 +112,7 @@ class PageIndexClient:
             if on_poll is not None:
                 on_poll(attempt, status or ("ready" if ready else "processing"))
             if status in _TERMINAL_FAIL:
-                raise PageIndexAPIError(
-                    f"PageIndex processing failed for {doc_id}: {data!r}"
-                )
+                raise PageIndexAPIError(f"PageIndex processing failed for {doc_id}: {data!r}")
             if ready or status in _TERMINAL_OK:
                 return data
             await asyncio.sleep(poll_interval)
@@ -179,9 +175,7 @@ class PageIndexClient:
             status = str(data.get("status") or "").strip().lower()
             nodes = data.get("retrieved_nodes")
             if status in _TERMINAL_FAIL:
-                raise PageIndexAPIError(
-                    f"PageIndex retrieval failed for {doc_id}: {data!r}"
-                )
+                raise PageIndexAPIError(f"PageIndex retrieval failed for {doc_id}: {data!r}")
             if status in _TERMINAL_OK or (isinstance(nodes, list) and nodes):
                 return nodes if isinstance(nodes, list) else []
             await asyncio.sleep(poll_interval)

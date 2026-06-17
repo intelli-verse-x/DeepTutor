@@ -12,9 +12,7 @@ def _write_provider_version(kb_dir: Path, provider: str) -> None:
     version_dir.mkdir(parents=True)
     if provider == "pageindex":
         (version_dir / "pageindex_docs.json").write_text(
-            json.dumps(
-                {"provider": "pageindex", "docs": {"doc.pdf": {"doc_id": "doc-1"}}}
-            ),
+            json.dumps({"provider": "pageindex", "docs": {"doc.pdf": {"doc_id": "doc-1"}}}),
             encoding="utf-8",
         )
     elif provider == "graphrag":
@@ -44,11 +42,7 @@ def test_document_adder_reads_provider_from_kb_config_when_metadata_missing(
     _write_provider_version(kb_dir, "pageindex")
     (tmp_path / "kb_config.json").write_text(
         json.dumps(
-            {
-                "knowledge_bases": {
-                    "page-kb": {"path": "page-kb", "rag_provider": "pageindex"}
-                }
-            }
+            {"knowledge_bases": {"page-kb": {"path": "page-kb", "rag_provider": "pageindex"}}}
         ),
         encoding="utf-8",
     )

@@ -96,9 +96,7 @@ class PageIndexPipeline:
             storage_dir = resolve_storage_dir_for_rebuild(kb_dir, None)
             manifest = storage._empty_manifest()
 
-        self.logger.info(
-            "Adding %d document(s) to PageIndex KB '%s'", len(file_paths), kb_name
-        )
+        self.logger.info("Adding %d document(s) to PageIndex KB '%s'", len(file_paths), kb_name)
         try:
             count = await self._ingest(file_paths, manifest, progress_callback)
             if count == 0:

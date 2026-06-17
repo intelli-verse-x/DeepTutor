@@ -16,7 +16,9 @@ export interface SessionImportMeta {
   agentId?: string;
 }
 
-export function readImportMeta(session: SessionSummary): SessionImportMeta | null {
+export function readImportMeta(
+  session: SessionSummary,
+): SessionImportMeta | null {
   const imp = (
     session.preferences as
       | { import?: { source?: string; source_cwd?: string; agent_id?: string } }

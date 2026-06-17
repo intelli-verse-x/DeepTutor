@@ -222,7 +222,7 @@ def _reconcile_embedding_flags(knowledge_bases: dict, base_dir: Path | None = No
         stored_model = kb_entry.get("embedding_model")
         # Empty/in-progress version dirs are created before indexing finishes.
         # They should not mark a brand-new KB as needing re-index.
-        versions: list[dict] = []
+        versions = []
         has_ready_version = False
         if kb_dir is not None:
             versions = inspect_kb_versions(kb_dir, provider)
@@ -588,9 +588,9 @@ class KnowledgeBaseManager:
                 rag_storage = item / "rag_storage"
                 versions = list_kb_versions(item)
                 detected_provider = _detect_provider_from_versions(versions)
-                is_valid_kb = has_ready_provider_index(
-                    item, detected_provider
-                ) or (rag_storage.exists() and rag_storage.is_dir())
+                is_valid_kb = has_ready_provider_index(item, detected_provider) or (
+                    rag_storage.exists() and rag_storage.is_dir()
+                )
 
                 if is_valid_kb:
                     # Auto-register this KB to kb_config.json

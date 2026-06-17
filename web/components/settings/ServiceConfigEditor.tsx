@@ -616,7 +616,11 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                               className={inputClass}
                               value={activeModel.style || ""}
                               onChange={(e) =>
-                                updateModelField(service, "style", e.target.value)
+                                updateModelField(
+                                  service,
+                                  "style",
+                                  e.target.value,
+                                )
                               }
                               placeholder={t("style (e.g. vivid)")}
                             />

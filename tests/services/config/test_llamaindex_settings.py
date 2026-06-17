@@ -55,8 +55,6 @@ def test_llamaindex_profile_env_override(tmp_path: Path) -> None:
     svc = RuntimeSettingsService(tmp_path, process_env={})
     svc.save_llamaindex({"retrieval_profile": "vector"})
 
-    overridden = RuntimeSettingsService(
-        tmp_path, process_env={"RAG_RETRIEVAL_PROFILE": "hybrid"}
-    )
+    overridden = RuntimeSettingsService(tmp_path, process_env={"RAG_RETRIEVAL_PROFILE": "hybrid"})
     loaded = overridden.load_llamaindex(include_process_overrides=True)
     assert loaded["retrieval_profile"] == "hybrid"

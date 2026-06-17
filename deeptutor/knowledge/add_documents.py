@@ -63,9 +63,7 @@ class DocumentIndexResult:
     def failure_summary(self, *, limit: int = 3) -> str:
         if not self.failures:
             return ""
-        shown = [
-            f"{failure.file_path.name}: {failure.error}" for failure in self.failures[:limit]
-        ]
+        shown = [f"{failure.file_path.name}: {failure.error}" for failure in self.failures[:limit]]
         remaining = len(self.failures) - len(shown)
         if remaining > 0:
             shown.append(f"... and {remaining} more file(s)")
@@ -116,9 +114,7 @@ class DocumentAdder:
             )
 
         if not has_provider_index:
-            raise ValueError(
-                f"Knowledge base not initialized ({self.rag_provider}): {kb_name}"
-            )
+            raise ValueError(f"Knowledge base not initialized ({self.rag_provider}): {kb_name}")
 
         self.api_key = api_key
         self.base_url = base_url
