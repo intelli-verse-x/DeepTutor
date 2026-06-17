@@ -31,7 +31,14 @@ services:
     ports:
       - "${DEEPTUTOR_DOCKER_POCKETBASE_PORT:-8090}:8090"
     volumes:
-      - ./data/pocketbase:/pb/pb_data
+      # The upstream pocketbase image's entrypoint uses absolute paths
+      # (no /pb/ prefix): --dir=/pb_data --publicDir=/pb_public
+      # --hooksDir=/pb_hooks. The previous example mounted at /pb/pb_data
+      # and crashed on first start with "mkdir /pb_data: read-only file
+      # system".
+      - ./data/pocketbase:/pb_data
+      - ./data/pocketbase/public:/pb_public
+      - ./data/pocketbase/hooks:/pb_hooks
     networks:
       - deeptutor-network
     healthcheck:
