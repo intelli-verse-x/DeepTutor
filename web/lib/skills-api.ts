@@ -152,6 +152,95 @@ export async function installSkillFromHub(
   };
 }
 
+// ── EduHub / hub browsing ───────────────────────────────────────────────
+// Powers the in-app "Import from EduHub" browser. The backend proxies the
+// hub's public catalog (no login, no iframe), so the panel can render hub
+// skills in DeepTutor's own UI and download them with one click.
+
+export interface HubSkillListing {
+  slug: string;
+  name: string;
+  summary: string;
+  version: string;
+  downloads: number;
+  stars: number;
+  owner: string;
+  ownerUrl: string;
+}
+
+export interface HubCatalog {
+  hub: string;
+  /** The hub's website origin (for a "view on EduHub" link out). */
+  webUrl: string;
+  skills: HubSkillListing[];
+}
+
+export interface HubSkillDetail extends HubSkillListing {
+  content: string;
+  tags: string[];
+  /** Direct link to this skill's page on the hub site. */
+  webUrl: string;
+}
+
+function normalizeHubListing(item: Record<string, unknown>): HubSkillListing {
+  return {
+    slug: String(item?.slug ?? ""),
+    name: String(item?.name ?? item?.slug ?? ""),
+    summary: String(item?.summary ?? ""),
+    version: String(item?.version ?? ""),
+    downloads: Number(item?.downloads ?? 0),
+    stars: Number(item?.stars ?? 0),
+    owner: String(item?.owner ?? ""),
+    ownerUrl: String(item?.owner_url ?? ""),
+  };
+}
+
+/** List skills available on a hub (default EduHub). `query` filters server-side. */
+export async function fetchHubCatalog(options?: {
+  hub?: string;
+  query?: string;
+  limit?: number;
+}): Promise<HubCatalog> {
+  const params = new URLSearchParams();
+  if (options?.hub) params.set("hub", options.hub);
+  if (options?.query) params.set("q", options.query);
+  if (options?.limit) params.set("limit", String(options.limit));
+  const qs = params.toString();
+  const response = await apiFetch(
+    apiUrl(`/api/v1/skills/hub/catalog${qs ? `?${qs}` : ""}`),
+    { cache: "no-store" },
+  );
+  const data = await asJson(response);
+  const skills = Array.isArray(data?.skills) ? data.skills : [];
+  return {
+    hub: String(data?.hub ?? "eduhub"),
+    webUrl: String(data?.web_url ?? ""),
+    skills: skills.map((item: Record<string, unknown>) =>
+      normalizeHubListing(item),
+    ),
+  };
+}
+
+/** Full metadata + rendered SKILL.md body for one hub skill. */
+export async function fetchHubSkillDetail(
+  slug: string,
+  options?: { hub?: string },
+): Promise<HubSkillDetail> {
+  const params = new URLSearchParams({ slug });
+  if (options?.hub) params.set("hub", options.hub);
+  const response = await apiFetch(
+    apiUrl(`/api/v1/skills/hub/detail?${params.toString()}`),
+    { cache: "no-store" },
+  );
+  const data = await asJson(response);
+  return {
+    ...normalizeHubListing(data),
+    content: String(data?.content ?? ""),
+    tags: normalizeTags(data?.tags),
+    webUrl: String(data?.web_url ?? ""),
+  };
+}
+
 export async function createSkill(
   payload: CreateSkillPayload,
 ): Promise<SkillInfo> {

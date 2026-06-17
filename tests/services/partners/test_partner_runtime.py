@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -56,12 +57,18 @@ class _FakeOrchestrator:
     scripts: list[list[StreamEvent]] = []
     seen_contexts: list[Any] = []
     activated_selections: list[Any] = []
+    # The memory root in effect while the turn runs — proves the partner reads
+    # the owner's (admin) memory via memory_path_service_override, not its own.
+    seen_memory_roots: list[Any] = []
 
     def __init__(self) -> None:
         pass
 
     async def handle(self, context):
+        from deeptutor.services.memory.paths import memory_root
+
         type(self).seen_contexts.append(context)
+        type(self).seen_memory_roots.append(memory_root())
         script = type(self).scripts.pop(0) if type(self).scripts else type(self).script
         for event in script:
             yield event
@@ -76,6 +83,7 @@ def fake_orchestrator(monkeypatch):
     _FakeOrchestrator.scripts = []
     _FakeOrchestrator.seen_contexts = []
     _FakeOrchestrator.activated_selections = []
+    _FakeOrchestrator.seen_memory_roots = []
     monkeypatch.setattr(orch_mod, "ChatOrchestrator", _FakeOrchestrator)
 
     def _record_activate(selection):
@@ -223,6 +231,56 @@ class TestTurnExecution:
         assert len(fake_orchestrator.seen_contexts) == 1
 
     @pytest.mark.asyncio
+    async def test_llm_config_error_folds_into_graceful_reply(
+        self, partners_root, fake_orchestrator, monkeypatch
+    ):
+        # A setup failure with no resolvable LLM model (LLMConfigError) must
+        # fold into the turn's error path — an apology carrying the real reason
+        # — instead of propagating as an opaque crash / bare "Internal error".
+        from deeptutor.services.llm.exceptions import LLMConfigError
+        from deeptutor.services.model_selection import runtime as selection_runtime
+
+        def _raise(selection):
+            raise LLMConfigError("No active LLM model is configured.")
+
+        monkeypatch.setattr(selection_runtime, "activate_llm_selection", _raise)
+        runner = _runner(partners_root)
+
+        final = await runner.process_message(_msg("hi"))
+        assert "No active LLM model is configured." in final
+        # The orchestrator is never reached when LLM-selection resolution fails.
+        assert fake_orchestrator.seen_contexts == []
+
+    @pytest.mark.asyncio
+    async def test_backup_retried_when_primary_selection_unresolvable(
+        self, partners_root, fake_orchestrator, monkeypatch
+    ):
+        # Selection resolution now runs inside the turn's try, so a primary
+        # model that no longer resolves falls back to the backup model instead
+        # of crashing the turn outright.
+        from deeptutor.services.llm.exceptions import LLMConfigError
+        from deeptutor.services.model_selection import runtime as selection_runtime
+
+        primary = {"profile_id": "p1", "model_id": "m1"}
+        backup = {"profile_id": "p2", "model_id": "m2"}
+        attempted: list[Any] = []
+
+        def _activate(selection):
+            attempted.append(selection)
+            if selection == primary:
+                raise LLMConfigError("primary profile is gone")
+            return (None, None)
+
+        monkeypatch.setattr(selection_runtime, "activate_llm_selection", _activate)
+        fake_orchestrator.script = _finish("backup answer")
+        config = PartnerConfig(name="Ada", llm_selection=primary, backup_llm_selection=backup)
+        runner = _runner(partners_root, config)
+
+        final = await runner.process_message(_msg())
+        assert final == "backup answer"
+        assert attempted == [primary, backup]
+
+    @pytest.mark.asyncio
     async def test_successful_turn_never_touches_backup(self, partners_root, fake_orchestrator):
         backup = {"profile_id": "p2", "model_id": "m2"}
         fake_orchestrator.script = _finish("first try works")
@@ -364,7 +422,205 @@ class TestContextAssembly:
         assert "Gradient descent" in attachment["extracted_text"]
 
 
+class TestBuiltinToolsAndMemory:
+    @pytest.mark.asyncio
+    async def test_builtin_tools_default_to_no_gating(self, partners_root, fake_orchestrator):
+        fake_orchestrator.script = _finish("ok")
+        runner = _runner(partners_root)  # builtin_tools=None
+
+        await runner.process_message(_msg())
+
+        context = fake_orchestrator.seen_contexts[0]
+        # None = no gating: every built-in mounts under its usual condition.
+        assert context.allowed_builtin_tools is None
+
+    @pytest.mark.asyncio
+    async def test_builtin_tools_whitelist_flows_to_context(self, partners_root, fake_orchestrator):
+        fake_orchestrator.script = _finish("ok")
+        config = PartnerConfig(name="Ada", builtin_tools=["rag", "web_fetch"])
+        runner = _runner(partners_root, config)
+
+        await runner.process_message(_msg())
+
+        context = fake_orchestrator.seen_contexts[0]
+        assert context.allowed_builtin_tools == ["rag", "web_fetch"]
+
+    @pytest.mark.asyncio
+    async def test_turn_runs_against_owner_memory(self, partners_root, fake_orchestrator):
+        """The turn resolves memory to the admin (owner) workspace, not the
+        partner's own empty scope — so read_memory can know the user."""
+        from deeptutor.multi_user.paths import get_admin_path_service
+
+        fake_orchestrator.script = _finish("ok")
+        runner = _runner(partners_root)
+
+        await runner.process_message(_msg())
+
+        admin_memory = get_admin_path_service().get_memory_dir().resolve()
+        seen = fake_orchestrator.seen_memory_roots[0].resolve()
+        assert seen == admin_memory
+        assert "partners" not in seen.parts  # NOT the partner's own scope
+
+    @pytest.mark.asyncio
+    async def test_memory_override_is_reset_after_turn(self, partners_root, fake_orchestrator):
+        from deeptutor.services.memory.paths import memory_root
+
+        fake_orchestrator.script = _finish("ok")
+        runner = _runner(partners_root)
+        before = memory_root()
+
+        await runner.process_message(_msg())
+
+        # The ContextVar override must not leak past the turn.
+        assert memory_root() == before
+
+    @pytest.mark.asyncio
+    async def test_turn_trace_persisted_for_rehydration(self, partners_root, fake_orchestrator):
+        fake_orchestrator.script = _narration_round("c1", "let me check") + _finish("4.")
+        runner = _runner(partners_root)
+
+        await runner.process_message(_msg("what is 2+2?"))
+
+        records = runner.store.messages("telegram:42")
+        assistant = next(r for r in records if r["role"] == "assistant")
+        events = assistant.get("events")
+        assert events, "assistant turn must persist its trace events"
+        # done/session are excluded; the narration + finish content survive.
+        assert all(e.get("type") != "done" for e in events)
+        assert any(e.get("type") == "content" for e in events)
+
+    @pytest.mark.asyncio
+    async def test_session_title_is_first_user_message(self, partners_root, fake_orchestrator):
+        fake_orchestrator.script = _finish("the answer is 4")
+        runner = _runner(partners_root)
+
+        await runner.process_message(_msg("what is two plus two?"))
+
+        session = runner.store.list_sessions()[0]
+        assert session["title"] == "what is two plus two?"
+
+
+class TestSessionStoreOps:
+    def test_archive_flag_is_soft_and_reversible(self, partners_root):
+        store = PartnerSessionStore(_runner(partners_root).store._dir)
+        store.append("web-a", "user", "hi")
+        assert store.is_archived("web-a") is False
+        store.set_archived("web-a", True)
+        assert store.is_archived("web-a") is True
+        # File is untouched (still resumable) and excluded from the merged view.
+        assert store._path("web-a").exists()
+        assert store.merged_messages() == []
+        store.set_archived("web-a", False)
+        assert store.is_archived("web-a") is False
+
+    def test_branch_copies_history_and_archives_source(self, partners_root):
+        store = PartnerSessionStore(_runner(partners_root).store._dir)
+        store.append("web-a", "user", "q1")
+        store.append("web-a", "assistant", "a1", events=[{"type": "content"}])
+        summary = store.branch("web-a", "web-b")
+        assert summary is not None and summary["message_count"] == 2
+        assert store.is_archived("web-a") is True
+        assert [m["content"] for m in store.messages("web-b")] == ["q1", "a1"]
+        # Events ride along so the branched copy rehydrates its trace too.
+        assert store.messages("web-b")[1].get("events")
+
+    def test_delete_removes_file_and_index(self, partners_root):
+        store = PartnerSessionStore(_runner(partners_root).store._dir)
+        store.append("web-a", "user", "hi")
+        store.set_archived("web-a", True)
+        assert store.delete_session("web-a") is True
+        assert store.delete_session("web-a") is False
+        assert store.list_sessions() == []
+
+
+class TestLiveTurn:
+    def test_buffer_replays_for_late_subscriber(self):
+        from deeptutor.services.partners.manager import LiveTurn
+
+        turn = LiveTurn(user_content="q")
+        turn.emit({"type": "stream_event", "event": {"i": 1}})
+        turn.emit({"type": "stream_event", "event": {"i": 2}})
+        # A client that reconnects mid-turn replays the whole backlog...
+        late = turn.subscribe()
+        assert [late.get_nowait()["event"]["i"] for _ in range(2)] == [1, 2]
+        # ...and keeps receiving new frames after subscribing.
+        turn.emit({"type": "stream_event", "event": {"i": 3}})
+        assert late.get_nowait()["event"]["i"] == 3
+
+    def test_finish_pushes_terminal_and_marks_done(self):
+        from deeptutor.services.partners.manager import LiveTurn
+
+        turn = LiveTurn()
+        q = turn.subscribe()
+        turn.finish([{"type": "content", "content": "hi"}, {"type": "done"}])
+        assert turn.done is True
+        assert q.get_nowait()["type"] == "content"
+        assert q.get_nowait()["type"] == "done"
+        # A subscriber arriving after completion still replays the full turn.
+        post = turn.subscribe()
+        kinds = [post.get_nowait()["type"] for _ in range(post.qsize())]
+        assert kinds == ["content", "done"]
+
+    @pytest.mark.asyncio
+    async def test_web_turn_runs_on_instance_and_survives_resubscribe(
+        self, partners_root, fake_orchestrator
+    ):
+        from deeptutor.services.partners.manager import PartnerManager
+
+        fake_orchestrator.script = _narration_round("c1", "working") + _finish("done!")
+        mgr = PartnerManager()
+        mgr.save_config("ada", PartnerConfig(name="Ada"), auto_start=True)
+        await mgr.start_partner("ada")
+        try:
+            turn = mgr.start_web_turn("ada", "web-x", "hello", [])
+            queue = turn.subscribe()
+            frames: list[dict] = []
+            while True:
+                frame = await asyncio.wait_for(queue.get(), timeout=5)
+                frames.append(frame)
+                if frame["type"] in {"done", "stopped"}:
+                    break
+            assert any(f["type"] == "content" and f["content"] == "done!" for f in frames)
+            assert turn.done is True
+            # Reconnect after completion → no live turn to attach to (history
+            # serves it); a still-running turn would return the LiveTurn.
+            assert mgr.subscribe_web_turn("ada", "web-x") is None
+            # The completed turn persisted to the session store.
+            assert mgr.session_store("ada").messages("web-x")[-1]["content"] == "done!"
+        finally:
+            await mgr.stop_partner("ada")
+
+
 class TestPartnerCommands:
+    @pytest.mark.asyncio
+    async def test_sessions_resume_delete_commands(self, partners_root, fake_orchestrator):
+        from deeptutor.services.partners.commands import PartnerCommandHandler
+
+        runner = _runner(partners_root)
+        fake_orchestrator.script = _finish("ok")
+        await runner.process_message(_msg("hello"))  # creates telegram:42
+
+        handler = PartnerCommandHandler(partner_id="ada", config=runner.config, store=runner.store)
+        listed = handler.dispatch(_msg("/sessions"))
+        assert listed is not None and "telegram_42" in listed.content
+
+        # /delete an existing key, /resume clears an archived flag.
+        runner.store.set_archived("telegram:42", True)
+        resumed = handler.dispatch(_msg("/resume telegram:42"))
+        assert resumed is not None and not runner.store.is_archived("telegram:42")
+        deleted = handler.dispatch(_msg("/delete telegram:42"))
+        assert deleted is not None and "Deleted" in deleted.content
+        assert handler.dispatch(_msg("/delete telegram:42")).content.startswith("No conversation")
+
+    @pytest.mark.asyncio
+    async def test_stop_command_is_a_noop_on_im(self, partners_root, fake_orchestrator):
+        from deeptutor.services.partners.commands import PartnerCommandHandler
+
+        runner = _runner(partners_root)
+        handler = PartnerCommandHandler(partner_id="ada", config=runner.config, store=runner.store)
+        result = handler.dispatch(_msg("/stop"))
+        assert result is not None and "nothing" in result.content.lower()
+
     @pytest.mark.asyncio
     async def test_new_archives_current_session_without_calling_orchestrator(
         self, partners_root, fake_orchestrator

@@ -128,11 +128,26 @@ export type EmbeddingCapabilities = {
   active_dim_source?: string;
 };
 
+export type DiagnosticsResult = {
+  state: "success" | "failed";
+  message: string;
+  profileId: string | null;
+  modelId: string | null;
+};
+
+export type ServiceReadiness =
+  | "not_configured"
+  | "untested"
+  | "passed"
+  | "failed";
+
 type SettingsPayload = {
   ui: UiSettings;
   catalog?: Catalog;
   providers?: Record<ServiceName, ProviderOption[]>;
 };
+
+const DIAGNOSTICS_RESULTS_KEY = "deeptutor.settings.diagnosticsResults.v1";
 
 // ─── Tour ──────────────────────────────────────────────────────────────────
 //
@@ -275,6 +290,47 @@ export function getActiveModel(
   );
 }
 
+export function serviceConfigured(
+  catalog: Catalog,
+  serviceName: ServiceName,
+): boolean {
+  return serviceName === "search"
+    ? Boolean(getActiveProfile(catalog, serviceName)?.provider)
+    : Boolean(getActiveModel(catalog, serviceName)?.model);
+}
+
+export function currentDiagnosticsResult(
+  catalog: Catalog,
+  serviceName: ServiceName,
+  diagnosticsResults: Partial<Record<ServiceName, DiagnosticsResult>>,
+): DiagnosticsResult | null {
+  const service = catalog.services[serviceName];
+  const diagnostics = diagnosticsResults[serviceName];
+  if (!diagnostics) return null;
+  const profileId = service.active_profile_id ?? null;
+  const modelId =
+    serviceName === "search" ? null : (service.active_model_id ?? null);
+  return diagnostics.profileId === profileId && diagnostics.modelId === modelId
+    ? diagnostics
+    : null;
+}
+
+export function serviceReadiness(
+  catalog: Catalog,
+  serviceName: ServiceName,
+  diagnosticsResults: Partial<Record<ServiceName, DiagnosticsResult>>,
+): ServiceReadiness {
+  if (!serviceConfigured(catalog, serviceName)) return "not_configured";
+  const diagnostics = currentDiagnosticsResult(
+    catalog,
+    serviceName,
+    diagnosticsResults,
+  );
+  if (diagnostics?.state === "failed") return "failed";
+  if (diagnostics?.state === "success") return "passed";
+  return "untested";
+}
+
 export function servicePendingApply(
   catalog: Catalog,
   draft: Catalog,
@@ -297,6 +353,20 @@ function nextModelName(
     index += 1;
   }
   return `${prefix}${index}`;
+}
+
+function readStoredDiagnosticsResults(): Partial<
+  Record<ServiceName, DiagnosticsResult>
+> {
+  if (typeof window === "undefined") return {};
+  try {
+    const parsed = JSON.parse(
+      window.sessionStorage.getItem(DIAGNOSTICS_RESULTS_KEY) || "{}",
+    ) as Partial<Record<ServiceName, DiagnosticsResult>>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 // ─── Context ───────────────────────────────────────────────────────────────
@@ -366,6 +436,7 @@ type SettingsContextValue = {
   // Diagnostics
   logs: string;
   testRunning: ServiceName | null;
+  diagnosticsResults: Partial<Record<ServiceName, DiagnosticsResult>>;
   embeddingCapabilities: EmbeddingCapabilities | null;
   runDetailedTest: (service: ServiceName) => Promise<void>;
 
@@ -421,6 +492,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   // literal here — older code did, then read it back via .startsWith.
   const [logs, setLogs] = useState<string>("");
   const [testRunning, setTestRunning] = useState<ServiceName | null>(null);
+  const [diagnosticsResults, setDiagnosticsResults] = useState<
+    Partial<Record<ServiceName, DiagnosticsResult>>
+  >(() => readStoredDiagnosticsResults());
   const [llmContextDetection, setLlmContextDetection] =
     useState<LlmContextWindowDetection | null>(null);
   const [embeddingCapabilities, setEmbeddingCapabilities] =
@@ -526,6 +600,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const timer = setTimeout(() => setToast(""), 3500);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        DIAGNOSTICS_RESULTS_KEY,
+        JSON.stringify(diagnosticsResults),
+      );
+    } catch {
+      // Session storage is an enhancement for cross-route feedback only.
+    }
+  }, [diagnosticsResults]);
 
   // ── UI preferences ──────────────────────────────────────────────────────
   const persistUi = useCallback(
@@ -874,10 +959,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       }
       setLogs(t("Preparing {{service}} diagnostics...", { service }) + "\n");
       setTestRunning(service);
-      const runProfileId =
-        service === "llm" ? draft.services.llm.active_profile_id : null;
+      const target = draft.services[service];
+      const runProfileId = target.active_profile_id ?? null;
       const runModelId =
-        service === "llm" ? (draft.services.llm.active_model_id ?? null) : null;
+        service === "search" ? null : (target.active_model_id ?? null);
+      setDiagnosticsResults((current) => {
+        const next = { ...current };
+        delete next[service];
+        return next;
+      });
       if (service === "llm") setLlmContextDetection(null);
       if (service === "embedding") setEmbeddingCapabilities(null);
       try {
@@ -954,6 +1044,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             source.close();
             eventSourceRef.current = null;
             setTestRunning(null);
+            setDiagnosticsResults((current) => ({
+              ...current,
+              [service]: {
+                state: entry.type === "completed" ? "success" : "failed",
+                message: entry.message,
+                profileId: runProfileId,
+                modelId: runModelId,
+              },
+            }));
             setToast(entry.message);
           }
         };
@@ -965,6 +1064,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             (current) =>
               `${current}[failed] ${t("Diagnostics stream disconnected.")}\n`,
           );
+          setDiagnosticsResults((current) => ({
+            ...current,
+            [service]: {
+              state: "failed",
+              message: t("Diagnostics stream disconnected."),
+              profileId: runProfileId,
+              modelId: runModelId,
+            },
+          }));
           setToast(t("Diagnostics stream disconnected"));
         };
       } catch (error) {
@@ -973,6 +1081,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
             ? error.message
             : t("Could not start diagnostics.");
         setLogs((current) => `${current}[failed] ${message}\n`);
+        setDiagnosticsResults((current) => ({
+          ...current,
+          [service]: {
+            state: "failed",
+            message,
+            profileId: runProfileId,
+            modelId: runModelId,
+          },
+        }));
         setToast(message);
         setTestRunning(null);
       }
@@ -1070,6 +1187,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       registerExtension,
       logs,
       testRunning,
+      diagnosticsResults,
       embeddingCapabilities,
       runDetailedTest,
       embeddingDefaultDim,
@@ -1087,6 +1205,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       applying,
       catalog,
       catalogEditable,
+      diagnosticsResults,
       draft,
       embeddingCapabilities,
       embeddingDefaultDim,

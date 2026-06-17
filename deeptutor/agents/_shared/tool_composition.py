@@ -24,30 +24,19 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from deeptutor.tools.builtin import BUILTIN_TOOL_NAMES, USER_TOGGLEABLE_TOOL_NAMES
+from deeptutor.tools.builtin import (
+    BUILTIN_TOOL_NAMES,
+    CONFIGURABLE_BUILTIN_TOOL_NAMES,
+    USER_TOGGLEABLE_TOOL_NAMES,
+)
 
 # Tools whose mounting is owned by the pipeline (auto-on under specific
-# context conditions), not by the user's composer toggles. Adding a tool
-# here hides it from ``{tool_list}`` until its corresponding condition
-# fires in :func:`compose_enabled_tools`.
-AUTO_MOUNTED_TOOLS: frozenset[str] = frozenset(
-    {
-        "rag",
-        "read_source",
-        "read_memory",
-        "write_memory",
-        "read_skill",
-        "load_tools",
-        "exec",
-        "code_execution",
-        "list_notebook",
-        "write_note",
-        "ask_user",
-        "web_fetch",
-        "github",
-        "cron",
-    }
-)
+# context conditions), not by the user's composer toggles. Membership here
+# hides the tool from ``{tool_list}`` until its corresponding condition fires
+# in :func:`compose_enabled_tools`. Derived from
+# ``CONFIGURABLE_BUILTIN_TOOL_NAMES`` so the partner config surface and the
+# auto-mount set can never drift apart.
+AUTO_MOUNTED_TOOLS: frozenset[str] = frozenset(CONFIGURABLE_BUILTIN_TOOL_NAMES)
 
 # Conditional auto-mounts: tool name -> the ``ToolMountFlags`` attribute that
 # gates it. Single source of truth shared by the default composition (mount
@@ -111,6 +100,7 @@ def compose_enabled_tools(
     mount_flags: ToolMountFlags,
     capability_owned: Iterable[str] = (),
     exclusive: bool = False,
+    builtin_whitelist: set[str] | None = None,
 ) -> list[str]:
     """Compose the per-turn enabled-tool list.
 
@@ -136,6 +126,15 @@ def compose_enabled_tools(
     runs only on ``capability_owned`` plus the ``ask_user`` floor — no built-ins,
     no composer toggles, no conditional mounts. The capability owns the surface.
 
+    ``builtin_whitelist`` gates the *built-in* auto-mounts (steps 2 and 4 —
+    the :data:`AUTO_MOUNTED_TOOLS` members). ``None`` (the product-chat default)
+    means "no gating": every built-in mounts under its usual context condition,
+    exactly as before. A set restricts which built-ins may mount — partners use
+    this so an owner can deny e.g. ``read_memory`` to an IM-facing companion.
+    It never *adds* tools (a built-in still needs its context gate); it only
+    subtracts. User-toggled tools (step 1) and capability-owned tools (step 3)
+    are unaffected — they have their own gates.
+
     The result is ordered and deduplicated. ``optional_whitelist`` is still
     expected to exclude ``AUTO_MOUNTED_TOOLS`` via :func:`default_optional_tools`.
     """
@@ -143,20 +142,21 @@ def compose_enabled_tools(
         owned = [str(name) for name in capability_owned if str(name).strip()]
         return _ordered_unique([*owned, "ask_user"])
 
+    def _builtin_allowed(name: str) -> bool:
+        return builtin_whitelist is None or name in builtin_whitelist
+
     composed: list[str] = [
         tool.name
         for tool in registry.get_enabled(requested_tools or [])
         if tool.name in optional_whitelist
     ]
     for tool_name, flag in _CONDITIONAL_MOUNT_FLAGS.items():
-        if getattr(mount_flags, flag):
+        if getattr(mount_flags, flag) and _builtin_allowed(tool_name):
             composed.append(tool_name)
     composed.extend(str(name) for name in capability_owned if str(name).strip())
-    composed.append("write_memory")
-    composed.append("web_fetch")
-    composed.append("github")
-    composed.append("ask_user")
-    composed.append("cron")
+    for always_on in ("write_memory", "web_fetch", "github", "ask_user", "cron"):
+        if _builtin_allowed(always_on):
+            composed.append(always_on)
     return _ordered_unique(composed)
 
 

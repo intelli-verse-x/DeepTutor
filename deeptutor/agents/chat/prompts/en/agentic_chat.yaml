@@ -4,6 +4,7 @@ labels:
   exploring: "Exploring"
   tool_call: "Tool call"
   retrieve: "Retrieve"
+  consult_subagent: "Consult agent"
   final_response: "Final response"
 
 general: |-

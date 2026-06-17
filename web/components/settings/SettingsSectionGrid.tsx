@@ -7,8 +7,7 @@ import { ArrowUpRight } from "lucide-react";
 
 import { fetchAuthStatus } from "@/lib/auth";
 import {
-  getActiveModel,
-  getActiveProfile,
+  serviceReadiness,
   useSettings,
 } from "@/components/settings/SettingsContext";
 import {
@@ -32,7 +31,7 @@ export default function SettingsSectionGrid({
   const zh = i18n.language?.toLowerCase().startsWith("zh");
   const tr = useCallback((l: Lang) => (zh ? l.zh : l.en), [zh]);
 
-  const { catalog, catalogEditable } = useSettings();
+  const { catalog, catalogEditable, diagnosticsResults } = useSettings();
 
   const category = SETTINGS_CATEGORIES.find((c) => c.key === categoryKey);
 
@@ -49,21 +48,44 @@ export default function SettingsSectionGrid({
   }, []);
 
   const chipFor = useCallback(
-    (leaf: SettingsLeaf): { ok: boolean; label: Lang } | null => {
+    (
+      leaf: SettingsLeaf,
+    ): { label: Lang; tone: "ok" | "bad" | "neutral"; dot: boolean } | null => {
       if (!leaf.service) return null;
       if (catalogEditable !== true) return null;
-      const configured =
-        leaf.service === "search"
-          ? Boolean(getActiveProfile(catalog, leaf.service)?.provider)
-          : Boolean(getActiveModel(catalog, leaf.service)?.model);
+      const readiness = serviceReadiness(
+        catalog,
+        leaf.service,
+        diagnosticsResults,
+      );
+      if (readiness === "failed") {
+        return {
+          tone: "bad",
+          dot: true,
+          label: { zh: "测试失败", en: "Test failed" },
+        };
+      }
+      if (readiness === "passed") {
+        return {
+          tone: "ok",
+          dot: true,
+          label: { zh: "测试通过", en: "Test passed" },
+        };
+      }
+      if (readiness === "untested") {
+        return {
+          tone: "neutral",
+          dot: true,
+          label: { zh: "已配置", en: "Configured" },
+        };
+      }
       return {
-        ok: configured,
-        label: configured
-          ? { zh: "已配置", en: "Configured" }
-          : { zh: "未配置", en: "Not set" },
+        tone: "neutral",
+        dot: false,
+        label: { zh: "未配置", en: "Not set" },
       };
     },
-    [catalog, catalogEditable],
+    [catalog, catalogEditable, diagnosticsResults],
   );
 
   if (!category?.children) return null;
@@ -98,10 +120,11 @@ function LeafCard({
   tr,
 }: {
   leaf: SettingsLeaf;
-  chip: { ok: boolean; label: Lang } | null;
+  chip: { label: Lang; tone: "ok" | "bad" | "neutral"; dot: boolean } | null;
   tr: (l: Lang) => string;
 }) {
   const Icon = leaf.icon;
+  const tone = chip?.tone ?? "neutral";
   return (
     <Link
       href={leaf.href}
@@ -121,19 +144,29 @@ function LeafCard({
             </h3>
             {chip && (
               <span
-                className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10.5px] font-medium ${
-                  chip.ok
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    : "bg-[var(--muted)]/60 text-[var(--muted-foreground)]"
+                className={`inline-flex shrink-0 items-center gap-1 text-[10.5px] font-medium ${
+                  chip.dot
+                    ? `rounded-full px-1.5 py-0.5 ${
+                        tone === "bad"
+                          ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                          : tone === "ok"
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                            : "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300"
+                      }`
+                    : "text-[var(--muted-foreground)]"
                 }`}
               >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    chip.ok
-                      ? "bg-emerald-500"
-                      : "bg-[var(--muted-foreground)]/50"
-                  }`}
-                />
+                {chip.dot && (
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      tone === "bad"
+                        ? "bg-red-500"
+                        : tone === "ok"
+                          ? "bg-emerald-500"
+                          : "bg-zinc-400 dark:bg-zinc-500"
+                    }`}
+                  />
+                )}
                 {tr(chip.label)}
               </span>
             )}

@@ -126,8 +126,60 @@ class PartnerConfig:
     # User-toggleable system tools (same pool as the chat composer /
     # /settings/tools). None = all of them; [] = none; list = whitelist.
     enabled_tools: list[str] | None = None
+    # Allowed built-in (auto-mounted) tools — rag / read_memory / web_fetch /
+    # … (CONFIGURABLE_BUILTIN_TOOL_NAMES). None = no gating (all mount under
+    # their usual context condition, like the product chat); [] = deny every
+    # built-in; list = whitelist. Lets an owner deny e.g. memory to an
+    # IM-facing partner.
+    builtin_tools: list[str] | None = None
     # Configured MCP tools the partner may load. None = all; [] = MCP off.
     mcp_tools: list[str] | None = None
+
+
+@dataclass
+class LiveTurn:
+    """A web turn decoupled from any single WebSocket connection.
+
+    The turn runs as a task on the partner instance and fans its stream frames
+    out to per-subscriber queues, buffering them too. A client that reconnects
+    mid-turn (a page refresh) re-subscribes and replays the buffer, so the
+    in-progress answer survives the reload instead of dying with the old
+    socket. Frames are the same shapes the socket already sends
+    (``stream_event`` / ``content`` / ``done`` / ``stopped`` / ``error``).
+    """
+
+    # The user message that opened the turn, so a client reattaching after a
+    # refresh can re-show the question bubble (it isn't persisted until the
+    # turn completes).
+    user_content: str = ""
+    events: list[dict[str, Any]] = field(default_factory=list)
+    terminal: list[dict[str, Any]] = field(default_factory=list)
+    done: bool = False
+    subscribers: set[asyncio.Queue] = field(default_factory=set, repr=False)
+    task: asyncio.Task | None = field(default=None, repr=False)
+
+    def emit(self, frame: dict[str, Any]) -> None:
+        self.events.append(frame)
+        for queue in self.subscribers:
+            queue.put_nowait(frame)
+
+    def finish(self, frames: list[dict[str, Any]]) -> None:
+        self.terminal = frames
+        self.done = True
+        for queue in self.subscribers:
+            for frame in frames:
+                queue.put_nowait(frame)
+        self.subscribers.clear()
+
+    def subscribe(self) -> asyncio.Queue:
+        """Preload the backlog and register — atomically (no await between) so
+        no frame is missed or duplicated at the boundary."""
+        queue: asyncio.Queue = asyncio.Queue()
+        for frame in (*self.events, *self.terminal):
+            queue.put_nowait(frame)
+        if not self.done:
+            self.subscribers.add(queue)
+        return queue
 
 
 @dataclass
@@ -144,6 +196,9 @@ class PartnerInstance:
     channel_bindings: dict[str, str] = field(default_factory=dict)
     reload_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     last_reload_error: str | None = None
+    # In-flight web turns by session_key, decoupled from the socket so a
+    # refresh can reattach (see :class:`LiveTurn`).
+    live_turns: dict[str, LiveTurn] = field(default_factory=dict, repr=False)
 
     @property
     def running(self) -> bool:
@@ -180,6 +235,7 @@ class PartnerInstance:
             "avatar": self.config.avatar,
             "soul_origin": self.config.soul_origin,
             "enabled_tools": self.config.enabled_tools,
+            "builtin_tools": self.config.builtin_tools,
             "mcp_tools": self.config.mcp_tools,
             "running": self.running,
             "started_at": self.started_at.isoformat(),
@@ -236,6 +292,7 @@ class PartnerManager:
         "avatar",
         "soul_origin",
         "enabled_tools",
+        "builtin_tools",
         "mcp_tools",
     )
 
@@ -258,6 +315,7 @@ class PartnerManager:
                 avatar=str(data.get("avatar", "") or ""),
                 soul_origin=dict(data.get("soul_origin", {}) or {}),
                 enabled_tools=_optional_str_list(data.get("enabled_tools")),
+                builtin_tools=_optional_str_list(data.get("builtin_tools")),
                 mcp_tools=_optional_str_list(data.get("mcp_tools")),
             )
         except Exception:
@@ -297,6 +355,8 @@ class PartnerManager:
             data["model"] = config.model
         if config.enabled_tools is not None:
             data["enabled_tools"] = list(config.enabled_tools)
+        if config.builtin_tools is not None:
+            data["builtin_tools"] = list(config.builtin_tools)
         if config.mcp_tools is not None:
             data["mcp_tools"] = list(config.mcp_tools)
 
@@ -596,6 +656,7 @@ class PartnerManager:
                 "avatar": cfg.avatar if cfg else "",
                 "soul_origin": cfg.soul_origin if cfg else {},
                 "enabled_tools": cfg.enabled_tools if cfg else None,
+                "builtin_tools": cfg.builtin_tools if cfg else None,
                 "mcp_tools": cfg.mcp_tools if cfg else None,
                 "running": False,
                 "started_at": None,
@@ -663,24 +724,137 @@ class PartnerManager:
         session_id: str | None = None,
         media: list[str] | None = None,
         on_event: Callable[[Any], Awaitable[None]] | None = None,
+        session_key: str | None = None,
     ) -> str:
-        """Send a web message to a running partner and return the reply."""
+        """Send a web message to a running partner and return the reply.
+
+        ``session_key``, when given, is used verbatim (the web app drives a
+        stable, colon-free key it persists locally); otherwise it is derived
+        from ``session_id`` / ``chat_id`` via :meth:`web_session_key`.
+        """
         instance = self._partners.get(partner_id)
         if not instance or not instance.running or not instance.runner:
             raise RuntimeError(f"Partner '{partner_id}' is not running")
 
         from deeptutor.partners.bus.events import InboundMessage
 
-        session_key = self.web_session_key(partner_id, chat_id=chat_id, session_id=session_id)
+        resolved_key = (
+            str(session_key).strip()
+            if session_key
+            else self.web_session_key(partner_id, chat_id=chat_id, session_id=session_id)
+        )
         msg = InboundMessage(
             channel="web",
             sender_id="web",
             chat_id=session_id or chat_id,
             content=content,
             media=media or [],
-            session_key_override=session_key,
+            session_key_override=resolved_key,
         )
         return await instance.runner.process_message(msg, on_event=on_event)
+
+    # ── Live web turns (refresh-survivable streaming) ─────────────
+
+    def start_web_turn(
+        self,
+        partner_id: str,
+        session_key: str,
+        content: str,
+        media: list[str] | None = None,
+    ) -> "LiveTurn":
+        """Run a web turn as an instance-owned task and return its LiveTurn.
+
+        If a turn is already in flight for this session, returns it (one at a
+        time per session). The turn keeps running even if every socket detaches.
+        """
+        instance = self._partners.get(partner_id)
+        if not instance or not instance.running or not instance.runner:
+            raise RuntimeError(f"Partner '{partner_id}' is not running")
+        existing = instance.live_turns.get(session_key)
+        if existing is not None and not existing.done:
+            return existing
+        turn = LiveTurn(user_content=content)
+        instance.live_turns[session_key] = turn
+        turn.task = asyncio.create_task(
+            self._drive_web_turn(partner_id, session_key, content, media or [], turn),
+            name=f"partner:{partner_id}:webturn",
+        )
+        return turn
+
+    def subscribe_web_turn(self, partner_id: str, session_key: str) -> "LiveTurn | None":
+        """The in-flight turn for a session, or None (completed turns are read
+        back from history instead)."""
+        instance = self._partners.get(partner_id)
+        if not instance:
+            return None
+        turn = instance.live_turns.get(session_key)
+        return turn if turn is not None and not turn.done else None
+
+    def stop_web_turn(self, partner_id: str, session_key: str) -> bool:
+        instance = self._partners.get(partner_id)
+        if not instance:
+            return False
+        turn = instance.live_turns.get(session_key)
+        if turn is None or turn.done or turn.task is None or turn.task.done():
+            return False
+        turn.task.cancel()
+        return True
+
+    async def _drive_web_turn(
+        self,
+        partner_id: str,
+        session_key: str,
+        content: str,
+        media: list[str],
+        turn: "LiveTurn",
+    ) -> None:
+        async def on_event(event: Any) -> None:
+            turn.emit({"type": "stream_event", "event": event.to_dict()})
+
+        try:
+            final = await self.send_message(
+                partner_id,
+                content,
+                session_key=session_key,
+                media=media,
+                on_event=on_event,
+            )
+            turn.finish([{"type": "content", "content": final}, {"type": "done"}])
+        except asyncio.CancelledError:
+            turn.finish([{"type": "stopped"}])
+            raise
+        except RuntimeError as exc:
+            turn.finish([{"type": "error", "content": str(exc)}, {"type": "done"}])
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Web turn crashed for partner '%s'", partner_id)
+            turn.finish(
+                [
+                    {"type": "error", "content": f"Internal error ({type(exc).__name__})"},
+                    {"type": "done"},
+                ]
+            )
+
+    # ── Session lifecycle (web management) ────────────────────────
+
+    def resume_session(self, partner_id: str, session_key: str) -> dict[str, Any] | None:
+        """Clear a session's archived flag so it becomes current again."""
+        store = self.session_store(partner_id)
+        store.set_archived(session_key, False)
+        for session in store.list_sessions():
+            if session["session_key"] == store._stem(session_key):
+                return session
+        return None
+
+    def delete_session(self, partner_id: str, session_key: str) -> bool:
+        return self.session_store(partner_id).delete_session(session_key)
+
+    def branch_session(
+        self, partner_id: str, source_key: str, new_key: str
+    ) -> dict[str, Any] | None:
+        return self.session_store(partner_id).branch(source_key, new_key)
+
+    def archive_session(self, partner_id: str, session_key: str) -> None:
+        self.session_store(partner_id).set_archived(session_key, True)
 
     # ── Boot / shutdown ───────────────────────────────────────────
 

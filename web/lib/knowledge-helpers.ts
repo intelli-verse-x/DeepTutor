@@ -54,10 +54,12 @@ export interface KnowledgeBase {
     embedding_model?: string;
     embedding_dim?: number;
     embedding_mismatch?: boolean;
-    /** Connected-source kind (e.g. "obsidian"); absent for ordinary indexed KBs. */
+    /** Connected-source kind (e.g. "obsidian", "subagent"); absent for ordinary indexed KBs. */
     type?: string;
     /** Absolute path of a connected Obsidian vault (when type === "obsidian"). */
     vault_path?: string;
+    /** Backend of a connected subagent (when type === "subagent"): "claude_code" | "codex". */
+    agent_kind?: string;
   };
   progress?: ProgressInfo;
   statistics?: {

@@ -45,6 +45,7 @@ import type { LLMOption } from "@/lib/llm-options";
 import ChatSpaceMenu from "@/components/chat/space/ChatSpaceMenu";
 import type { SpaceMemoryFile } from "@/lib/space-items";
 import type { SelectedBookReference } from "@/lib/book-references";
+import AgentSelector from "./AgentSelector";
 import KnowledgeSelector from "./KnowledgeSelector";
 import ModelSelector from "./ModelSelector";
 import PersonaSelector from "./PersonaSelector";
@@ -150,6 +151,11 @@ export default memo(function ChatComposer({
   attachmentError,
   activeCap,
   knowledgeBases,
+  connectedAgents = [],
+  selectedAgent = null,
+  onSelectAgent,
+  subagentBudget = null,
+  onSubagentBudgetChange,
   llmOptions,
   activeLLMDefault,
   llmSelection,
@@ -221,6 +227,14 @@ export default memo(function ChatComposer({
   attachmentError: string | null;
   activeCap: CapabilityDef;
   knowledgeBases: KnowledgeBase[];
+  /** Connected local subagents (Claude Code / Codex) selectable for this turn. */
+  connectedAgents?: { name: string; kind?: string }[];
+  /** The connected agent selected for this turn, if any (single-select). */
+  selectedAgent?: string | null;
+  onSelectAgent?: (name: string | null) => void;
+  /** Max times DeepTutor may consult the selected agent this turn. */
+  subagentBudget?: number | null;
+  onSubagentBudgetChange?: (budget: number) => void;
   llmOptions: LLMOption[];
   activeLLMDefault: LLMSelection | null;
   llmSelection: LLMSelection | null;
@@ -609,6 +623,9 @@ export default memo(function ChatComposer({
             onSend={doSend}
             onInputChange={handleInputChange}
             onPaste={onPaste}
+            connectedAgents={connectedAgents}
+            selectedAgent={selectedAgent}
+            onSelectAgent={onSelectAgent}
             selectedCounts={spaceSelectionCounts}
             knowledgeAvailable={false}
             personaAvailable={!onPersonaSelectionChange}
@@ -918,6 +935,15 @@ export default memo(function ChatComposer({
               </div>
 
               <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                {connectedAgents.length > 0 && onSelectAgent ? (
+                  <AgentSelector
+                    agents={connectedAgents}
+                    selected={selectedAgent}
+                    onSelect={onSelectAgent}
+                    budget={subagentBudget}
+                    onBudgetChange={onSubagentBudgetChange}
+                  />
+                ) : null}
                 {knowledgeBases.length > 0 ? (
                   <KnowledgeSelector
                     knowledgeBases={knowledgeBases}

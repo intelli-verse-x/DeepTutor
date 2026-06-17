@@ -122,6 +122,24 @@ class TestConfigAndSoul:
         assert body["enabled_tools"] == []
         assert body["mcp_tools"] == ["mcp_x_y"]
 
+    def test_builtin_tools_create_and_patch(self, client):
+        res = _create(client, builtin_tools=["rag", "read_memory"])
+        assert res.status_code == 200
+        assert res.json()["builtin_tools"] == ["rag", "read_memory"]
+        # Default (omitted) stays null = no gating; an explicit deny persists.
+        _create(client, partner_id="bob", name="Bob")
+        assert client.get("/api/v1/partners/bob").json()["builtin_tools"] is None
+        res = client.patch("/api/v1/partners/ada", json={"builtin_tools": []})
+        assert res.status_code == 200
+        assert client.get("/api/v1/partners/ada").json()["builtin_tools"] == []
+
+    def test_tool_options_exposes_builtin_tools(self, client):
+        body = client.get("/api/v1/partners/tool-options").json()
+        assert {"tools", "builtin_tools", "mcp_tools"} <= set(body)
+        builtin_names = {t["name"] for t in body["builtin_tools"]}
+        # The memory tools are configurable built-ins now.
+        assert {"rag", "read_memory", "write_memory"} <= builtin_names
+
     def test_avatar_roundtrip_and_validation(self, client):
         _create(client)
         avatar = "data:image/png;base64,iVBORw0KGgo="
@@ -218,6 +236,84 @@ class TestHistory:
         res = client.get("/api/v1/partners/ada/history")
         assert res.status_code == 200
         assert res.json()[0]["content"] == "hi"
+
+    def test_history_scoped_by_web_session_id(self, client, isolated_root):
+        _create(client)
+        sessions = isolated_root / "partners" / "ada" / "sessions"
+        sessions.mkdir(parents=True, exist_ok=True)
+        # Two distinct web sessions; the endpoint must scope to the one asked for.
+        (sessions / "web_s1.jsonl").write_text(
+            json.dumps({"role": "user", "content": "from s1", "timestamp": "t"}) + "\n",
+            encoding="utf-8",
+        )
+        (sessions / "web_s2.jsonl").write_text(
+            json.dumps({"role": "user", "content": "from s2", "timestamp": "t"}) + "\n",
+            encoding="utf-8",
+        )
+        res = client.get("/api/v1/partners/ada/history?session_id=s1")
+        assert res.status_code == 200
+        contents = [m["content"] for m in res.json()]
+        assert contents == ["from s1"]
+
+    def test_sessions_list_carries_title(self, client, isolated_root):
+        _create(client)
+        sessions = isolated_root / "partners" / "ada" / "sessions"
+        sessions.mkdir(parents=True, exist_ok=True)
+        (sessions / "web_s1.jsonl").write_text(
+            json.dumps({"role": "user", "content": "what is recursion?", "timestamp": "t"}) + "\n",
+            encoding="utf-8",
+        )
+        res = client.get("/api/v1/partners/ada/sessions")
+        assert res.status_code == 200
+        assert res.json()[0]["title"] == "what is recursion?"
+
+    def _seed_session(self, isolated_root: Path, key: str, content: str) -> None:
+        sessions = isolated_root / "partners" / "ada" / "sessions"
+        sessions.mkdir(parents=True, exist_ok=True)
+        (sessions / f"{key}.jsonl").write_text(
+            json.dumps({"role": "user", "content": content, "timestamp": "t"}) + "\n",
+            encoding="utf-8",
+        )
+
+    def test_archive_then_resume_roundtrip(self, client, isolated_root):
+        _create(client)
+        self._seed_session(isolated_root, "web-a", "hi")
+        assert (
+            client.post("/api/v1/partners/ada/sessions/archive", json={"session_key": "web-a"})
+        ).status_code == 200
+        archived = {s["session_key"]: s for s in client.get("/api/v1/partners/ada/sessions").json()}
+        assert archived["web-a"]["archived"] is True
+        assert (
+            client.post("/api/v1/partners/ada/sessions/resume", json={"session_key": "web-a"})
+        ).status_code == 200
+        live = {s["session_key"]: s for s in client.get("/api/v1/partners/ada/sessions").json()}
+        assert live["web-a"]["archived"] is False
+
+    def test_branch_copies_and_archives(self, client, isolated_root):
+        _create(client)
+        self._seed_session(isolated_root, "web-a", "carry me")
+        res = client.post(
+            "/api/v1/partners/ada/sessions/branch",
+            json={"source_key": "web-a", "new_key": "web-b"},
+        )
+        assert res.status_code == 200
+        assert res.json()["session"]["session_key"] == "web-b"
+        hist = client.get("/api/v1/partners/ada/history?session_key=web-b").json()
+        assert [m["content"] for m in hist] == ["carry me"]
+        sessions = {s["session_key"]: s for s in client.get("/api/v1/partners/ada/sessions").json()}
+        assert sessions["web-a"]["archived"] is True
+
+    def test_delete_session_endpoint(self, client, isolated_root):
+        _create(client)
+        self._seed_session(isolated_root, "web-a", "bye")
+        assert (
+            client.post("/api/v1/partners/ada/sessions/delete", json={"session_key": "web-a"})
+        ).status_code == 200
+        assert client.get("/api/v1/partners/ada/sessions").json() == []
+        # Deleting a missing session is a 404.
+        assert (
+            client.post("/api/v1/partners/ada/sessions/delete", json={"session_key": "web-a"})
+        ).status_code == 404
 
 
 class TestChatAttachments:

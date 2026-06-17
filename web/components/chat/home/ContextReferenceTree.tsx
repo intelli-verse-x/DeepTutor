@@ -11,6 +11,8 @@ import { useTranslation } from "react-i18next";
  */
 export interface ContextTreeItem {
   key: string;
+  // A lucide icon, or any glyph with the same call signature (brand SVG marks
+  // are cast to this at the call site).
   icon: LucideIcon;
   /** Type prefix ("Book", "Notebook", ...), already translated. */
   kind: string;

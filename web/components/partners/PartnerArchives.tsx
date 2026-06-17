@@ -1,11 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Archive, Clock3, MessageSquareText, RefreshCw } from "lucide-react";
+import {
+  Archive,
+  Clock3,
+  MessageSquareText,
+  RefreshCw,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
+  deletePartnerSession,
   getPartnerHistory,
   getPartnerSessions,
+  resumePartnerSession,
   type PartnerSessionInfo,
 } from "@/lib/partners-api";
 import type { ExportableMessage } from "@/lib/chat-export";
@@ -33,12 +42,15 @@ export default function PartnerArchives({
   partnerId,
   onToast,
   onMessagesChange,
+  onResume,
 }: {
   partnerId: string;
   onToast: (message: string) => void;
   /** Lifts the selected conversation up so the page header can export it.
    *  Empty array when nothing is selected (or while loading). */
   onMessagesChange?: (messages: ExportableMessage[]) => void;
+  /** Continue a conversation in the Chat tab (un-archives it first). */
+  onResume?: (sessionKey: string) => void;
 }) {
   const { t } = useTranslation();
   const [sessions, setSessions] = useState<PartnerSessionInfo[]>([]);
@@ -77,6 +89,34 @@ export default function PartnerArchives({
   useEffect(() => {
     void loadSessions();
   }, [loadSessions]);
+
+  const handleResume = useCallback(
+    async (session: PartnerSessionInfo) => {
+      try {
+        if (session.archived) {
+          await resumePartnerSession(partnerId, session.session_key);
+        }
+        onResume?.(session.session_key);
+      } catch (e) {
+        onToast(e instanceof Error ? e.message : t("Load failed"));
+      }
+    },
+    [partnerId, onResume, onToast, t],
+  );
+
+  const handleDelete = useCallback(
+    async (session: PartnerSessionInfo) => {
+      try {
+        await deletePartnerSession(partnerId, session.session_key);
+        if (selectedKey === session.session_key) setSelectedKey("");
+        onToast(t("Conversation deleted"));
+        await loadSessions();
+      } catch (e) {
+        onToast(e instanceof Error ? e.message : t("Delete failed"));
+      }
+    },
+    [partnerId, selectedKey, loadSessions, onToast, t],
+  );
 
   useEffect(() => {
     if (!selectedKey) {
@@ -158,12 +198,13 @@ export default function PartnerArchives({
             >
               <div className="flex items-center gap-2">
                 {session.archived ? (
-                  <Archive className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+                  <Archive className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
                 ) : (
-                  <MessageSquareText className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+                  <MessageSquareText className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
                 )}
                 <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-[var(--foreground)]">
-                  {session.archived ? t("Archived") : t("Current")}
+                  {session.title ||
+                    (session.archived ? t("Archived") : t("New conversation"))}
                 </span>
                 <span className="text-[11px] text-[var(--muted-foreground)]">
                   {session.message_count}
@@ -193,19 +234,40 @@ export default function PartnerArchives({
           <div className="mx-auto max-w-2xl pb-4">
             <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--background)] py-2">
               <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-[13px] font-medium text-[var(--foreground)]">
-                    {selected.archived
-                      ? t("Archived conversation")
-                      : t("Current conversation")}
+                <div className="min-w-0">
+                  <h3 className="truncate text-[13px] font-medium text-[var(--foreground)]">
+                    {selected.title ||
+                      (selected.archived
+                        ? t("Archived conversation")
+                        : t("New conversation"))}
                   </h3>
                   <p className="text-[11.5px] text-[var(--muted-foreground)]">
-                    {formatTime(selected.updated_at)}
+                    {(selected.archived ? `${t("Archived")} · ` : "") +
+                      formatTime(selected.updated_at)}
                   </p>
                 </div>
-                <span className="rounded-md bg-[var(--muted)] px-2 py-1 text-[11px] text-[var(--muted-foreground)]">
-                  {t("{{count}} messages", { count: selected.message_count })}
-                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="rounded-md bg-[var(--muted)] px-2 py-1 text-[11px] text-[var(--muted-foreground)]">
+                    {t("{{count}} messages", { count: selected.message_count })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleResume(selected)}
+                    title={t("Continue this conversation")}
+                    className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--foreground)] hover:bg-[var(--muted)]"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    {t("Continue")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(selected)}
+                    title={t("Delete conversation")}
+                    className="inline-flex h-[26px] w-[26px] items-center justify-center rounded-md text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-red-500"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
 

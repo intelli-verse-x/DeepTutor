@@ -7,6 +7,8 @@ config resolution.
 
 from __future__ import annotations
 
+import base64
+import json
 from typing import Any
 
 import httpx
@@ -20,6 +22,7 @@ from deeptutor.services.voice import synthesize_speech, transcribe_audio
 from deeptutor.services.voice.adapters.openai_compat import (
     OpenAICompatSTTAdapter,
     OpenAICompatTTSAdapter,
+    OpenRouterTTSAdapter,
 )
 from deeptutor.services.voice.base import (
     build_auth_headers,
@@ -131,6 +134,90 @@ async def test_tts_adapter_raises_on_http_error(monkeypatch: pytest.MonkeyPatch)
         await OpenAICompatTTSAdapter().synthesize("hi", config)
 
 
+@pytest.mark.asyncio
+async def test_openrouter_tts_falls_back_to_chat_audio_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    post_calls: list[dict[str, Any]] = []
+
+    async def fake_post(self: httpx.AsyncClient, url: str, **kwargs: Any) -> httpx.Response:
+        post_calls.append(
+            {
+                "url": url,
+                "json": kwargs.get("json"),
+                "headers": kwargs.get("headers"),
+            }
+        )
+        if len(post_calls) == 1:
+            response = httpx.Response(
+                500,
+                json={"error": {"message": "Internal Server Error"}},
+            )
+        else:
+            chunk = {
+                "choices": [
+                    {
+                        "delta": {
+                            "audio": {
+                                "data": base64.b64encode(b"pcm-audio").decode("ascii"),
+                                "transcript": "hi",
+                            }
+                        }
+                    }
+                ]
+            }
+            response = httpx.Response(
+                200,
+                text=f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n",
+                headers={"content-type": "text/event-stream"},
+            )
+        response.request = httpx.Request("POST", url)
+        return response
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    config = TTSConfig(
+        model="openai/gpt-4o-mini-tts",
+        provider_name="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        voice="alloy",
+        response_format="pcm",
+    )
+
+    audio, content_type = await OpenRouterTTSAdapter().synthesize("hello", config)
+
+    assert audio == b"pcm-audio"
+    assert content_type == "audio/pcm"
+    assert post_calls[0]["url"] == "https://openrouter.ai/api/v1/audio/speech"
+    assert post_calls[1]["url"] == "https://openrouter.ai/api/v1/chat/completions"
+    assert post_calls[1]["json"]["modalities"] == ["text", "audio"]
+    assert post_calls[1]["json"]["audio"] == {"voice": "alloy", "format": "pcm16"}
+    assert post_calls[1]["headers"]["Authorization"] == "Bearer or-key"
+
+
+@pytest.mark.asyncio
+async def test_openrouter_gemini_tts_openai_voice_gets_clear_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from deeptutor.services.voice.base import VoiceProviderError
+
+    _capture_post(
+        monkeypatch,
+        httpx.Response(500, json={"error": {"message": "Internal Server Error"}}),
+    )
+    config = TTSConfig(
+        model="google/gemini-3.1-flash-tts-preview",
+        provider_name="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        api_key="or-key",
+        voice="alloy",
+        response_format="pcm",
+    )
+    with pytest.raises(VoiceProviderError, match="Kore"):
+        await OpenRouterTTSAdapter().synthesize("hello", config)
+
+
 # ── STT adapter ───────────────────────────────────────────────────────────
 
 
@@ -227,6 +314,17 @@ def test_resolve_stt_config_picks_openrouter_base64_style() -> None:
     assert cfg.provider_name == "openrouter"
     assert cfg.request_style == "base64_json"
     assert cfg.base_url == "https://openrouter.ai/api/v1"
+
+
+def test_resolve_tts_config_picks_openrouter_adapter() -> None:
+    catalog = _voice_catalog()
+    catalog["services"]["tts"]["profiles"][0]["binding"] = "openrouter"
+    catalog["services"]["tts"]["profiles"][0]["models"][0]["model"] = (
+        "google/gemini-3.1-flash-tts-preview"
+    )
+    cfg = resolve_tts_runtime_config(catalog=catalog)
+    assert cfg.provider_name == "openrouter"
+    assert cfg.adapter == "openrouter_tts"
 
 
 def test_resolve_tts_config_raises_without_model() -> None:

@@ -8,6 +8,7 @@ import { useAppShell } from "@/context/AppShellContext";
 import {
   BookOpen,
   BookText,
+  Bot,
   Brain,
   ChevronDown,
   Github,
@@ -53,6 +54,16 @@ const PRIMARY_NAV: NavEntry[] = [
     icon: HeartHandshake,
     tooltipKey: "Partners tooltip",
     requires: "llm",
+  },
+  {
+    // My Agents is its own top-level feature (pulled out of the Learning
+    // Space): connect a live local Claude Code / Codex to consult in chat,
+    // and manage imported agent conversations. Ungated — managing connections
+    // and imports needs no per-user model grant.
+    href: "/agents",
+    label: "My Agents",
+    icon: Bot,
+    tooltipKey: "Agents tooltip",
   },
   {
     href: "/co-writer",

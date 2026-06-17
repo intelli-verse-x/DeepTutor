@@ -158,7 +158,9 @@ class PartnerRunner:
             if command is not None:
                 return command.content
 
-            final = await self._run_turn(msg, on_event=on_event, delivery_meta=delivery_meta)
+            final, turn_events = await self._run_turn(
+                msg, on_event=on_event, delivery_meta=delivery_meta
+            )
             self.store.append(
                 session_key,
                 "user",
@@ -168,7 +170,13 @@ class PartnerRunner:
                 attachments=list((msg.metadata or {}).get("_attachment_records") or []),
             )
             if final:
-                self.store.append(session_key, "assistant", final, channel=msg.channel)
+                self.store.append(
+                    session_key,
+                    "assistant",
+                    final,
+                    channel=msg.channel,
+                    events=turn_events or None,
+                )
             return final
 
     async def _run_turn(
@@ -177,12 +185,12 @@ class PartnerRunner:
         *,
         on_event: EventCallback | None = None,
         delivery_meta: dict[str, Any] | None = None,
-    ) -> str:
+    ) -> tuple[str, list[dict[str, Any]]]:
         ensure_partner_workspace(self.partner_id)
         primary = getattr(self.config, "llm_selection", None) or None
         backup = getattr(self.config, "backup_llm_selection", None) or None
 
-        final_text, errors = await self._execute_turn(
+        final_text, errors, events = await self._execute_turn(
             msg, selection=primary, on_event=on_event, delivery_meta=delivery_meta
         )
         if not final_text and errors and backup and backup != primary:
@@ -193,13 +201,13 @@ class PartnerRunner:
             )
             if delivery_meta is not None:
                 delivery_meta.pop("_streamed", None)
-            final_text, errors = await self._execute_turn(
+            final_text, errors, events = await self._execute_turn(
                 msg, selection=backup, on_event=on_event, delivery_meta=delivery_meta
             )
 
         if not final_text and errors:
             final_text = f"Sorry, the turn failed: {errors[-1]}"
-        return final_text
+        return final_text, events
 
     async def _execute_turn(
         self,
@@ -208,12 +216,16 @@ class PartnerRunner:
         selection: dict[str, str] | None,
         on_event: EventCallback | None = None,
         delivery_meta: dict[str, Any] | None = None,
-    ) -> tuple[str, list[str]]:
-        """Run one chat turn with *selection* active; returns (final, errors).
+    ) -> tuple[str, list[str], list[dict[str, Any]]]:
+        """Run one chat turn with *selection* active; returns (final, errors, events).
 
-        A failed turn is ``("", [error, …])`` — the caller decides whether a
-        backup model gets a second attempt. Exceptions are folded into the
-        error list so the retry policy sees them too.
+        ``events`` is the turn's trace (every StreamEvent except done/session,
+        as ``to_dict()`` — the exact shape the web socket forwards live), so the
+        web chat can rehydrate its collapsible "Done" activity after a refresh.
+
+        A failed turn is ``("", [error, …], events)`` — the caller decides
+        whether a backup model gets a second attempt. Exceptions are folded into
+        the error list so the retry policy sees them too.
 
         When the inbound message asks for streaming (``_wants_stream``, set
         by channels whose config enables it), every loop round's text is
@@ -223,39 +235,71 @@ class PartnerRunner:
         becomes the reply (the final outbound is then marked ``_streamed``
         so the channel doesn't send it twice).
         """
+        from deeptutor.multi_user.paths import get_admin_path_service
         from deeptutor.runtime.orchestrator import ChatOrchestrator
+        from deeptutor.services.memory import memory_path_service_override
         from deeptutor.services.model_selection.runtime import (
             activate_llm_selection,
             reset_llm_selection,
         )
 
-        context = self._build_context(msg)
-        turn_id = str(context.metadata.get("turn_id") or "")
-        send_progress = self._channel_delivery_flag(msg.channel, "send_progress", default=True)
-        send_tool_hints = self._channel_delivery_flag(msg.channel, "send_tool_hints", default=True)
-        is_im = msg.channel != "web"
-        # Streaming requires send_progress: narration rounds stream live as
-        # they happen, so with progress muted we keep buffered delivery.
-        wants_stream = is_im and send_progress and bool(msg.metadata.get("_wants_stream"))
-
         final_text = ""
         terminator_text = ""
+        turn_id = ""
         round_buffers: dict[str, list[str]] = {}
         streamed_rounds: dict[str, str] = {}  # call_id → accumulated streamed text
         ended_rounds: set[str] = set()
         errors: list[str] = []
+        turn_events: list[dict[str, Any]] = []
 
-        # Resolve the partner's LLM selection BEFORE entering the partner
-        # scope: the model catalog lives in the admin workspace. The scoped
-        # config rides the same async context into the orchestrator task.
-        _config, llm_token = activate_llm_selection(selection)
+        # Turn setup (context assembly + LLM-selection resolution) runs INSIDE
+        # the try so a setup failure folds into the error list instead of
+        # propagating as an opaque crash. The common one is a missing active
+        # LLM model: get_llm_config() raises LLMConfigError (a plain Exception,
+        # not RuntimeError), which previously escaped _execute_turn and surfaced
+        # as a bare "Internal error" on the web socket — masking the real
+        # message and skipping the backup-model retry. Folding it here keeps the
+        # actual reason ("No active LLM model is configured…") and lets
+        # _run_turn fall back to the backup selection.
+        #
+        # activate_llm_selection still runs BEFORE the partner scope is entered:
+        # the model catalog lives in the admin workspace, and the scoped config
+        # rides the same async context into the orchestrator task.
+        llm_token = None
         try:
-            with user_context(partner_user(self.partner_id, name=self.config.name)):
+            context = self._build_context(msg)
+            turn_id = str(context.metadata.get("turn_id") or "")
+            send_progress = self._channel_delivery_flag(msg.channel, "send_progress", default=True)
+            send_tool_hints = self._channel_delivery_flag(
+                msg.channel, "send_tool_hints", default=True
+            )
+            is_im = msg.channel != "web"
+            # Streaming requires send_progress: narration rounds stream live as
+            # they happen, so with progress muted we keep buffered delivery.
+            wants_stream = is_im and send_progress and bool(msg.metadata.get("_wants_stream"))
+
+            _config, llm_token = activate_llm_selection(selection)
+            # Partner scope routes rag / skills / notebooks at the partner's own
+            # workspace, but memory is the *owner's*: partners are anchored to
+            # the admin workspace, so read_memory / write_memory must see the
+            # admin's L3 (gated by the builtin-tool whitelist — an owner denies
+            # memory to an IM-facing partner). Without this, the partner scope's
+            # empty memory makes user_has_memory() False and read_memory never
+            # mounts, so the agent falls back to notebooks to "know the user".
+            with (
+                user_context(partner_user(self.partner_id, name=self.config.name)),
+                memory_path_service_override(get_admin_path_service()),
+            ):
                 orchestrator = ChatOrchestrator()
                 async for event in orchestrator.handle(context):
                     if on_event is not None:
                         await on_event(event)
                     meta = event.metadata or {}
+
+                    # Capture the trace for rehydration — mirror product chat's
+                    # persisted ``assistant_events`` (everything but done/session).
+                    if event.type not in (StreamEventType.DONE, StreamEventType.SESSION):
+                        turn_events.append(event.to_dict())
 
                     if event.type == StreamEventType.CONTENT:
                         call_id = str(meta.get("call_id") or "")
@@ -317,7 +361,7 @@ class PartnerRunner:
                 ):
                     delivery_meta["_streamed"] = True
 
-        return final_text, errors
+        return final_text, errors, turn_events
 
     # ── context assembly ──────────────────────────────────────────
 
@@ -382,6 +426,7 @@ class PartnerRunner:
             user_message=msg.content,
             conversation_history=history,
             enabled_tools=self._resolved_enabled_tools(),
+            allowed_builtin_tools=self._resolved_builtin_tools(),
             active_capability="chat",
             knowledge_bases=kb_names,
             attachments=attachments,
@@ -404,6 +449,20 @@ class PartnerRunner:
             from deeptutor.agents._shared.tool_composition import default_optional_tools
 
             return default_optional_tools()
+        return [str(name) for name in configured]
+
+    def _resolved_builtin_tools(self) -> list[str] | None:
+        """The partner's allowed built-in (auto-mounted) tools.
+
+        ``None`` in config means "no gating" — every built-in mounts under its
+        usual context condition, exactly like the product chat (partners
+        default to fully equipped). An explicit list (or ``[]``) restricts the
+        built-in surface so an owner can deny e.g. memory access to an
+        IM-facing partner. Flows to ``UnifiedContext.allowed_builtin_tools``.
+        """
+        configured = getattr(self.config, "builtin_tools", None)
+        if configured is None:
+            return None
         return [str(name) for name in configured]
 
     def _build_skills_manifest(self) -> str:

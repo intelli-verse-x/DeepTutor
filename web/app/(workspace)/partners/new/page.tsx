@@ -79,6 +79,7 @@ export default function NewPartnerPage() {
 
   const [toolOptions, setToolOptions] = useState<ToolOptions | null>(null);
   const [enabledTools, setEnabledTools] = useState<string[]>([]);
+  const [builtinTools, setBuiltinTools] = useState<string[]>([]);
   const [mcpTools, setMcpTools] = useState<string[]>([]);
   const [toolsTouched, setToolsTouched] = useState(false);
 
@@ -101,6 +102,7 @@ export default function NewPartnerPage() {
       .then((options) => {
         setToolOptions(options);
         setEnabledTools(options.tools.map((tool) => tool.name));
+        setBuiltinTools(options.builtin_tools.map((tool) => tool.name));
         setMcpTools(options.mcp_tools.map((tool) => tool.name));
       })
       .catch(() => {});
@@ -120,6 +122,8 @@ export default function NewPartnerPage() {
     setError("");
     try {
       const allTools = toolOptions?.tools.map((tool) => tool.name) ?? [];
+      const allBuiltin =
+        toolOptions?.builtin_tools.map((tool) => tool.name) ?? [];
       const allMcp = toolOptions?.mcp_tools.map((tool) => tool.name) ?? [];
       const result = await createPartner({
         name: name.trim(),
@@ -138,6 +142,11 @@ export default function NewPartnerPage() {
           : enabledTools.length === allTools.length
             ? null
             : enabledTools,
+        builtin_tools: toolsTouched
+          ? builtinTools
+          : builtinTools.length === allBuiltin.length
+            ? null
+            : builtinTools,
         mcp_tools: toolsTouched
           ? mcpTools
           : mcpTools.length === allMcp.length
@@ -392,10 +401,15 @@ export default function NewPartnerPage() {
               <ToolPicker
                 options={toolOptions}
                 enabledTools={enabledTools}
+                builtinTools={builtinTools}
                 mcpTools={mcpTools}
                 onChangeEnabledTools={(next) => {
                   setToolsTouched(true);
                   setEnabledTools(next);
+                }}
+                onChangeBuiltinTools={(next) => {
+                  setToolsTouched(true);
+                  setBuiltinTools(next);
                 }}
                 onChangeMcpTools={(next) => {
                   setToolsTouched(true);

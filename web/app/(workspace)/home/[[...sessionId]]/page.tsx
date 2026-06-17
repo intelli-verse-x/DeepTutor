@@ -96,6 +96,7 @@ import {
   type OutlineItem,
 } from "@/lib/research-types";
 import { listKnowledgeBases } from "@/lib/knowledge-api";
+import { getSubagentSettings } from "@/lib/subagents-api";
 import { listLLMOptions, type LLMOption } from "@/lib/llm-options";
 import {
   getEnabledOptionalTools,
@@ -281,6 +282,12 @@ const CAPABILITIES: CapabilityDef[] = [
 interface KnowledgeBase {
   name: string;
   is_default?: boolean;
+  metadata?: {
+    /** Connected-source kind, e.g. "obsidian" | "subagent". */
+    type?: string;
+    /** Backend of a connected subagent: "claude_code" | "codex". */
+    agent_kind?: string;
+  };
 }
 
 interface PendingAttachment {
@@ -1372,6 +1379,11 @@ export default function ChatPage() {
         if (!researchValidation.valid) return;
         config = buildResearchWSConfig(researchConfig);
       }
+      // When a connected agent is selected, carry the per-turn consult budget
+      // (how many times DeepTutor may ask it) so the subagent capability uses it.
+      if (selectedAgent && subagentBudget) {
+        config = { ...(config ?? {}), subagent_consult_budget: subagentBudget };
+      }
 
       const memoryPayload = [...memoryReferencesPayload];
       const messageContent =
@@ -1497,6 +1509,57 @@ export default function ChatPage() {
     },
     [setKBs, state.knowledgeBases],
   );
+
+  // Connected subagents are stored as ``type: subagent`` KBs (so selection
+  // rides the same knowledge_bases path), but in the composer they get their
+  // own single-select Bot chip — distinct from real knowledge bases.
+  const agentNameSet = useMemo(
+    () =>
+      new Set(
+        knowledgeBases
+          .filter((kb) => kb.metadata?.type === "subagent")
+          .map((kb) => kb.name),
+      ),
+    [knowledgeBases],
+  );
+  const kbOptions = useMemo(
+    () => knowledgeBases.filter((kb) => kb.metadata?.type !== "subagent"),
+    [knowledgeBases],
+  );
+  const agentOptions = useMemo(
+    () =>
+      knowledgeBases
+        .filter((kb) => kb.metadata?.type === "subagent")
+        .map((kb) => ({ name: kb.name, kind: kb.metadata?.agent_kind })),
+    [knowledgeBases],
+  );
+  const selectedKbOnly = useMemo(
+    () => state.knowledgeBases.filter((n) => !agentNameSet.has(n)),
+    [state.knowledgeBases, agentNameSet],
+  );
+  const selectedAgent = useMemo(
+    () => state.knowledgeBases.find((n) => agentNameSet.has(n)) ?? null,
+    [state.knowledgeBases, agentNameSet],
+  );
+  const handleSelectAgent = useCallback(
+    (name: string | null) => {
+      // Single-select: clear any selected agent, then set the new one (if any).
+      const withoutAgents = state.knowledgeBases.filter(
+        (n) => !agentNameSet.has(n),
+      );
+      setKBs(name ? [...withoutAgents, name] : withoutAgents);
+    },
+    [setKBs, state.knowledgeBases, agentNameSet],
+  );
+  // How many times DeepTutor may consult the selected agent this turn. Seeded
+  // from the configured default; the composer's stepper overrides it per turn
+  // (sent in the request config, read by the subagent capability).
+  const [subagentBudget, setSubagentBudget] = useState<number | null>(null);
+  useEffect(() => {
+    void getSubagentSettings()
+      .then((s) => setSubagentBudget(s.consult_budget))
+      .catch(() => undefined);
+  }, []);
   const handleSelectNotebookPicker = useCallback(() => {
     setShowNotebookPicker(true);
   }, []);
@@ -1626,6 +1689,10 @@ export default function ChatPage() {
       <GeogebraTabProvider>
         <QuizFollowupBridge viewerPanelRef={viewerPanelRef} />
         <GeogebraTabBridge viewerPanelRef={viewerPanelRef} />
+        <SubagentTabWatcher
+          messages={state.messages}
+          viewerPanelRef={viewerPanelRef}
+        />
         <div
           // When the preview drawer is open AND the viewport is wide enough,
           // push the chat content to the left by the drawer's width so the two
@@ -1782,7 +1849,12 @@ export default function ChatPage() {
               attachments={attachments}
               attachmentError={attachmentError}
               activeCap={activeCap}
-              knowledgeBases={knowledgeBases}
+              knowledgeBases={kbOptions}
+              connectedAgents={agentOptions}
+              selectedAgent={selectedAgent}
+              onSelectAgent={handleSelectAgent}
+              subagentBudget={subagentBudget}
+              onSubagentBudgetChange={setSubagentBudget}
               llmOptions={llmOptions}
               activeLLMDefault={activeLLMDefault}
               llmSelection={state.llmSelection}
@@ -1796,7 +1868,7 @@ export default function ChatPage() {
               notebookReferenceGroups={notebookReferenceGroups}
               selectedPersona={null}
               selectedMemoryFiles={selectedMemoryFiles}
-              selectedKnowledgeBases={state.knowledgeBases}
+              selectedKnowledgeBases={selectedKbOnly}
               isStreaming={state.isStreaming}
               isVisualizeMode={isVisualizeMode}
               capabilityNeedsConfig={capabilityNeedsConfig}
@@ -1944,6 +2016,50 @@ function GeogebraTabBridge({
     });
     return () => controller.setOpenHandler(null);
   }, [controller, viewerPanelRef]);
+  return null;
+}
+
+/**
+ * Watches the turn's messages for connected-subagent runs and mirrors each
+ * (grouped by the consult's call id) into its own side-viewer tab — opening +
+ * focusing the panel when a consult starts, then live-refreshing as the
+ * agent's native events stream in. Keeps the chat trace compact while the full
+ * run shows in the sidebar.
+ */
+function SubagentTabWatcher({
+  messages,
+  viewerPanelRef,
+}: {
+  messages: { events?: StreamEvent[] }[];
+  viewerPanelRef: React.MutableRefObject<SessionViewerPanelHandle | null>;
+}) {
+  useEffect(() => {
+    // Group by turn so all of one turn's consults (DeepTutor may ask the agent
+    // several questions in a row, each its own tool call) land in one tab as a
+    // single running dialogue; fall back to the call id when no turn is set.
+    const groups = new Map<string, { label: string; events: StreamEvent[] }>();
+    for (const msg of messages) {
+      for (const ev of msg.events ?? []) {
+        const meta = (ev.metadata ?? {}) as Record<string, unknown>;
+        if (meta.trace_kind !== "subagent_event") continue;
+        const key = String(meta.turn_id || meta.call_id || meta.trace_id || "");
+        if (!key) continue;
+        const existing = groups.get(key);
+        const label = String(
+          meta.subagent_name || existing?.label || "Subagent",
+        );
+        if (existing) {
+          existing.label = label;
+          existing.events.push(ev);
+        } else {
+          groups.set(key, { label, events: [ev] });
+        }
+      }
+    }
+    for (const [key, group] of groups) {
+      viewerPanelRef.current?.openSubagentTab(key, group.label, group.events);
+    }
+  }, [messages, viewerPanelRef]);
   return null;
 }
 

@@ -273,6 +273,91 @@ def test_clawhub_verify_states() -> None:
     assert offline.verify("demo").status == "unknown"
 
 
+# ── ClawHubProvider: in-app browser (catalog / detail / web origin) ────────
+
+
+def _browse_client() -> httpx.Client:
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/v1/skills":
+            return httpx.Response(
+                200,
+                json={
+                    "skills": [
+                        {
+                            "slug": "socratic-tutor",
+                            "displayName": "Socratic Tutor",
+                            "summary": "Teach by asking.",
+                            "version": "1.0.0",
+                            "stats": {"downloads": 8, "stars": 2},
+                            "ownerHandle": "deeptutor",
+                            "owner": {
+                                "displayName": "DeepTutor",
+                                "htmlUrl": "https://deeptutor.info",
+                            },
+                        },
+                        {"slug": "", "displayName": "blank"},  # dropped: no slug
+                    ]
+                },
+            )
+        if path == "/api/v1/search":
+            return httpx.Response(
+                200,
+                json={"results": [{"slug": "socratic-tutor", "displayName": "Socratic Tutor"}]},
+            )
+        if path == "/api/v1/skills/socratic-tutor":
+            return httpx.Response(
+                200,
+                json={
+                    "skill": {
+                        "slug": "socratic-tutor",
+                        "displayName": "Socratic Tutor",
+                        "summary": "Teach.",
+                        "description": "---\nname: socratic-tutor\n---\n\n# Body\n",
+                        # EduHub stores dist-tags under `tags`; topical labels
+                        # live in `keywords`.
+                        "tags": {"latest": "1.0.0"},
+                        "keywords": ["tutor", "socratic"],
+                        "stats": {"downloads": 8, "stars": 2},
+                    },
+                    "owner": {"displayName": "DeepTutor", "htmlUrl": "https://deeptutor.info"},
+                    "distTags": {"latest": "1.0.0"},
+                },
+            )
+        return httpx.Response(404, text="nope")
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_clawhub_catalog_normalises_rows() -> None:
+    rows = ClawHubProvider(client=_browse_client()).catalog()
+    assert len(rows) == 1  # the blank-slug row is dropped
+    row = rows[0]
+    assert (row["slug"], row["name"]) == ("socratic-tutor", "Socratic Tutor")
+    assert (row["downloads"], row["stars"]) == (8, 2)
+    assert row["owner"] == "DeepTutor"
+    assert row["owner_url"] == "https://deeptutor.info"
+
+
+def test_clawhub_catalog_uses_search_when_queried() -> None:
+    rows = ClawHubProvider(client=_browse_client()).catalog(query="socratic")
+    assert rows and rows[0]["slug"] == "socratic-tutor"
+
+
+def test_clawhub_detail_includes_body_version_and_tags() -> None:
+    detail = ClawHubProvider(client=_browse_client()).detail("socratic-tutor")
+    assert detail["version"] == "1.0.0"  # resolved from distTags
+    # topical labels come from `keywords`, not EduHub's dist-tags `tags` map
+    assert detail["tags"] == ["tutor", "socratic"]
+    assert "# Body" in detail["content"]
+    assert detail["owner"] == "DeepTutor"  # lifted from the envelope top level
+
+
+def test_clawhub_web_origin_strips_api_suffix() -> None:
+    provider = ClawHubProvider("eduhub", base_url="https://eduhub.deeptutor.info/api/v1")
+    assert provider.web_origin == "https://eduhub.deeptutor.info"
+
+
 # ── orchestration ────────────────────────────────────────────────────────
 
 
@@ -344,6 +429,17 @@ def test_install_from_hub_uses_registry_summary_as_fallback(
     provider = _FakeProvider(pkg, HubVerdict(status="ok"))
     outcome = install_from_hub("fakehub:demo", service=svc, provider=provider)
     assert outcome.result.info.description == "registry summary"
+
+
+def test_install_from_hub_stamps_source_hub_as_tag(tmp_path: Path, svc: SkillService) -> None:
+    pkg = _make_package(tmp_path / "pkg", frontmatter="name: demo\ndescription: d\ntags: [tutor]\n")
+    provider = _FakeProvider(pkg, HubVerdict(status="ok"))
+    outcome = install_from_hub("fakehub:demo", service=svc, provider=provider)
+    # the source hub rides along as a tag, alongside the package's own tags
+    assert "fakehub" in outcome.result.info.tags
+    assert "tutor" in outcome.result.info.tags
+    meta, _ = svc._parse_frontmatter(svc.get_detail("demo").content)
+    assert "fakehub" in meta["tags"]
 
 
 # ── CommandProvider ──────────────────────────────────────────────────────

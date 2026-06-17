@@ -632,6 +632,7 @@ class SkillService:
         fallback_description: str | None = None,
         origin: dict[str, Any] | None = None,
         force: bool = False,
+        extra_tags: list[str] | None = None,
     ) -> SkillInstallResult:
         """Import an extracted skill package directory into the user layer.
 
@@ -647,6 +648,8 @@ class SkillService:
           symlinks abort the import (see :meth:`_copy_support_tree`);
         * the tree is staged and swapped in atomically, so a failed import
           never leaves a half-written skill;
+        * ``extra_tags`` are merged into the package's own tags (the hub
+          installer stamps the source hub, e.g. ``eduhub``, this way);
         * ``origin`` (hub provenance) is recorded in ``.hub-lock.json``.
         """
         source = Path(source_dir).resolve()
@@ -665,7 +668,8 @@ class SkillService:
         if not description:
             raise SkillImportError("SKILL.md has no description and no fallback was provided.")
         tags = self._validate_tag_list(
-            meta.get("tags") if isinstance(meta.get("tags"), list) else None
+            (meta.get("tags") if isinstance(meta.get("tags"), list) else [])
+            + list(extra_tags or [])
         )
 
         target_dir = self._skill_dir(slug)

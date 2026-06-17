@@ -123,6 +123,7 @@ class CreatePartnerRequest(BaseModel):
     color: str | None = None
     avatar: str | None = None
     enabled_tools: list[str] | None = None
+    builtin_tools: list[str] | None = None
     mcp_tools: list[str] | None = None
     assets: AssetSpec | None = None
     start: bool = True
@@ -139,6 +140,7 @@ class UpdatePartnerRequest(BaseModel):
     color: str | None = None
     avatar: str | None = None
     enabled_tools: list[str] | None = None
+    builtin_tools: list[str] | None = None
     mcp_tools: list[str] | None = None
 
 
@@ -163,9 +165,19 @@ class ChatMessageRequest(BaseModel):
 
     content: str = ""
     session_id: str | None = None
+    session_key: str | None = None
     chat_id: str | None = None
     attachments: list[ChatAttachmentRequest] = Field(default_factory=list)
     llm_selection: dict[str, str] | None = Field(default=None, alias="llmSelection")
+
+
+class SessionKeyBody(BaseModel):
+    session_key: str = Field(..., min_length=1)
+
+
+class SessionBranchBody(BaseModel):
+    source_key: str = Field(..., min_length=1)
+    new_key: str = Field(..., min_length=1)
 
 
 class SoulCreateRequest(BaseModel):
@@ -407,8 +419,10 @@ async def tool_options():
     """The configurable tool surface for a partner.
 
     ``tools`` mirrors the user-toggleable system tools (the same pool the
-    chat composer / settings expose); ``mcp_tools`` lists every configured
-    MCP tool the partner could be allowed to load.
+    chat composer / settings expose); ``builtin_tools`` lists the auto-mounted
+    built-in tools (rag / read_memory / web_fetch / …) the owner can allow or
+    deny; ``mcp_tools`` lists every configured MCP tool the partner could be
+    allowed to load.
     """
     from deeptutor.api.utils.tool_options import build_tool_options
 
@@ -446,6 +460,7 @@ async def create_partner(payload: CreatePartnerRequest):
         avatar=_validate_avatar_payload(payload.avatar),
         soul_origin=soul_origin,
         enabled_tools=payload.enabled_tools,
+        builtin_tools=payload.builtin_tools,
         mcp_tools=payload.mcp_tools,
     )
     mgr.save_config(partner_id, config, auto_start=bool(payload.start))
@@ -499,6 +514,7 @@ def _stopped_partner_dict(
         "avatar": cfg.avatar,
         "soul_origin": cfg.soul_origin,
         "enabled_tools": cfg.enabled_tools,
+        "builtin_tools": cfg.builtin_tools,
         "mcp_tools": cfg.mcp_tools,
         "running": False,
         "started_at": None,
@@ -552,6 +568,8 @@ def _apply_update(cfg: PartnerConfig, payload: UpdatePartnerRequest) -> None:
         cfg.backup_llm_selection = _validate_llm_selection_payload(payload.backup_llm_selection)
     if "enabled_tools" in payload.model_fields_set:
         cfg.enabled_tools = payload.enabled_tools
+    if "builtin_tools" in payload.model_fields_set:
+        cfg.builtin_tools = payload.builtin_tools
     if "mcp_tools" in payload.model_fields_set:
         cfg.mcp_tools = payload.mcp_tools
 
@@ -593,6 +611,10 @@ async def update_partner(partner_id: str, payload: UpdatePartnerRequest):
 @router.post("/{partner_id}/start")
 async def start_partner(partner_id: str):
     instance = await _ensure_running_partner(partner_id, allow_stopped=True)
+    # An explicit start is a persisted "run on boot" intent — so the partner
+    # comes back in this state after a DeepTutor restart (a manual /stop clears
+    # it; a lazy chat-driven start does NOT reach here, so it can't flip it).
+    get_partner_manager().save_config(partner_id, instance.config, auto_start=True)
     return instance.to_dict(mask_secrets=True)
 
 
@@ -694,9 +716,16 @@ async def delete_partner_asset(partner_id: str, asset_type: str, name: str):
 async def get_partner_history(
     partner_id: str,
     session_key: str | None = None,
+    session_id: str | None = None,
     limit: int = 100,
 ):
-    return get_partner_manager().get_history(partner_id, session_key=session_key, limit=limit)
+    """Conversation history. Pass ``session_key`` for an exact key, or
+    ``session_id`` for a web session (mapped through ``web_session_key``);
+    with neither, all non-archived sessions are merged."""
+    mgr = get_partner_manager()
+    if session_id and not session_key:
+        session_key = mgr.web_session_key(partner_id, session_id=session_id)
+    return mgr.get_history(partner_id, session_key=session_key, limit=limit)
 
 
 @router.get("/{partner_id}/sessions")
@@ -705,6 +734,51 @@ async def get_partner_sessions(partner_id: str):
     if not mgr.partner_exists(partner_id):
         raise HTTPException(status_code=404, detail=t("api.partner_not_found"))
     return mgr.session_store(partner_id).list_sessions()
+
+
+@router.post("/{partner_id}/sessions/archive")
+async def archive_partner_session(partner_id: str, payload: SessionKeyBody):
+    """Soft-archive a session (web /new) — it stays resumable, file untouched."""
+    mgr = get_partner_manager()
+    if not mgr.partner_exists(partner_id):
+        raise HTTPException(status_code=404, detail=t("api.partner_not_found"))
+    mgr.archive_session(partner_id, payload.session_key)
+    return {"partner_id": partner_id, "archived": True, "session_key": payload.session_key}
+
+
+@router.post("/{partner_id}/sessions/resume")
+async def resume_partner_session(partner_id: str, payload: SessionKeyBody):
+    """Clear a session's archived flag so the web app can continue it."""
+    mgr = get_partner_manager()
+    if not mgr.partner_exists(partner_id):
+        raise HTTPException(status_code=404, detail=t("api.partner_not_found"))
+    summary = mgr.resume_session(partner_id, payload.session_key)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"partner_id": partner_id, "resumed": True, "session": summary}
+
+
+@router.post("/{partner_id}/sessions/delete")
+async def delete_partner_session(partner_id: str, payload: SessionKeyBody):
+    mgr = get_partner_manager()
+    if not mgr.partner_exists(partner_id):
+        raise HTTPException(status_code=404, detail=t("api.partner_not_found"))
+    removed = mgr.delete_session(partner_id, payload.session_key)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"partner_id": partner_id, "deleted": True, "session_key": payload.session_key}
+
+
+@router.post("/{partner_id}/sessions/branch")
+async def branch_partner_session(partner_id: str, payload: SessionBranchBody):
+    """Copy a session's full history into a new key and archive the source."""
+    mgr = get_partner_manager()
+    if not mgr.partner_exists(partner_id):
+        raise HTTPException(status_code=404, detail=t("api.partner_not_found"))
+    summary = mgr.branch_session(partner_id, payload.source_key, payload.new_key)
+    if summary is None:
+        raise HTTPException(status_code=400, detail="Nothing to branch (source is empty)")
+    return {"partner_id": partner_id, "branched": True, "session": summary}
 
 
 @router.get("/commands/palette")
@@ -808,6 +882,7 @@ async def partner_chat_http(partner_id: str, payload: ChatMessageRequest) -> dic
             chat_id=chat_id,
             session_id=session_id,
             media=media_paths,
+            session_key=payload.session_key,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -850,6 +925,7 @@ async def _partner_chat_stream(
                 session_id=session_id,
                 media=media_paths,
                 on_event=on_event,
+                session_key=payload.session_key,
             )
         except Exception as exc:  # noqa: BLE001
             holder["error"] = str(exc)
@@ -935,6 +1011,36 @@ async def partner_chat_ws(ws: WebSocket, partner_id: str):
 
     logger.info("WebSocket connected for partner '%s'", partner_id)
 
+    # Web turns run on the partner instance (see LiveTurn), NOT tied to this
+    # socket — so a refresh reattaches and replays instead of killing the turn.
+    # The socket just drains a subscriber queue; the receive loop stays free to
+    # process stop / attach frames concurrently.
+    drain: dict[str, asyncio.Task | None] = {"task": None}
+
+    async def _drain(queue: asyncio.Queue) -> None:
+        while True:
+            frame = await queue.get()
+            if not await _safe_send(frame):
+                return
+            if frame.get("type") in {"done", "stopped"}:
+                return
+
+    def _start_drain(queue: asyncio.Queue) -> None:
+        prev = drain["task"]
+        if prev is not None and not prev.done():
+            prev.cancel()
+        drain["task"] = asyncio.create_task(_drain(queue))
+
+    def _resolve_key(data: dict[str, Any]) -> str:
+        return str(
+            data.get("session_key")
+            or mgr.web_session_key(
+                partner_id,
+                chat_id=data.get("chat_id", "web"),
+                session_id=data.get("session_id"),
+            )
+        )
+
     async def _handle_user_messages():
         while not disconnected.is_set():
             try:
@@ -947,6 +1053,21 @@ async def partner_chat_ws(ws: WebSocket, partner_id: str):
             except json.JSONDecodeError:
                 if not await _safe_send({"type": "error", "content": "Invalid JSON"}):
                     break
+                continue
+
+            action = data.get("action")
+            if action == "stop":
+                mgr.stop_web_turn(partner_id, _resolve_key(data))
+                continue
+            if action == "attach":
+                # Reconnect (a page refresh) — replay an in-flight turn so the
+                # streaming answer the user was watching survives the reload.
+                turn = mgr.subscribe_web_turn(partner_id, _resolve_key(data))
+                if turn is not None:
+                    await _safe_send({"type": "resuming"})
+                    if turn.user_content:
+                        await _safe_send({"type": "user_echo", "content": turn.user_content})
+                    _start_drain(turn.subscribe())
                 continue
 
             content = data.get("content", "").strip()
@@ -972,38 +1093,13 @@ async def partner_chat_ws(ws: WebSocket, partner_id: str):
             if not content and media_paths:
                 content = _default_attachment_prompt(attachments)
 
-            async def on_event(event: Any) -> None:
-                # Best-effort: never raise into the runner. A vanished
-                # client just stops receiving frames; the turn finishes
-                # server-side and lands in the session store.
-                try:
-                    await _safe_send({"type": "stream_event", "event": event.to_dict()})
-                except Exception:
-                    pass
-
             try:
-                response = await mgr.send_message(
-                    partner_id,
-                    content,
-                    chat_id=data.get("chat_id", "web"),
-                    session_id=data.get("session_id"),
-                    media=media_paths,
-                    on_event=on_event,
-                )
-                if not await _safe_send({"type": "content", "content": response}):
-                    break
-                if not await _safe_send({"type": "done"}):
-                    break
+                turn = mgr.start_web_turn(partner_id, _resolve_key(data), content, media_paths)
             except RuntimeError as exc:
                 if not await _safe_send({"type": "error", "content": str(exc)}):
                     break
-            except WebSocketDisconnect:
-                disconnected.set()
-                break
-            except Exception:
-                logger.exception("Error processing message for partner '%s'", partner_id)
-                if not await _safe_send({"type": "error", "content": "Internal error"}):
-                    break
+                continue
+            _start_drain(turn.subscribe())
 
     async def _handle_notifications():
         while not disconnected.is_set():
@@ -1043,6 +1139,11 @@ async def partner_chat_ws(ws: WebSocket, partner_id: str):
         user_task.cancel()
         notify_task.cancel()
     finally:
+        # Detach from the stream only — the turn keeps running on the instance
+        # so a reconnecting client can reattach and replay it.
+        d = drain["task"]
+        if d is not None and not d.done():
+            d.cancel()
         if user_token is not None:
             try:
                 reset_current_user(user_token)

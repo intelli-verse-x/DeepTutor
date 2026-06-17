@@ -20,7 +20,7 @@ export default function KnowledgePage() {
   const initialEngine = searchParams.get("engine");
 
   const {
-    kbs,
+    kbs: allKbs,
     providers,
     uploadPolicy,
     loading,
@@ -39,6 +39,14 @@ export default function KnowledgePage() {
     connectObsidian,
     connectLinkedFolder,
   } = useKnowledgeBases();
+
+  // Connected subagents are stored as ``type: subagent`` KBs so the chat
+  // composer can select them, but they are agents, not knowledge bases — keep
+  // them out of the Knowledge Center entirely.
+  const kbs = useMemo(
+    () => allKbs.filter((kb) => kb.metadata?.type !== "subagent"),
+    [allKbs],
+  );
 
   const [explicitSelection, setExplicitSelection] = useState<string | null>(
     initialKb,

@@ -48,14 +48,18 @@ function ToggleRow({
 export default function ToolPicker({
   options,
   enabledTools,
+  builtinTools,
   mcpTools,
   onChangeEnabledTools,
+  onChangeBuiltinTools,
   onChangeMcpTools,
 }: {
   options: ToolOptions | null;
   enabledTools: string[];
+  builtinTools: string[];
   mcpTools: string[];
   onChangeEnabledTools: (next: string[]) => void;
+  onChangeBuiltinTools: (next: string[]) => void;
   onChangeMcpTools: (next: string[]) => void;
 }) {
   const { t } = useTranslation();
@@ -123,6 +127,54 @@ export default function ToolPicker({
           ))}
         </div>
       </div>
+
+      {options.builtin_tools.length > 0 && (
+        <div>
+          <div className="mb-1.5 flex items-baseline justify-between">
+            <h4 className="text-[13px] font-medium text-[var(--muted-foreground)]">
+              {t("Built-in tools")}
+            </h4>
+            <div className="flex gap-2 text-[12px]">
+              <button
+                type="button"
+                className="text-[var(--primary)] hover:underline"
+                onClick={() =>
+                  onChangeBuiltinTools(
+                    options.builtin_tools.map((tl) => tl.name),
+                  )
+                }
+              >
+                {t("All")}
+              </button>
+              <button
+                type="button"
+                className="text-[var(--muted-foreground)] hover:underline"
+                onClick={() => onChangeBuiltinTools([])}
+              >
+                {t("None")}
+              </button>
+            </div>
+          </div>
+          <p className="mb-1.5 px-2 text-[11.5px] text-[var(--muted-foreground)]">
+            {t(
+              "Mounted automatically when the context calls for it — a knowledge base attached, memory available, the sandbox enabled. Deny any you don't want this partner to have.",
+            )}
+          </p>
+          <div className="grid grid-cols-1 gap-0.5 sm:grid-cols-2">
+            {options.builtin_tools.map((tool) => (
+              <ToggleRow
+                key={tool.name}
+                name={tool.name}
+                description={tool.description}
+                checked={builtinTools.includes(tool.name)}
+                onToggle={() =>
+                  toggle(builtinTools, tool.name, onChangeBuiltinTools)
+                }
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {options.mcp_tools.length > 0 && (
         <div>

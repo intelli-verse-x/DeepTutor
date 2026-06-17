@@ -107,6 +107,7 @@ export default function PartnerConfigure({
   // Tools
   const [toolOptions, setToolOptions] = useState<ToolOptions | null>(null);
   const [enabledTools, setEnabledTools] = useState<string[]>([]);
+  const [builtinTools, setBuiltinTools] = useState<string[]>([]);
   const [mcpTools, setMcpTools] = useState<string[]>([]);
   const [savingTools, setSavingTools] = useState(false);
 
@@ -147,6 +148,10 @@ export default function PartnerConfigure({
         setToolOptions(options);
         setEnabledTools(
           partner.enabled_tools ?? options.tools.map((tool) => tool.name),
+        );
+        setBuiltinTools(
+          partner.builtin_tools ??
+            options.builtin_tools.map((tool) => tool.name),
         );
         setMcpTools(
           partner.mcp_tools ?? options.mcp_tools.map((tool) => tool.name),
@@ -215,6 +220,7 @@ export default function PartnerConfigure({
     try {
       await updatePartner(partnerId, {
         enabled_tools: enabledTools,
+        builtin_tools: builtinTools,
         mcp_tools: mcpTools,
       });
       onToast(t("Tools updated — applies from the next message"));
@@ -439,8 +445,10 @@ export default function PartnerConfigure({
         <ToolPicker
           options={toolOptions}
           enabledTools={enabledTools}
+          builtinTools={builtinTools}
           mcpTools={mcpTools}
           onChangeEnabledTools={setEnabledTools}
+          onChangeBuiltinTools={setBuiltinTools}
           onChangeMcpTools={setMcpTools}
         />
       </Section>

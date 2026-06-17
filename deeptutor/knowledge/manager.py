@@ -20,6 +20,7 @@ from typing import Any
 from deeptutor.knowledge.kb_types import (
     LINKED_KB_TYPE,
     OBSIDIAN_KB_TYPE,
+    SUBAGENT_KB_TYPE,
     external_root_of,
     is_connected_kb,
 )
@@ -781,6 +782,55 @@ class KnowledgeBaseManager:
         self._save_config()
         return entry
 
+    def register_subagent_connection(
+        self,
+        name: str,
+        agent_kind: str,
+        *,
+        cwd: str = "",
+        description: str = "",
+    ) -> dict:
+        """Register a connected subagent (local Claude Code / Codex) as a KB.
+
+        Like the other connected types this creates no folder and runs no index:
+        it records a ``type: subagent`` pointer naming the backend (``agent_kind``)
+        and an optional working directory (``cwd``). The subagent capability
+        drives the live CLI; there is nothing on disk to retrieve or reconcile.
+        Raises ``ValueError`` on a missing name/kind or a name clash.
+        """
+        name = (name or "").strip()
+        agent_kind = (agent_kind or "").strip()
+        if not name:
+            raise ValueError("Connection name is required.")
+        if not agent_kind:
+            raise ValueError("agent_kind is required.")
+        resolved_cwd = ""
+        if cwd:
+            folder = Path(cwd).expanduser()
+            if not folder.is_dir():
+                raise ValueError(f"Working directory is not a directory: {cwd}")
+            resolved_cwd = str(folder.resolve())
+
+        self.config = self._load_config()
+        knowledge_bases = self.config.setdefault("knowledge_bases", {})
+        if name in knowledge_bases:
+            raise ValueError(f"A knowledge base named '{name}' already exists.")
+
+        now = datetime.now().isoformat()
+        entry = {
+            "path": name,
+            "type": SUBAGENT_KB_TYPE,
+            "agent_kind": agent_kind,
+            "cwd": resolved_cwd,
+            "description": description or f"Connected subagent: {name}",
+            "status": "ready",
+            "created_at": now,
+            "updated_at": now,
+        }
+        knowledge_bases[name] = entry
+        self._save_config()
+        return entry
+
     def get_knowledge_base_path(self, name: str | None = None) -> Path:
         """Get path to a knowledge base.
 
@@ -923,6 +973,9 @@ class KnowledgeBaseManager:
                 "type": kb_config.get("type"),
                 "vault_path": kb_config.get("vault_path"),
                 "external_path": kb_config.get("external_path"),
+                # Subagent connection fields (None for non-subagent KBs).
+                "agent_kind": kb_config.get("agent_kind"),
+                "cwd": kb_config.get("cwd"),
             }
             metadata.update(self._embedding_fields(kb_config))
             # Remove None values
@@ -1045,6 +1098,8 @@ class KnowledgeBaseManager:
             metadata["vault_path"] = kb_config.get("vault_path")
         if kb_config.get("external_path"):
             metadata["external_path"] = kb_config.get("external_path")
+        if kb_config.get("agent_kind"):
+            metadata["agent_kind"] = kb_config.get("agent_kind")
 
         metadata.update(self._embedding_fields(kb_config))
 
@@ -1160,10 +1215,12 @@ class KnowledgeBaseManager:
         kb_dir = self.base_dir / name
         dir_exists = kb_dir.exists()
 
-        # Connected KBs (Obsidian vaults, linked indexes) point at the user's
-        # own external files. Deleting one must only drop our pointer entry —
-        # never touch the folder it references.
-        if is_connected_kb(config_kbs.get(name, {})):
+        # Connected KBs (Obsidian vaults, linked indexes, subagent pointers)
+        # reference the user's own external resource — or, for subagents, no
+        # folder at all. Deleting one must only drop our pointer entry; never
+        # touch what it references, and don't warn about the "missing" folder.
+        connected = is_connected_kb(config_kbs.get(name, {}))
+        if connected:
             dir_exists = False
 
         if not confirm:
@@ -1198,7 +1255,7 @@ class KnowledgeBaseManager:
                     )
 
             shutil.rmtree(kb_dir, onerror=_on_rmtree_error)
-        else:
+        elif not connected:
             logger.warning(
                 f"KB directory '{kb_dir}' missing on disk; cleaning up orphaned config entry."
             )
