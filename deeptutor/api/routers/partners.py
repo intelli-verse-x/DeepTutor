@@ -912,6 +912,7 @@ async def partner_chat_ws(ws: WebSocket, partner_id: str):
     if user_token is ws_auth_failed:
         return
 
+    mgr = get_partner_manager()
     disconnected = asyncio.Event()
 
     async def _safe_send(payload: dict) -> bool:

@@ -261,6 +261,19 @@ def _stub_build(monkeypatch) -> list[dict]:
         (out / "entities.parquet").write_bytes(b"")
 
     monkeypatch.setattr(engine, "build", fake_build)
+
+    # initialize() -> write_settings() resolves the active chat + embedding
+    # models from the catalog; CI has none configured, so pin fakes here so the
+    # settings.yaml write succeeds. The build_settings <-> catalog bridge itself
+    # is covered by the test_build_settings_* tests above.
+    monkeypatch.setattr(
+        "deeptutor.services.config.resolve_llm_runtime_config",
+        lambda: _Cfg("gpt-4o-mini", "https://llm.test/v1", "sk-llm"),
+    )
+    monkeypatch.setattr(
+        "deeptutor.services.embedding.get_embedding_config",
+        lambda: _Cfg("emb-model", "https://emb.test/v1", "sk-emb"),
+    )
     return calls
 
 

@@ -222,10 +222,15 @@ class TestHistory:
 
 class TestChatAttachments:
     def test_chat_does_not_auto_start_stopped_partner(self, client):
-        assert _create(client, start=True).status_code == 200
-        assert client.post("/api/v1/partners/ada/stop").status_code == 200
+        # ``start=True`` spawns a real PartnerRunner task; drive every request
+        # through one shared event loop (context-managed TestClient) so the
+        # runner started by create can be cancelled by stop — otherwise each
+        # request runs on its own loop and the cancel raises a cross-loop error.
+        with client:
+            assert _create(client, start=True).status_code == 200
+            assert client.post("/api/v1/partners/ada/stop").status_code == 200
 
-        res = client.post("/api/v1/partners/ada/chat", json={"content": "hello"})
+            res = client.post("/api/v1/partners/ada/chat", json={"content": "hello"})
 
         assert res.status_code == 409
         from deeptutor.core.i18n import t

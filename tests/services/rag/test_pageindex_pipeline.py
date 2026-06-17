@@ -147,7 +147,14 @@ def test_delete_drops_cloud_docs_and_local_dir(tmp_path) -> None:
     assert not (tmp_path / "kb").exists()
 
 
-def test_factory_dispatches_by_provider(tmp_path) -> None:
+def test_factory_dispatches_by_provider(tmp_path, monkeypatch) -> None:
+    # Constructing a real LlamaIndexPipeline resolves the active embedding model
+    # from the catalog; CI has none, so stub the settings hook (the same way the
+    # llamaindex pipeline tests do) — this test only asserts factory routing.
+    from deeptutor.services.rag.pipelines.llamaindex.pipeline import LlamaIndexPipeline
+
+    monkeypatch.setattr(LlamaIndexPipeline, "_configure_settings", lambda self: None)
+
     assert (
         type(get_pipeline("pageindex", kb_base_dir=str(tmp_path))).__name__ == "PageIndexPipeline"
     )
