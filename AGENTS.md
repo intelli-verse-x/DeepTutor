@@ -59,7 +59,6 @@ Multi-stage pipelines that own the turn:
 | ---------------- | ----------------------------------------------------- |
 | `chat`           | exploring → responding (single agentic loop, default) |
 | `mastery_path`   | responding (Guided Learning — chat loop + mastery tools, gated per topic type) |
-| `auto`           | analyzing → delegating → synthesizing (routes to another capability) |
 | `deep_solve`     | planning → reasoning → writing                        |
 | `deep_question`  | ideation → generation                                 |
 | `deep_research`  | rephrasing → decomposing → researching → reporting    |
@@ -81,7 +80,7 @@ pip install deeptutor-cli  # CLI-only
 # Run any capability
 deeptutor run chat "Explain Fourier transform"
 deeptutor run deep_solve "Solve x^2=4" -t rag --kb my-kb
-deeptutor run auto "Animate sine wave"   # picks the right capability
+deeptutor run visualize "Animate sine wave" --config render_mode=manim_video
 
 # Interactive REPL
 deeptutor chat

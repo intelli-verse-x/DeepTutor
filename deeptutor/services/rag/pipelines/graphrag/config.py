@@ -133,6 +133,7 @@ def build_settings(*, llm_cfg: Any = None, embedding_cfg: Any = None) -> dict[st
 
     chat_model = getattr(llm_cfg, "model", None)
     embed_model = getattr(embedding_cfg, "model", None)
+    embed_dim = int(getattr(embedding_cfg, "dim", 0) or 0)
     if not chat_model:
         raise GraphRagNotConfiguredError(
             "No active chat model. Configure one under Settings → Catalog before "
@@ -142,6 +143,11 @@ def build_settings(*, llm_cfg: Any = None, embedding_cfg: Any = None) -> dict[st
         raise GraphRagNotConfiguredError(
             "No active embedding model. Configure one under Settings → Catalog "
             "before creating a GraphRAG knowledge base."
+        )
+    if not embed_dim:
+        raise GraphRagNotConfiguredError(
+            "No active embedding model with a known dimension. Configure one under "
+            "Settings → Catalog before creating a GraphRAG knowledge base."
         )
 
     llm_base = getattr(llm_cfg, "effective_url", None) or getattr(llm_cfg, "base_url", None)
@@ -172,7 +178,13 @@ def build_settings(*, llm_cfg: Any = None, embedding_cfg: Any = None) -> dict[st
         "output_storage": {"type": "file", "base_dir": "output"},
         "cache": {"type": "file", "storage": {"type": "file", "base_dir": "cache"}},
         "reporting": {"type": "file", "base_dir": "logs"},
-        "vector_store": {"type": "lancedb", "db_uri": "output/lancedb"},
+        # GraphRAG/LanceDB defaults to 3072 dimensions; DeepTutor must stamp the
+        # active embedding dimension so Qwen-4096 and other non-default models work.
+        "vector_store": {
+            "type": "lancedb",
+            "db_uri": "output/lancedb",
+            "vector_size": embed_dim,
+        },
     }
 
 

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import importlib
+import logging
 from typing import Any, Dict
 
 import pytest
 
 from deeptutor.services.rag.service import RAGService
+import deeptutor.services.rag.service as rag_service_module
 from deeptutor.services.rag.smart_retriever import SmartRetriever
 
 
@@ -118,6 +122,159 @@ async def test_search_aliases_answer_and_content(fake_service) -> None:
     result = await service.search(query="q2", kb_name="kb")
     assert result["content"] == "only-answer"
     assert result["answer"] == "only-answer"
+
+
+@pytest.mark.asyncio
+async def test_search_forwards_lightrag_native_logs_to_event_sink(
+    fake_service,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, pipeline = fake_service
+    lightrag_logger = logging.getLogger("lightrag")
+    original_handlers = list(lightrag_logger.handlers)
+    original_propagate = lightrag_logger.propagate
+    original_level = lightrag_logger.level
+    events: list[tuple[str, str, dict]] = []
+
+    async def event_sink(event_type: str, message: str, metadata: dict) -> None:
+        events.append((event_type, message, metadata))
+
+    async def search_with_native_log(query: str, kb_name: str, **kwargs) -> Dict[str, Any]:
+        lightrag_logger.info("Final context: 14 entities, 13 relations, 1 chunks")
+        lightrag_logger.warning("Rerank is enabled but no rerank model is configured.")
+        return {"answer": "ok", "provider": "lightrag"}
+
+    original_import_module = importlib.import_module
+
+    def fake_import_module(name: str, package: str | None = None):
+        if name == "lightrag.utils":
+            lightrag_logger.propagate = False
+            return object()
+        return original_import_module(name, package)
+
+    monkeypatch.setattr(pipeline, "search", search_with_native_log)
+    monkeypatch.setattr(rag_service_module.importlib, "import_module", fake_import_module)
+
+    try:
+        lightrag_logger.handlers = []
+        lightrag_logger.propagate = True
+        lightrag_logger.setLevel(logging.INFO)
+
+        await service.search(query="hello", kb_name="kb", event_sink=event_sink)
+        await asyncio.sleep(0)
+    finally:
+        lightrag_logger.handlers = original_handlers
+        lightrag_logger.propagate = original_propagate
+        lightrag_logger.setLevel(original_level)
+
+    raw_logs = [
+        (message, metadata)
+        for event_type, message, metadata in events
+        if event_type == "raw_log"
+    ]
+    assert any(
+        message == "Final context: 14 entities, 13 relations, 1 chunks"
+        and metadata.get("logger") == "lightrag"
+        and metadata.get("level") == "INFO"
+        for message, metadata in raw_logs
+    )
+    assert any(
+        message == "Rerank is enabled but no rerank model is configured."
+        and metadata.get("logger") == "lightrag"
+        and metadata.get("level") == "WARNING"
+        for message, metadata in raw_logs
+    )
+
+
+@pytest.mark.asyncio
+async def test_search_forwards_graphrag_native_logs_to_event_sink(
+    fake_service,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, pipeline = fake_service
+    graphrag_logger = logging.getLogger("graphrag.api.query")
+    original_handlers = list(graphrag_logger.handlers)
+    original_propagate = graphrag_logger.propagate
+    original_level = graphrag_logger.level
+    events: list[tuple[str, str, dict]] = []
+
+    async def event_sink(event_type: str, message: str, metadata: dict) -> None:
+        events.append((event_type, message, metadata))
+
+    async def search_with_native_log(query: str, kb_name: str, **kwargs) -> Dict[str, Any]:
+        graphrag_logger.info("Executing local search query: %s", query)
+        return {"answer": "ok", "provider": "graphrag"}
+
+    monkeypatch.setattr(pipeline, "search", search_with_native_log)
+
+    try:
+        graphrag_logger.handlers = []
+        graphrag_logger.propagate = True
+        graphrag_logger.setLevel(logging.INFO)
+
+        await service.search(query="hello", kb_name="kb", event_sink=event_sink)
+        await asyncio.sleep(0)
+    finally:
+        graphrag_logger.handlers = original_handlers
+        graphrag_logger.propagate = original_propagate
+        graphrag_logger.setLevel(original_level)
+
+    assert any(
+        event_type == "raw_log"
+        and message == "Executing local search query: hello"
+        and metadata.get("logger") == "graphrag.api.query"
+        for event_type, message, metadata in events
+    )
+
+
+@pytest.mark.asyncio
+async def test_search_filters_noisy_vector_and_embedding_logs(
+    fake_service,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, pipeline = fake_service
+    lightrag_logger = logging.getLogger("lightrag")
+    original_lightrag_level = lightrag_logger.level
+    original_lightrag_propagate = lightrag_logger.propagate
+    events: list[tuple[str, str, dict]] = []
+
+    async def event_sink(event_type: str, message: str, metadata: dict) -> None:
+        events.append((event_type, message, metadata))
+
+    async def search_with_noisy_logs(query: str, kb_name: str, **kwargs) -> Dict[str, Any]:
+        logging.getLogger("nano-vectordb").info("Load (13, 4096) data")
+        logging.getLogger("nano-vectordb").info(
+            "Init {'embedding_dim': 4096, 'metric': 'cosine'} 13 data"
+        )
+        logging.getLogger("deeptutor.services.embedding.adapters.openai_compatible").info(
+            "Successfully generated 1 embeddings (model: Qwen/Qwen3-Embedding-8B, dimensions: 4096)"
+        )
+        logging.getLogger("lightrag").info(
+            "Raw search results: 14 entities, 13 relations, 0 vector chunks"
+        )
+        return {"answer": "ok", "provider": "lightrag"}
+
+    monkeypatch.setattr(pipeline, "search", search_with_noisy_logs)
+
+    try:
+        lightrag_logger.setLevel(logging.INFO)
+        lightrag_logger.propagate = True
+
+        await service.search(query="hello", kb_name="kb", event_sink=event_sink)
+        await asyncio.sleep(0)
+    finally:
+        lightrag_logger.setLevel(original_lightrag_level)
+        lightrag_logger.propagate = original_lightrag_propagate
+
+    raw_messages = [
+        message
+        for event_type, message, _metadata in events
+        if event_type == "raw_log"
+    ]
+    assert "Raw search results: 14 entities, 13 relations, 0 vector chunks" in raw_messages
+    assert not any(message.startswith("Load ") for message in raw_messages)
+    assert not any(message.startswith("Init ") for message in raw_messages)
+    assert not any("Successfully generated 1 embeddings" in message for message in raw_messages)
 
 
 @pytest.mark.asyncio

@@ -422,7 +422,7 @@ Chat is the default capability and the place where most work begins. A single th
 
 The current loop is deliberately simple: the model thinks in rounds, calls tools when useful, observes the tool results, and finishes when it has enough evidence. User-toggleable tools are `brainstorm`, `web_search`, `paper_search`, and `reason`; contextual tools such as `rag`, `read_source`, `read_memory`, `write_memory`, `read_skill`, `load_tools`, `exec`, `web_fetch`, `ask_user`, `list_notebook`, `write_note`, and `github` mount when the turn has the right context.
 
-Chat is also the launch point for deeper capabilities: `deep_solve` for worked reasoning, `deep_question` for question generation, `deep_research` for cited reports, `visualize` and `math_animator` for visual outputs, `auto` for routing, and `mastery_path` for learning-plan flows.
+Chat is also the launch point for deeper capabilities: `deep_solve` for worked reasoning, `deep_question` for question generation, `deep_research` for cited reports, `visualize` and `math_animator` for visual outputs, and `mastery_path` for learning-plan flows.
 
 </details>
 
@@ -609,7 +609,7 @@ The repo ships a root [`SKILL.md`](SKILL.md) — a ~150-line handover doc that t
 | `deeptutor init` | Create or update `data/user/settings` for the current workspace |
 | `deeptutor start [--home PATH]` | Launch backend + frontend together |
 | `deeptutor serve [--port PORT]` | Start only the FastAPI backend |
-| `deeptutor run <capability> <message>` | Run a single capability turn (`chat`, `deep_solve`, `deep_question`, `deep_research`, `visualize`, `math_animator`, `auto`, `mastery_path`); add `--format json` for NDJSON output |
+| `deeptutor run <capability> <message>` | Run a single capability turn (`chat`, `deep_solve`, `deep_question`, `deep_research`, `visualize`, `math_animator`, `mastery_path`); add `--format json` for NDJSON output |
 | `deeptutor chat` | Interactive REPL with capability, tool, KB, notebook, and history controls |
 | `deeptutor partner list/create/start/stop` | Manage IM-connected partners |
 | `deeptutor kb list/info/create/add/search/set-default/delete` | Manage LlamaIndex knowledge bases |

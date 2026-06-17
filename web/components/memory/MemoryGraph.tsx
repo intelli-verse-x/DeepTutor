@@ -46,6 +46,8 @@ interface ViewState {
 
 interface HoverState {
   node: GraphNode;
+  containerLeft: number;
+  containerTop: number;
 }
 
 const INITIAL_VIEW: ViewState = { scale: 1, tx: 0, ty: 0 };
@@ -173,6 +175,15 @@ export default function MemoryGraph() {
     dragRef.current = null;
   }, []);
 
+  const showNodeHover = useCallback((node: GraphNode) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    setHover({
+      node,
+      containerLeft: rect?.left ?? 0,
+      containerTop: rect?.top ?? 0,
+    });
+  }, []);
+
   // ── Center / fit the graph to the container on first paint.
   useEffect(() => {
     if (!graph) return;
@@ -243,6 +254,7 @@ export default function MemoryGraph() {
               view={view}
               layerOn={layerOn}
               hover={hover}
+              showNodeHover={showNodeHover}
               setHover={setHover}
               selected={selected}
               setSelected={setSelected}
@@ -270,7 +282,7 @@ export default function MemoryGraph() {
           )}
 
           {hover && (
-            <HoverCard hover={hover} view={view} containerRef={containerRef} />
+            <HoverCard hover={hover} view={view} />
           )}
         </div>
 
@@ -333,6 +345,7 @@ interface GraphViewProps {
   view: ViewState;
   layerOn: Record<Layer, boolean>;
   hover: HoverState | null;
+  showNodeHover: (node: GraphNode) => void;
   setHover: Dispatch<SetStateAction<HoverState | null>>;
   selected: string | null;
   setSelected: Dispatch<SetStateAction<string | null>>;
@@ -344,6 +357,7 @@ function GraphView({
   view,
   layerOn,
   hover,
+  showNodeHover,
   setHover,
   selected,
   setSelected,
@@ -630,7 +644,7 @@ function GraphView({
                 isActive={isActive}
                 focused={focused}
                 dim={dim}
-                onEnter={(node) => setHover({ node })}
+                onEnter={showNodeHover}
                 onLeave={(node) =>
                   setHover((cur) => (cur?.node.id === node.id ? null : cur))
                 }
@@ -905,11 +919,9 @@ function Legend({ graph }: { graph: MemoryGraph }) {
 function HoverCard({
   hover,
   view,
-  containerRef,
 }: {
   hover: HoverState;
   view: ViewState;
-  containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const { t } = useTranslation();
   const { node } = hover;
@@ -917,9 +929,8 @@ function HoverCard({
   // cursor), so we don't have to handle mousemove for every dot. The
   // card is offset down-right of the node so the user can still read
   // the dot underneath the cursor.
-  const rect = containerRef.current?.getBoundingClientRect();
-  const screenX = (rect?.left ?? 0) + node.x * view.scale + view.tx;
-  const screenY = (rect?.top ?? 0) + node.y * view.scale + view.ty;
+  const screenX = hover.containerLeft + node.x * view.scale + view.tx;
+  const screenY = hover.containerTop + node.y * view.scale + view.ty;
   const offset = Math.max(node.r * view.scale + 14, 18);
   const style: CSSProperties = {
     left: screenX + offset,

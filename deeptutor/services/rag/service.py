@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import importlib
+import inspect
 import logging
 import os
 from pathlib import Path
@@ -178,14 +182,36 @@ class RAGService:
         await event_sink(event_type, message, metadata or {})
 
     def _capture_raw_logs(self, event_sink):
-        from contextlib import nullcontext
-
         if event_sink is None:
-            return nullcontext()
+            return contextlib.nullcontext()
 
-        from deeptutor.logging import capture_process_logs
+        from deeptutor.logging import ProcessLogEvent, capture_process_logs
+        from deeptutor.logging.formatters import ContextFilter
+
+        try:
+            target_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            target_loop = None
+
+        def should_skip_noisy_retrieve_log(event: ProcessLogEvent) -> bool:
+            if event.level != "INFO":
+                return False
+            message = event.message.strip()
+            logger_name = event.logger
+            if logger_name == "nano-vectordb" and (
+                message.startswith("Load ") or message.startswith("Init ")
+            ):
+                return True
+            if logger_name.startswith("deeptutor.services.embedding.") and (
+                message.startswith("Successfully generated ")
+                or message.startswith("Generated ")
+            ) and "embedding" in message.lower():
+                return True
+            return False
 
         def emit(event):
+            if should_skip_noisy_retrieve_log(event):
+                return None
             return self._emit_tool_event(
                 event_sink,
                 "raw_log",
@@ -199,7 +225,54 @@ class RAGService:
                 },
             )
 
-        return capture_process_logs(emit, min_level=logging.INFO)
+        class _NamedRawLogHandler(logging.Handler):
+            def __init__(self) -> None:
+                super().__init__(logging.INFO)
+                self.addFilter(ContextFilter())
+
+            def emit(self, record: logging.LogRecord) -> None:
+                try:
+                    result = emit(ProcessLogEvent.from_record(record))
+                    if not inspect.isawaitable(result):
+                        return
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        if target_loop and target_loop.is_running():
+                            asyncio.run_coroutine_threadsafe(result, target_loop)
+                        return
+                    asyncio.ensure_future(result, loop=loop)
+                except Exception:
+                    self.handleError(record)
+
+        @contextlib.contextmanager
+        def capture_non_propagating_logs():
+            handlers: list[tuple[logging.Logger, logging.Handler]] = []
+            for logger_name in ("lightrag", "graphrag", "graphrag_llm"):
+                if logger_name == "lightrag":
+                    with contextlib.suppress(Exception):
+                        importlib.import_module("lightrag.utils")
+                source_logger = logging.getLogger(logger_name)
+                if source_logger.propagate:
+                    continue
+                handler = _NamedRawLogHandler()
+                source_logger.addHandler(handler)
+                handlers.append((source_logger, handler))
+            try:
+                yield
+            finally:
+                for source_logger, handler in handlers:
+                    if handler in source_logger.handlers:
+                        source_logger.removeHandler(handler)
+                    handler.close()
+
+        @contextlib.contextmanager
+        def capture_all_raw_logs():
+            with capture_process_logs(emit, min_level=logging.INFO):
+                with capture_non_propagating_logs():
+                    yield
+
+        return capture_all_raw_logs()
 
     async def delete(self, kb_name: str) -> bool:
         provider = self._resolve_provider(kb_name)

@@ -67,17 +67,23 @@ def test_ragservice_routes_graphrag_from_metadata(tmp_path) -> None:
 
 
 class _Cfg:
-    def __init__(self, model, url, key):
+    def __init__(self, model, url, key, dim=3072):
         self.model = model
         self.effective_url = url
         self.base_url = None
         self.api_key = key
+        self.dim = dim
 
 
 def test_build_settings_bridges_models() -> None:
     settings = gr_config.build_settings(
         llm_cfg=_Cfg("gpt-4o-mini", "https://api.example.com/v1", "sk-llm"),
-        embedding_cfg=_Cfg("text-embedding-3-large", "https://emb.example.com/v1", "sk-emb"),
+        embedding_cfg=_Cfg(
+            "Qwen/Qwen3-Embedding-8B",
+            "https://emb.example.com/v1",
+            "sk-emb",
+            dim=4096,
+        ),
     )
     chat = settings["completion_models"]["default_completion_model"]
     emb = settings["embedding_models"]["default_embedding_model"]
@@ -88,9 +94,10 @@ def test_build_settings_bridges_models() -> None:
         "api_base": "https://api.example.com/v1",
         "api_key": "sk-llm",
     }
-    assert emb["model"] == "text-embedding-3-large"
+    assert emb["model"] == "Qwen/Qwen3-Embedding-8B"
     assert settings["input"]["type"] == "text"
     assert settings["vector_store"]["type"] == "lancedb"
+    assert settings["vector_store"]["vector_size"] == 4096
 
 
 def test_build_settings_requires_models() -> None:
@@ -98,6 +105,14 @@ def test_build_settings_requires_models() -> None:
         gr_config.build_settings(
             llm_cfg=_Cfg("", "u", "k"),
             embedding_cfg=_Cfg("e", "u", "k"),
+        )
+
+
+def test_build_settings_requires_embedding_dimension() -> None:
+    with pytest.raises(gr_config.GraphRagNotConfiguredError, match="known dimension"):
+        gr_config.build_settings(
+            llm_cfg=_Cfg("m", "u", "k"),
+            embedding_cfg=_Cfg("e", "u", "k", dim=0),
         )
 
 

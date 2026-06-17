@@ -832,25 +832,14 @@ const ResolvedAskUserCard = memo(function ResolvedAskUserCard({
   defaultCollapsed: boolean;
 }) {
   const { t } = useTranslation();
-  const [collapsed, setCollapsed] = useState(defaultCollapsed && collapsible);
-  // Once the user manually toggles, their choice wins — don't keep
-  // slamming the card closed when ``defaultCollapsed`` re-emits true on
-  // every research-progress re-render.
-  const userToggledRef = useRef(false);
-  const lastIntentRef = useRef(defaultCollapsed);
-  useEffect(() => {
-    if (!collapsible) return;
-    if (userToggledRef.current) return;
-    if (lastIntentRef.current !== defaultCollapsed) {
-      lastIntentRef.current = defaultCollapsed;
-      setCollapsed(defaultCollapsed);
-    }
-  }, [collapsible, defaultCollapsed]);
+  // Null means "follow defaultCollapsed"; once the user toggles, their
+  // explicit choice wins across research-progress re-renders.
+  const [manualCollapsed, setManualCollapsed] = useState<boolean | null>(null);
+  const collapsed = collapsible ? (manualCollapsed ?? defaultCollapsed) : false;
 
   const toggleCollapsed = useCallback(() => {
-    userToggledRef.current = true;
-    setCollapsed((c) => !c);
-  }, []);
+    setManualCollapsed((current) => !(current ?? defaultCollapsed));
+  }, [defaultCollapsed]);
 
   const byId = useMemo(() => {
     const map = new Map<string, string>();

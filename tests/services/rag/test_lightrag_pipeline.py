@@ -40,10 +40,11 @@ def test_factory_dispatches_lightrag_lazily(tmp_path) -> None:
     assert "raganything" not in sys.modules
 
 
-def test_list_pipelines_includes_lightrag() -> None:
+def test_list_pipelines_includes_lightrag(monkeypatch) -> None:
+    monkeypatch.setattr(lr_config, "is_lightrag_available", lambda: False)
     entry = next(p for p in list_pipelines() if p["id"] == LIGHTRAG_PROVIDER)
     assert entry["requires_api_key"] is False
-    assert entry["configured"] is False  # not installed in CI
+    assert entry["configured"] is False
 
 
 def test_normalize_provider_keeps_lightrag() -> None:
@@ -68,7 +69,11 @@ def test_normalize_mode(given, expected) -> None:
     assert lr_config.normalize_mode(given) == expected
 
 
-def test_is_lightrag_available_false_in_ci() -> None:
+def test_is_lightrag_available_false_when_dependency_missing(monkeypatch) -> None:
+    def fake_find_spec(name):
+        return None if name == "raganything" else object()
+
+    monkeypatch.setattr(lr_config.importlib.util, "find_spec", fake_find_spec)
     assert lr_config.is_lightrag_available() is False
 
 
@@ -228,6 +233,47 @@ def test_lightrag_vision_adapter_preserves_messages(monkeypatch) -> None:
     assert captured["messages"] == [
         {"role": "user", "content": [{"type": "text", "text": "hi"}]}
     ]
+
+
+def test_lightrag_query_initializes_raganything_before_aquery(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class _Rag:
+        lightrag = None
+
+        async def _ensure_lightrag_initialized(self):
+            calls.append("ensure")
+            self.lightrag = object()
+            return {"success": True}
+
+        async def aquery(self, question, mode=None, **kwargs):
+            calls.append("aquery")
+            assert self.lightrag is not None
+            assert question == "hello"
+            assert mode == "hybrid"
+            assert kwargs == {}
+            return "answer"
+
+    monkeypatch.setattr(engine, "query_kwargs_from_settings", lambda: {})
+
+    result = asyncio.run(engine.query(_Rag(), "hello", "hybrid"))
+
+    assert result == "answer"
+    assert calls == ["ensure", "aquery"]
+
+
+def test_lightrag_query_surfaces_raganything_initialization_failure() -> None:
+    class _Rag:
+        lightrag = None
+
+        async def _ensure_lightrag_initialized(self):
+            return {"success": False, "error": "storage failed"}
+
+        async def aquery(self, question, mode=None, **kwargs):  # pragma: no cover
+            raise AssertionError("aquery should not run")
+
+    with pytest.raises(RuntimeError, match="storage failed"):
+        asyncio.run(engine.query(_Rag(), "hello", "hybrid"))
 
 
 # --------------------------------------------------------------------------- #

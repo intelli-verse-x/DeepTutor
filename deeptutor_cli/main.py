@@ -76,7 +76,10 @@ register_init(app)
 def run_capability(
     capability: str = typer.Argument(
         ...,
-        help="Capability name (e.g. chat, deep_solve, deep_question, deep_research, math_animator).",
+        help=(
+            "Capability name (e.g. chat, deep_solve, deep_question, "
+            "deep_research, visualize, math_animator, mastery_path)."
+        ),
     ),
     message: str = typer.Argument(..., help="Message to send."),
     session: str | None = typer.Option(None, "--session", help="Existing session id."),

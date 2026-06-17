@@ -19,6 +19,7 @@ from deeptutor.agents.visualize.capability import VisualizeCapability
 from deeptutor.core.context import Attachment, UnifiedContext
 from deeptutor.core.stream import StreamEvent, StreamEventType
 from deeptutor.core.stream_bus import StreamBus
+from deeptutor.runtime.bootstrap.builtin_capabilities import BUILTIN_CAPABILITY_CLASSES
 
 
 def _install_module(
@@ -63,6 +64,18 @@ async def _collect_events(run_coro) -> list[StreamEvent]:
     await bus.close()
     await consumer
     return events
+
+
+def test_builtin_capability_registry_covers_documented_capabilities() -> None:
+    assert set(BUILTIN_CAPABILITY_CLASSES) == {
+        "chat",
+        "deep_solve",
+        "deep_question",
+        "deep_research",
+        "math_animator",
+        "visualize",
+        "mastery_path",
+    }
 
 
 @pytest.mark.asyncio
@@ -116,7 +129,6 @@ async def test_chat_capability_streams_content_and_geogebra_context(
         for event in events
     )
     assert "GGB commands" in captured["process"]["message"]
-
 
 @pytest.mark.asyncio
 async def test_deep_solve_capability_runs_chat_loop_in_solve_mode(

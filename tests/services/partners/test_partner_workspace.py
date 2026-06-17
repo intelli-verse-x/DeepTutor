@@ -22,6 +22,22 @@ def _seed_admin_kb(admin_root, name="physics"):
     (kb / "metadata.json").write_text(
         json.dumps({"name": name, "rag_provider": "llamaindex"}), encoding="utf-8"
     )
+    config_path = admin_root / "knowledge_bases" / "kb_config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "knowledge_bases": {
+                    name: {
+                        "path": name,
+                        "description": f"Knowledge base: {name}",
+                        "rag_provider": "llamaindex",
+                        "status": "ready",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
     return kb
 
 

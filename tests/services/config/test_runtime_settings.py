@@ -197,6 +197,10 @@ def test_startup_ensure_creates_missing_runtime_jsons_with_defaults(
         "llm",
         "embedding",
         "search",
+        "tts",
+        "stt",
+        "imagegen",
+        "videogen",
     }
 
 

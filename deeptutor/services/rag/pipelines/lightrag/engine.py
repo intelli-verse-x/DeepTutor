@@ -56,6 +56,20 @@ async def insert(rag: Any, content_list: list[dict], *, file_name: str, doc_id: 
     )
 
 
+async def ensure_ready(rag: Any) -> None:
+    """Ensure RAG-Anything has an initialized LightRAG instance."""
+    if getattr(rag, "lightrag", None) is not None:
+        return
+
+    initializer = getattr(rag, "_ensure_lightrag_initialized", None)
+    if initializer is None:
+        return
+
+    result = await initializer()
+    if isinstance(result, dict) and result.get("success") is False:
+        raise RuntimeError(result.get("error") or "Failed to initialize LightRAG")
+
+
 async def query(rag: Any, question: str, mode: str | None = None) -> str:
     """Run a LightRAG query and return the synthesized answer string.
 
@@ -66,6 +80,7 @@ async def query(rag: Any, question: str, mode: str | None = None) -> str:
     """
     resolved = normalize_mode(mode) or DEFAULT_MODE
     extra = query_kwargs_from_settings()
+    await ensure_ready(rag)
     try:
         result = await rag.aquery(question, mode=resolved, **extra)
     except TypeError:
@@ -77,4 +92,4 @@ async def query(rag: Any, question: str, mode: str | None = None) -> str:
     return result if isinstance(result, str) else str(result)
 
 
-__all__ = ["build_rag", "insert", "query"]
+__all__ = ["build_rag", "insert", "ensure_ready", "query"]
