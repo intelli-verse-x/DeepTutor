@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-// AUTH_ENABLED and API_BASE_URL are read at module-load time, so the environment
-// must be configured before the module under test is imported.
-process.env.NEXT_PUBLIC_API_BASE = "http://localhost:8001/api";
-process.env.NEXT_PUBLIC_AUTH_ENABLED = "true";
+// AUTH_ENABLED is read at module-load time, so the environment must be
+// configured before the module under test is imported. The frontend now uses
+// relative paths; the URL forwarding happens in proxy.ts at request time,
+// reading DEEPTUTOR_API_BASE_URL (set by the container entrypoint on every
+// start from data/user/settings/system.json).
+process.env.DEEPTUTOR_AUTH_ENABLED = "true";
 
 let apiModulePromise: Promise<typeof import("../lib/api")> | null = null;
 

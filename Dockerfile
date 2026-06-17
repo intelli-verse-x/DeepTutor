@@ -39,11 +39,12 @@ COPY web/ ./
 # can read it during ``npm run build`` and inline it into the bundle.
 COPY deeptutor/__version__.py /app/deeptutor/__version__.py
 
-# Create .env.local with placeholders that will be replaced at runtime.
-RUN printf '%s\n' \
-    'NEXT_PUBLIC_API_BASE=__NEXT_PUBLIC_API_BASE_PLACEHOLDER__' \
-    'NEXT_PUBLIC_AUTH_ENABLED=__NEXT_PUBLIC_AUTH_ENABLED_PLACEHOLDER__' \
-    > .env.local
+# Create .env.local with the single env var the build needs (the app version,
+# exposed to the browser via next.config.js). URL knowledge is no longer baked
+# into the bundle: `apiUrl`/`wsUrl` in web/lib/api.ts are pass-throughs and
+# the actual backend host is read at request time by web/proxy.ts from
+# DEEPTUTOR_API_BASE_URL (exported by the entrypoint on every start).
+RUN printf 'NEXT_PUBLIC_APP_VERSION=\n' > .env.local
 
 # Build Next.js for production with standalone output
 # This allows runtime environment variable injection
@@ -125,8 +126,13 @@ WORKDIR /app
 
 # Install system dependencies
 # Note: libgl1 and libglib2.0-0 are required for OpenCV (used by mineru)
+# libcap2-bin provides `setcap`, used below to grant gosu the
+# capabilities it needs to setuid/setgid inside rootless podman user
+# namespaces (where the parent process doesn't have those caps).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    gosu \
+    libcap2-bin \
     ca-certificates \
     bash \
     supervisor \
@@ -179,6 +185,17 @@ RUN mkdir -p \
     data/user/workspace/chat/_detached_code_execution \
     data/user/logs \
     data/knowledge_bases
+
+# Bake a non-root user for `gosu deeptutor supervisord` (entrypoint drops privs
+# after chown'ing /app/data). UID 1000 matches the host user under rootless
+# podman's `userns_mode: keep-id` with a bind mount on ./data.
+# `setcap` grants gosu CAP_SETUID+CAP_SETGID so it can drop privileges
+# inside rootless podman user namespaces (where the parent process
+# doesn't have those caps by default).
+RUN groupadd --system --gid 1000 deeptutor \
+    && useradd --system --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin deeptutor \
+    && chown -R deeptutor:deeptutor /app/data /app/web/.next \
+    && setcap cap_setuid,cap_setgid+ep /usr/sbin/gosu
 
 # Create supervisord configuration for running both services
 # Log output goes to stdout/stderr so docker logs can capture them
@@ -235,58 +252,17 @@ EOF
 RUN sed -i 's/\r$//' /app/start-backend.sh && chmod +x /app/start-backend.sh
 
 # Create frontend startup script
-# This script handles runtime environment variable injection for Next.js
+# This script starts the Next.js standalone server. URL knowledge is no
+# longer baked into the bundle: web/proxy.ts rewrites /api/* and /ws/* to
+# the configured backend at request time, reading DEEPTUTOR_API_BASE_URL
+# (exported by the entrypoint from data/user/settings/system.json).
 RUN cat > /app/start-frontend.sh <<'EOF'
 #!/bin/bash
 set -e
 
-# Get the backend port (default to 8001)
-BACKEND_PORT=${BACKEND_PORT:-8001}
 FRONTEND_PORT=${FRONTEND_PORT:-3782}
-AUTH_ENABLED=${NEXT_PUBLIC_AUTH_ENABLED:-${AUTH_ENABLED:-false}}
-case "$(echo "$AUTH_ENABLED" | tr '[:upper:]' '[:lower:]')" in
-    1|true|yes|on) AUTH_ENABLED=true ;;
-    *) AUTH_ENABLED=false ;;
-esac
-
-# Determine the API base URL with multiple fallback options
-# Priority: NEXT_PUBLIC_API_BASE_EXTERNAL > NEXT_PUBLIC_API_BASE > auto-detect
-if [ -n "$NEXT_PUBLIC_API_BASE_EXTERNAL" ]; then
-    # Explicit external URL for cloud deployments
-    API_BASE="$NEXT_PUBLIC_API_BASE_EXTERNAL"
-    echo "[Frontend] 📌 Using external API URL: ${API_BASE}"
-elif [ -n "$NEXT_PUBLIC_API_BASE" ]; then
-    # Custom API base URL
-    API_BASE="$NEXT_PUBLIC_API_BASE"
-    echo "[Frontend] 📌 Using custom API URL: ${API_BASE}"
-else
-    # Default: localhost with configured backend port
-    # Note: This only works for local development, not cloud deployments
-    API_BASE="http://localhost:${BACKEND_PORT}"
-    echo "[Frontend] 📌 Using default API URL: ${API_BASE}"
-    echo "[Frontend] ⚠️  For cloud deployment, set system.next_public_api_base_external in data/user/settings/system.json"
-    echo "[Frontend]    Example: \"next_public_api_base_external\": \"https://your-server.com:${BACKEND_PORT}\""
-fi
-
 echo "[Frontend] 🚀 Starting Next.js frontend on port ${FRONTEND_PORT}..."
 
-# Replace placeholder in built Next.js files
-# This is necessary because NEXT_PUBLIC_* vars are inlined at build time
-escape_sed_replacement() {
-    printf '%s' "$1" | sed -e 's/[|\/&]/\\&/g'
-}
-
-API_BASE_ESCAPED="$(escape_sed_replacement "$API_BASE")"
-AUTH_ENABLED_ESCAPED="$(escape_sed_replacement "$AUTH_ENABLED")"
-
-find /app/web/.next -type f \( -name "*.js" -o -name "*.json" \) -exec \
-    sed -i \
-        -e "s|__NEXT_PUBLIC_API_BASE_PLACEHOLDER__|${API_BASE_ESCAPED}|g" \
-        -e "s|__NEXT_PUBLIC_AUTH_ENABLED_PLACEHOLDER__|${AUTH_ENABLED_ESCAPED}|g" \
-        {} \; 2>/dev/null || true
-
-# Start Next.js standalone server
-# The standalone server reads PORT and HOSTNAME from environment variables
 export PORT=${FRONTEND_PORT}
 export HOSTNAME=0.0.0.0
 exec node /app/web/server.js
@@ -340,6 +316,10 @@ from deeptutor.services.setup import init_user_directories
 init_user_directories(Path('/app'))
 " 2>/dev/null || echo "   ⚠️ Directory initialization skipped (will be created on first use)"
 
+# Idempotent: re-chown /app/data so the unprivileged `deeptutor` user (UID 1000)
+# owns it. Cheap on no-op; the only first-start cost is one stat per file.
+chown -R deeptutor:deeptutor /app/data 2>/dev/null || true
+
 echo "⚙️  Loading runtime JSON settings..."
 eval "$(python - <<'PY'
 import shlex
@@ -352,6 +332,37 @@ PY
 
 export BACKEND_PORT=${BACKEND_PORT:-8001}
 export FRONTEND_PORT=${FRONTEND_PORT:-3782}
+
+# Export DEEPTUTOR_API_BASE_URL for proxy.ts (rewrites /api/* and /ws/* to the
+# configured backend at request time). Precedence: in-network
+# `next_public_api_base` first, then `next_public_api_base_external`, then
+# localhost:${BACKEND_PORT} (dev default).
+DEEPTUTOR_API_BASE_URL=$(python - <<'PY'
+import json, os
+from pathlib import Path
+try:
+    s = json.loads(Path("/app/data/user/settings/system.json").read_text(encoding="utf-8"))
+    base = s.get("next_public_api_base") or s.get("next_public_api_base_external") or f"http://localhost:{os.environ.get('BACKEND_PORT', '8001')}"
+    print(base)
+except Exception:
+    print(f"http://localhost:{os.environ.get('BACKEND_PORT', '8001')}")
+PY
+)
+export DEEPTUTOR_API_BASE_URL
+echo "📌 API Base URL (proxy): ${DEEPTUTOR_API_BASE_URL}"
+
+DEEPTUTOR_AUTH_ENABLED=$(python - <<'PY'
+import json
+from pathlib import Path
+try:
+    s = json.loads(Path("/app/data/user/settings/auth.json").read_text(encoding="utf-8"))
+    val = s.get("auth_enabled", False)
+    print("true" if val else "false")
+except Exception:
+    print("false")
+PY
+)
+export DEEPTUTOR_AUTH_ENABLED
 
 echo "📌 Backend Port: ${BACKEND_PORT}"
 echo "📌 Frontend Port: ${FRONTEND_PORT}"
@@ -366,8 +377,10 @@ echo "   - data/user/settings/main.yaml"
 echo "   - data/user/settings/agents.yaml"
 echo "============================================"
 
-# Start supervisord
-exec /usr/bin/supervisord -c /etc/supervisor/conf.d/deeptutor.conf
+# Start supervisord as the unprivileged deeptutor user (UID 1000). The
+# supervisord children (backend, frontend) inherit this UID; chown above
+# ensured they can write under /app/data.
+exec gosu deeptutor /usr/bin/supervisord -c /etc/supervisor/conf.d/deeptutor.conf
 EOF
 
 RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh

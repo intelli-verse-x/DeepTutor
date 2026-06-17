@@ -1,13 +1,11 @@
 import { apiFetch, apiUrl, parseAuthEnabled } from "@/lib/api";
 
-// ``NEXT_PUBLIC_AUTH_ENABLED`` is inlined at build time and, in the Docker
-// image, baked as the ``__NEXT_PUBLIC_AUTH_ENABLED_PLACEHOLDER__`` token that
-// ``start-frontend.sh`` rewrites on container start. ``parseAuthEnabled``
+// ``DEEPTUTOR_AUTH_ENABLED`` is exported by the container entrypoint on every
+// start (read from ``data/user/settings/auth.json``). ``parseAuthEnabled``
 // evaluates it at runtime (not a ``=== "true"`` literal comparison) so the
-// minifier cannot constant-fold the check and strip the placeholder, which
-// would permanently break the runtime rewrite. See lib/api.ts.
+// minifier cannot constant-fold the check. See lib/api.ts.
 export const AUTH_ENABLED = parseAuthEnabled(
-  process.env.NEXT_PUBLIC_AUTH_ENABLED,
+  process.env.DEEPTUTOR_AUTH_ENABLED,
 );
 
 export interface AuthStatus {
