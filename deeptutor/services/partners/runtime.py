@@ -235,9 +235,7 @@ class PartnerRunner:
         becomes the reply (the final outbound is then marked ``_streamed``
         so the channel doesn't send it twice).
         """
-        from deeptutor.multi_user.paths import get_admin_path_service
         from deeptutor.runtime.orchestrator import ChatOrchestrator
-        from deeptutor.services.memory import memory_path_service_override
         from deeptutor.services.model_selection.runtime import (
             activate_llm_selection,
             reset_llm_selection,
@@ -279,17 +277,15 @@ class PartnerRunner:
             wants_stream = is_im and send_progress and bool(msg.metadata.get("_wants_stream"))
 
             _config, llm_token = activate_llm_selection(selection)
-            # Partner scope routes rag / skills / notebooks at the partner's own
-            # workspace, but memory is the *owner's*: partners are anchored to
-            # the admin workspace, so read_memory / write_memory must see the
-            # admin's L3 (gated by the builtin-tool whitelist — an owner denies
-            # memory to an IM-facing partner). Without this, the partner scope's
-            # empty memory makes user_has_memory() False and read_memory never
-            # mounts, so the agent falls back to notebooks to "know the user".
-            with (
-                user_context(partner_user(self.partner_id, name=self.config.name)),
-                memory_path_service_override(get_admin_path_service()),
-            ):
+            # Everything — rag / skills / notebooks AND memory — resolves to the
+            # partner's own synthetic workspace. The partner-only memory tools
+            # (partner_read / partner_memorize / partner_search, force-mounted by
+            # the pipeline) own the split-memory model: partner_read folds in the
+            # owner's shared L3 on top of the partner's own, partner_memorize
+            # writes only the partner's own. Chat's read_memory / write_memory
+            # are suppressed on partner turns, so no admin memory override is
+            # needed here (and the partner can never write the owner's memory).
+            with user_context(partner_user(self.partner_id, name=self.config.name)):
                 orchestrator = ChatOrchestrator()
                 async for event in orchestrator.handle(context):
                     if on_event is not None:

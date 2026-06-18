@@ -18,10 +18,21 @@ from deeptutor.i18n.metadata_i18n import localized_description, tool_description
 logger = logging.getLogger(__name__)
 
 
-async def build_tool_options() -> dict[str, list[dict[str, Any]]]:
+async def build_tool_options(
+    *, exclude_builtin: set[str] | None = None
+) -> dict[str, list[dict[str, Any]]]:
+    """Build the configurable-tool surface.
+
+    ``exclude_builtin`` drops built-in tools from the ``builtin_tools`` list —
+    the partners API passes ``{"read_memory", "write_memory"}`` because partners
+    use the mandatory ``partner_*`` memory tools instead and cannot configure
+    chat's memory tools.
+    """
     from deeptutor.agents._shared.tool_composition import default_optional_tools
     from deeptutor.runtime.registry.tool_registry import get_tool_registry
     from deeptutor.tools.builtin import CONFIGURABLE_BUILTIN_TOOL_NAMES
+
+    exclude = exclude_builtin or set()
 
     registry = get_tool_registry()
     language = current_language()
@@ -49,7 +60,7 @@ async def build_tool_options() -> dict[str, list[dict[str, Any]]]:
 
     tools: list[dict[str, Any]] = [_describe(name) for name in default_optional_tools()]
     builtin_tools: list[dict[str, Any]] = [
-        _describe(name) for name in CONFIGURABLE_BUILTIN_TOOL_NAMES
+        _describe(name) for name in CONFIGURABLE_BUILTIN_TOOL_NAMES if name not in exclude
     ]
 
     mcp_tools: list[dict[str, Any]] = []

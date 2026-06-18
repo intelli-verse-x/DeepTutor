@@ -5,7 +5,9 @@ import { useTranslation } from "react-i18next";
 import { Cpu, Loader2, Plug, Plus, Trash2, X } from "lucide-react";
 
 import { agentGlyph } from "@/components/agents/agent-icons";
+import PartnerAvatar from "@/components/partners/PartnerAvatar";
 import SpaceSectionHeader from "@/components/space/SpaceSectionHeader";
+import { listPartners, type PartnerInfo } from "@/lib/partners-api";
 import {
   connectSubagent,
   detectSubagents,
@@ -16,19 +18,23 @@ import {
 } from "@/lib/subagents-api";
 
 /**
- * Connected agents — live Claude Code / Codex on the user's machine, registered
- * as pointers the chat composer can select and consult in real time. Distinct
- * from the imported-history agents below it: those replay past transcripts,
- * these drive the local CLI now. Detection is machine-global (is the CLI
- * installed here); if nothing is detected the connect action stays out of the
- * way with a one-line hint.
+ * Connected agents — live agents the chat composer can select and consult in
+ * real time: Claude Code / Codex on the user's machine, or one of their
+ * partners. Distinct from the imported-history agents below it: those replay
+ * past transcripts, these drive the live agent now. CLI detection is
+ * machine-global (is the CLI installed here); partners come from the user's
+ * partner list. Consulting a partner opens a fresh session on it — every
+ * consult within one DeepTutor chat is archived as one partner session.
  */
+
+const PARTNER_KIND = "partner";
 
 type Lang = { zh: string; en: string };
 
-function backendLabel(kind: string): string {
+function backendLabel(kind: string, tr: (l: Lang) => string): string {
   if (kind === "claude_code") return "Claude Code";
   if (kind === "codex") return "Codex";
+  if (kind === PARTNER_KIND) return tr({ zh: "伙伴", en: "Partner" });
   return kind;
 }
 
@@ -39,6 +45,7 @@ export default function ConnectedAgents() {
 
   const [backends, setBackends] = useState<SubagentBackendInfo[]>([]);
   const [connections, setConnections] = useState<SubagentConnection[]>([]);
+  const [partners, setPartners] = useState<PartnerInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [busyName, setBusyName] = useState<string | null>(null);
@@ -46,12 +53,14 @@ export default function ConnectedAgents() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [detected, conns] = await Promise.all([
+      const [detected, conns, parts] = await Promise.all([
         detectSubagents().catch(() => [] as SubagentBackendInfo[]),
         listSubagentConnections().catch(() => [] as SubagentConnection[]),
+        listPartners().catch(() => [] as PartnerInfo[]),
       ]);
       setBackends(detected);
       setConnections(conns);
+      setPartners(parts);
     } finally {
       setLoading(false);
     }
@@ -64,6 +73,12 @@ export default function ConnectedAgents() {
   const available = useMemo(
     () => backends.filter((b) => b.available),
     [backends],
+  );
+  // Something is connectable when a CLI is installed here or a partner exists.
+  const canConnect = available.length > 0 || partners.length > 0;
+  const partnerName = useCallback(
+    (id: string) => partners.find((p) => p.partner_id === id)?.name || id,
+    [partners],
   );
 
   const handleDisconnect = useCallback(
@@ -94,11 +109,11 @@ export default function ConnectedAgents() {
         icon={Plug}
         title={tr({ zh: "连接的智能体", en: "Connected agents" })}
         description={tr({
-          zh: "把本机已配置的 Claude Code / Codex 接进来，在对话中选中后直接向它提问 —— 它的完整运行过程会实时展示。",
-          en: "Bring in the Claude Code / Codex configured on this machine — select one in chat to consult it directly, with its full run shown live.",
+          zh: "把本机的 Claude Code / Codex 或你的伙伴接进来，在对话中选中后直接向它提问 —— 它的完整运行过程会实时展示。",
+          en: "Bring in the Claude Code / Codex on this machine, or one of your partners — select one in chat to consult it directly, with its full run shown live.",
         })}
         action={
-          available.length > 0 ? (
+          canConnect ? (
             <button
               type="button"
               onClick={() => setModalOpen(true)}
@@ -116,39 +131,62 @@ export default function ConnectedAgents() {
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           {tr({ zh: "检测本机智能体…", en: "Detecting local agents…" })}
         </div>
-      ) : available.length === 0 ? (
+      ) : !canConnect ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)]/40 px-4 py-5 text-[12.5px] leading-relaxed text-[var(--muted-foreground)]">
           {tr({
-            zh: "未在本机检测到 Claude Code 或 Codex。安装并登录其中任一 CLI 后即可连接。",
-            en: "No Claude Code or Codex detected on this machine. Install and log in to either CLI to connect one.",
+            zh: "未在本机检测到 Claude Code 或 Codex，也还没有任何伙伴。安装并登录其中任一 CLI，或在「伙伴」里新建一个，即可连接。",
+            en: "No Claude Code or Codex detected on this machine, and no partners yet. Install and log in to either CLI, or create a partner, to connect one.",
           })}
         </div>
       ) : connections.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)]/40 px-4 py-5 text-[12.5px] leading-relaxed text-[var(--muted-foreground)]">
           {tr({
-            zh: "尚未连接任何智能体。点击「连接智能体」把本机的 Claude Code / Codex 接进来。",
-            en: "No agents connected yet. Click “Connect agent” to bring in your local Claude Code / Codex.",
+            zh: "尚未连接任何智能体。点击「连接智能体」把本机的 Claude Code / Codex 或你的伙伴接进来。",
+            en: "No agents connected yet. Click “Connect agent” to bring in your local Claude Code / Codex, or a partner.",
           })}
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {connections.map((conn) => {
             const Glyph = agentGlyph(conn.agent_kind);
+            // A partner connection wears its own face (the avatar set on the
+            // partner page), not the generic heart glyph.
+            const partner =
+              conn.agent_kind === PARTNER_KIND
+                ? partners.find((p) => p.partner_id === conn.partner_id)
+                : undefined;
             return (
             <div
               key={conn.name}
               className="group flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3"
             >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--border)]/60 bg-[var(--background)] text-[var(--foreground)]">
-                {Glyph ? <Glyph size={20} /> : <Cpu size={18} strokeWidth={1.6} />}
-              </span>
+              {partner ? (
+                <PartnerAvatar
+                  name={partner.name}
+                  emoji={partner.emoji}
+                  color={partner.color}
+                  image={partner.avatar}
+                  size={40}
+                  className="shrink-0"
+                />
+              ) : (
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--border)]/60 bg-[var(--background)] text-[var(--foreground)]">
+                  {Glyph ? <Glyph size={20} /> : <Cpu size={18} strokeWidth={1.6} />}
+                </span>
+              )}
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13.5px] font-semibold tracking-tight text-[var(--foreground)]">
                   {conn.name}
                 </div>
                 <div className="mt-0.5 truncate text-[11.5px] text-[var(--muted-foreground)]">
-                  {backendLabel(conn.agent_kind)}
-                  {conn.cwd ? ` · ${conn.cwd}` : ""}
+                  {backendLabel(conn.agent_kind, tr)}
+                  {conn.agent_kind === PARTNER_KIND
+                    ? conn.partner_id
+                      ? ` · ${partnerName(conn.partner_id)}`
+                      : ""
+                    : conn.cwd
+                      ? ` · ${conn.cwd}`
+                      : ""}
                 </div>
               </div>
               <button
@@ -174,6 +212,7 @@ export default function ConnectedAgents() {
       {modalOpen && (
         <ConnectModal
           backends={available}
+          partners={partners}
           existingNames={connections.map((c) => c.name)}
           tr={tr}
           onClose={() => setModalOpen(false)}
@@ -189,22 +228,47 @@ export default function ConnectedAgents() {
 
 function ConnectModal({
   backends,
+  partners,
   existingNames,
   tr,
   onClose,
   onConnected,
 }: {
   backends: SubagentBackendInfo[];
+  partners: PartnerInfo[];
   existingNames: string[];
   tr: (l: Lang) => string;
   onClose: () => void;
   onConnected: () => void;
 }) {
-  const [kind, setKind] = useState(backends[0]?.kind ?? "");
+  // The agent-type choices: each detected CLI, plus "Partner" when any exist.
+  const options = useMemo(
+    () => [
+      ...backends.map((b) => ({ kind: b.kind, label: b.display_name })),
+      ...(partners.length
+        ? [{ kind: PARTNER_KIND, label: tr({ zh: "伙伴", en: "Partner" }) }]
+        : []),
+    ],
+    [backends, partners, tr],
+  );
+
+  const [kind, setKind] = useState(options[0]?.kind ?? "");
   const [name, setName] = useState("");
+  const [nameTouched, setNameTouched] = useState(false);
   const [cwd, setCwd] = useState("");
+  const [partnerId, setPartnerId] = useState(partners[0]?.partner_id ?? "");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const isPartner = kind === PARTNER_KIND;
+
+  // While the user hasn't renamed the connection, mirror the chosen partner's
+  // name so the connection reads as that partner by default.
+  useEffect(() => {
+    if (!isPartner || nameTouched) return;
+    const picked = partners.find((p) => p.partner_id === partnerId);
+    setName(picked?.name ?? "");
+  }, [isPartner, nameTouched, partnerId, partners]);
 
   const submit = useCallback(async () => {
     const trimmed = name.trim();
@@ -216,17 +280,25 @@ function ConnectModal({
       setError(tr({ zh: "已存在同名连接。", en: "A connection with this name already exists." }));
       return;
     }
+    if (isPartner && !partnerId) {
+      setError(tr({ zh: "请选择一个伙伴。", en: "Please pick a partner." }));
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
-      await connectSubagent({ name: trimmed, agent_kind: kind, cwd: cwd.trim() });
+      await connectSubagent(
+        isPartner
+          ? { name: trimmed, agent_kind: PARTNER_KIND, partner_id: partnerId }
+          : { name: trimmed, agent_kind: kind, cwd: cwd.trim() },
+      );
       onConnected();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSubmitting(false);
     }
-  }, [name, kind, cwd, existingNames, onConnected, tr]);
+  }, [name, kind, cwd, isPartner, partnerId, existingNames, onConnected, tr]);
 
   return (
     <div
@@ -257,26 +329,47 @@ function ConnectModal({
               {tr({ zh: "智能体", en: "Agent" })}
             </label>
             <div className="flex gap-2">
-              {backends.map((b) => {
-                const Glyph = agentGlyph(b.kind);
+              {options.map((opt) => {
+                const Glyph = agentGlyph(opt.kind);
                 return (
                   <button
-                    key={b.kind}
+                    key={opt.kind}
                     type="button"
-                    onClick={() => setKind(b.kind)}
+                    onClick={() => setKind(opt.kind)}
                     className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-[12.5px] font-medium transition-colors ${
-                      kind === b.kind
+                      kind === opt.kind
                         ? "border-[var(--primary)] bg-[var(--primary)]/[0.07] text-[var(--foreground)]"
                         : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--border)] hover:text-[var(--foreground)]"
                     }`}
                   >
                     {Glyph ? <Glyph size={15} /> : null}
-                    {b.display_name}
+                    {opt.label}
                   </button>
                 );
               })}
             </div>
           </div>
+
+          {isPartner && (
+            <div>
+              <label className="mb-1.5 block text-[12px] font-medium text-[var(--foreground)]">
+                {tr({ zh: "伙伴", en: "Partner" })}
+              </label>
+              <select
+                value={partnerId}
+                onChange={(e) => setPartnerId(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[13px] text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
+              >
+                {partners.map((p) => (
+                  <option key={p.partner_id} value={p.partner_id}>
+                    {p.emoji ? `${p.emoji} ` : ""}
+                    {p.name}
+                    {p.description ? ` — ${p.description}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="mb-1.5 block text-[12px] font-medium text-[var(--foreground)]">
@@ -285,26 +378,40 @@ function ConnectModal({
             <input
               autoFocus
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setNameTouched(true);
+              }}
               placeholder={tr({ zh: "例如：我的代码助手", en: "e.g. My coding agent" })}
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[13px] text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
             />
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-[12px] font-medium text-[var(--foreground)]">
-              {tr({ zh: "工作目录（可选）", en: "Working directory (optional)" })}
-            </label>
-            <input
-              value={cwd}
-              onChange={(e) => setCwd(e.target.value)}
-              placeholder={tr({
-                zh: "例如：/Users/you/project —— 智能体将在此目录运行",
-                en: "e.g. /Users/you/project — the agent runs here",
+          {!isPartner && (
+            <div>
+              <label className="mb-1.5 block text-[12px] font-medium text-[var(--foreground)]">
+                {tr({ zh: "工作目录（可选）", en: "Working directory (optional)" })}
+              </label>
+              <input
+                value={cwd}
+                onChange={(e) => setCwd(e.target.value)}
+                placeholder={tr({
+                  zh: "例如：/Users/you/project —— 智能体将在此目录运行",
+                  en: "e.g. /Users/you/project — the agent runs here",
+                })}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-[12px] text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
+              />
+            </div>
+          )}
+
+          {isPartner && (
+            <p className="text-[11.5px] leading-relaxed text-[var(--muted-foreground)]">
+              {tr({
+                zh: "在对话中咨询该伙伴时，会像在伙伴页开启一个新 session；同一对话里的多次咨询都会归档为同一个 session。",
+                en: "Consulting this partner in chat opens a session on it, just like the partner page; every consult within one chat is archived as the same session.",
               })}
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-[12px] text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
-            />
-          </div>
+            </p>
+          )}
 
           {error && (
             <p className="text-[12px] text-red-600 dark:text-red-400">{error}</p>

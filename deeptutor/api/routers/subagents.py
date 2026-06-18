@@ -22,11 +22,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from deeptutor.api.routers.auth import require_admin
+from deeptutor.api.routers.auth import require_admin, require_auth
 from deeptutor.knowledge.kb_types import SUBAGENT_KB_TYPE
 from deeptutor.multi_user.knowledge_access import current_kb_manager
 from deeptutor.services.rag.linked_kb import assert_path_allowed
 from deeptutor.services.subagent import (
+    PARTNER_BACKEND_KIND,
     detect_all,
     list_backend_kinds,
     load_subagent_settings,
@@ -42,6 +43,9 @@ class ConnectSubagentRequest(BaseModel):
     name: str
     agent_kind: str
     cwd: str = ""
+    # For the partner backend (``agent_kind == "partner"``): which partner to
+    # consult. Ignored by the local-CLI backends, which use ``cwd`` instead.
+    partner_id: str = ""
 
 
 class SubagentSettingsPayload(BaseModel):
@@ -77,10 +81,12 @@ async def sync_backend(kind: str):
     For Claude Code this scrapes its ``/model`` TUI live and caches the result;
     for Codex it re-reads the CLI-maintained cache.
     """
-    from deeptutor.services.subagent import list_backend_kinds
+    from deeptutor.services.subagent import get_backend
     from deeptutor.services.subagent.models import sync_backend_options
 
-    if kind not in list_backend_kinds():
+    backend = get_backend(kind)
+    if backend is None or not getattr(backend, "local_cli", True):
+        # Only local CLIs have a model catalog to sync; partners run their own.
         raise HTTPException(status_code=400, detail=f"Unknown agent kind: {kind!r}")
     options = await sync_backend_options(kind)
     return options.to_dict()
@@ -100,6 +106,7 @@ async def list_connections():
                 "name": name,
                 "agent_kind": meta.get("agent_kind", ""),
                 "cwd": meta.get("cwd", ""),
+                "partner_id": meta.get("partner_id", ""),
                 "description": meta.get("description", ""),
                 "created_at": meta.get("created_at"),
                 "updated_at": meta.get("updated_at"),
@@ -109,8 +116,14 @@ async def list_connections():
 
 
 @router.post("/connections")
-async def create_connection(payload: ConnectSubagentRequest):
-    """Connect a local agent CLI as a selectable subagent KB."""
+async def create_connection(payload: ConnectSubagentRequest, auth=Depends(require_auth)):
+    """Connect a subagent (a local CLI, or one of the user's partners) as a selectable KB.
+
+    A partner connection (``agent_kind == "partner"``) binds a ``partner_id``
+    instead of a working directory: consulting it opens a fresh session on that
+    partner, exactly as if the user started one from the partner page. Every
+    consult within one DeepTutor chat lands in that one partner session.
+    """
     name = (payload.name or "").strip()
     agent_kind = (payload.agent_kind or "").strip()
     if not name or not agent_kind:
@@ -119,16 +132,33 @@ async def create_connection(payload: ConnectSubagentRequest):
         raise HTTPException(status_code=400, detail=f"Unknown agent kind: {agent_kind!r}")
 
     resolved_cwd = ""
-    raw_cwd = (payload.cwd or "").strip()
-    if raw_cwd:
-        try:
-            resolved_cwd = str(assert_path_allowed(raw_cwd))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    partner_id = ""
+    if agent_kind == PARTNER_BACKEND_KIND:
+        # Partners are anchored to the admin workspace (the whole partners API is
+        # admin-gated), and consulting one runs it in that scope. This router is
+        # only auth-gated, so gate the partner branch on admin to match — a
+        # non-admin must not be able to drive an admin-scoped partner.
+        await require_admin(auth)
+        partner_id = (payload.partner_id or "").strip()
+        if not partner_id:
+            raise HTTPException(status_code=400, detail="A partner_id is required to connect a partner.")
+        from deeptutor.services.partners import get_partner_manager
+
+        if not get_partner_manager().partner_exists(partner_id):
+            raise HTTPException(status_code=400, detail=f"No partner named {partner_id!r}.")
+    else:
+        raw_cwd = (payload.cwd or "").strip()
+        if raw_cwd:
+            try:
+                resolved_cwd = str(assert_path_allowed(raw_cwd))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         manager = current_kb_manager()
-        entry = manager.register_subagent_connection(name, agent_kind, cwd=resolved_cwd)
+        entry = manager.register_subagent_connection(
+            name, agent_kind, cwd=resolved_cwd, partner_id=partner_id
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover - defensive
@@ -140,6 +170,7 @@ async def create_connection(payload: ConnectSubagentRequest):
         "name": name,
         "agent_kind": entry["agent_kind"],
         "cwd": entry["cwd"],
+        "partner_id": entry.get("partner_id", ""),
     }
 
 
@@ -190,6 +221,7 @@ async def message_connection(name: str, payload: SubagentMessageRequest):
 
     kind = str(meta.get("agent_kind") or "")
     cwd = str(meta.get("cwd") or "")
+    partner_id = str(meta.get("partner_id") or "")
     backend = get_backend(kind)
     if backend is None:
         raise HTTPException(status_code=400, detail=f"Unknown agent kind: {kind!r}")
@@ -212,6 +244,7 @@ async def message_connection(name: str, payload: SubagentMessageRequest):
                     cwd=cwd or None,
                     session_id=resume_id,
                     config=config,
+                    partner_id=partner_id or None,
                 )
                 await queue.put(("done", res))
             except Exception as exc:  # pragma: no cover - defensive

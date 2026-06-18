@@ -101,6 +101,8 @@ def compose_enabled_tools(
     capability_owned: Iterable[str] = (),
     exclusive: bool = False,
     builtin_whitelist: set[str] | None = None,
+    forced: Iterable[str] = (),
+    suppressed: Iterable[str] = (),
 ) -> list[str]:
     """Compose the per-turn enabled-tool list.
 
@@ -135,12 +137,20 @@ def compose_enabled_tools(
     subtracts. User-toggled tools (step 1) and capability-owned tools (step 3)
     are unaffected — they have their own gates.
 
+    ``forced`` tools are appended unconditionally — they bypass both the
+    ``builtin_whitelist`` and the context gates (used by the partner runtime to
+    mandate ``partner_read`` / ``partner_memorize`` / ``partner_search``).
+    ``suppressed`` tools are removed from the final list regardless of how they
+    got there (the partner runtime suppresses chat's ``read_memory`` /
+    ``write_memory`` in favour of the partner variants). Both apply in the
+    ``exclusive`` branch too.
+
     The result is ordered and deduplicated. ``optional_whitelist`` is still
     expected to exclude ``AUTO_MOUNTED_TOOLS`` via :func:`default_optional_tools`.
     """
     if exclusive:
         owned = [str(name) for name in capability_owned if str(name).strip()]
-        return _ordered_unique([*owned, "ask_user"])
+        return _finalize([*owned, "ask_user"], forced, suppressed)
 
     def _builtin_allowed(name: str) -> bool:
         return builtin_whitelist is None or name in builtin_whitelist
@@ -157,7 +167,17 @@ def compose_enabled_tools(
     for always_on in ("write_memory", "web_fetch", "github", "ask_user", "cron"):
         if _builtin_allowed(always_on):
             composed.append(always_on)
-    return _ordered_unique(composed)
+    return _finalize(composed, forced, suppressed)
+
+
+def _finalize(
+    names: Iterable[str], forced: Iterable[str], suppressed: Iterable[str]
+) -> list[str]:
+    """Append ``forced`` (bypassing all gates), dedupe, then drop ``suppressed``."""
+    out = list(names)
+    out.extend(str(name) for name in forced if str(name).strip())
+    suppressed_set = {str(name) for name in suppressed}
+    return [name for name in _ordered_unique(out) if name not in suppressed_set]
 
 
 def _ordered_unique(names: Iterable[str]) -> list[str]:

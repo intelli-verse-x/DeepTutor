@@ -592,3 +592,278 @@ async def test_codex_options_tolerate_missing_cache(monkeypatch, tmp_path) -> No
     assert codex.available is False
     assert codex.models == []
     assert codex.allow_custom_model is True
+
+
+# ---- registry: partner backend is registered but not a local CLI -------------
+
+
+def test_registry_partner_is_non_cli_backend() -> None:
+    from deeptutor.services.subagent import PARTNER_BACKEND_KIND, get_backend, list_backend_kinds
+
+    assert PARTNER_BACKEND_KIND in list_backend_kinds()
+    backend = get_backend(PARTNER_BACKEND_KIND)
+    assert backend is not None
+    assert backend.local_cli is False
+    assert get_backend("claude_code").local_cli is True
+
+
+@pytest.mark.asyncio
+async def test_detect_all_excludes_partner_backend() -> None:
+    from deeptutor.services.subagent import detect_all
+
+    kinds = {d.kind for d in await detect_all()}
+    assert "partner" not in kinds
+    assert kinds <= {"claude_code", "codex"}
+
+
+# ---- partner backend: drive a partner as a subagent --------------------------
+
+
+class _FakePartnerInstance:
+    def __init__(self, running: bool = True) -> None:
+        self.running = running
+
+
+class _FakePartnerManager:
+    """Stands in for the partner manager: records calls, scripts a reply/trace."""
+
+    def __init__(self, *, exists: bool = True, running: bool = True, reply: str = "Hi from partner.") -> None:
+        self._exists = exists
+        self._running = running
+        self._reply = reply
+        self.started: list[str] = []
+        self.sent: list[dict] = []
+        self._trace: list = []
+
+    def script_trace(self, events: list) -> None:
+        self._trace = events
+
+    def partner_exists(self, pid: str) -> bool:
+        return self._exists
+
+    def get_partner(self, pid: str):
+        return _FakePartnerInstance(self._running) if self._running else None
+
+    async def start_partner(self, pid: str):
+        self.started.append(pid)
+        self._running = True
+        return _FakePartnerInstance(True)
+
+    async def send_message(self, pid, content, *, session_key, media=None, on_event=None):
+        self.sent.append(
+            {"pid": pid, "content": content, "session_key": session_key, "media": media or []}
+        )
+        if on_event is not None:
+            for ev in self._trace:
+                await on_event(ev)
+        return self._reply
+
+
+def _patch_manager(monkeypatch, manager) -> None:
+    import deeptutor.services.partners as partners_pkg
+
+    monkeypatch.setattr(partners_pkg, "get_partner_manager", lambda: manager)
+
+
+@pytest.mark.asyncio
+async def test_partner_consult_mints_session_key_and_returns_reply(monkeypatch) -> None:
+    from deeptutor.core.stream import StreamEvent, StreamEventType
+    from deeptutor.services.subagent.partner import PartnerBackend
+
+    manager = _FakePartnerManager(reply="The answer.")
+    manager.script_trace(
+        [
+            StreamEvent(type=StreamEventType.THINKING, content="thinking…"),
+            StreamEvent(type=StreamEventType.TOOL_CALL, content="web_search", metadata={"call_id": "c1", "args": {"q": "x"}}),
+            StreamEvent(type=StreamEventType.CONTENT, content="The answer.", metadata={"call_id": "c2"}),
+            StreamEvent(type=StreamEventType.DONE),  # bookkeeping → dropped
+        ]
+    )
+    _patch_manager(monkeypatch, manager)
+
+    emitted: list[tuple[str, str]] = []
+
+    async def on_event(ev):
+        emitted.append((ev.kind, ev.text))
+
+    result = await PartnerBackend().consult("hello", on_event=on_event, partner_id="paul")
+
+    assert result.success is True
+    assert result.final_text == "The answer."
+    # First consult mints a fresh, colon-free partner session key …
+    assert result.session_id.startswith("dt-")
+    # … and send_message used exactly that key.
+    assert manager.sent[0]["session_key"] == result.session_id
+    assert manager.sent[0]["pid"] == "paul"
+    # The substantive trace is forwarded; the DONE marker is dropped.
+    kinds = [k for k, _ in emitted]
+    assert "reasoning" in kinds and "tool" in kinds and "text" in kinds
+    assert result.event_count == 3
+
+
+@pytest.mark.asyncio
+async def test_partner_consult_resumes_given_session(monkeypatch) -> None:
+    from deeptutor.services.subagent.partner import PartnerBackend
+
+    manager = _FakePartnerManager()
+    _patch_manager(monkeypatch, manager)
+
+    async def on_event(ev):
+        pass
+
+    result = await PartnerBackend().consult(
+        "again", on_event=on_event, partner_id="paul", session_id="dt-abc123"
+    )
+    # A remembered key is reused verbatim — the partner session continues.
+    assert result.session_id == "dt-abc123"
+    assert manager.sent[0]["session_key"] == "dt-abc123"
+
+
+@pytest.mark.asyncio
+async def test_partner_consult_starts_partner_when_idle(monkeypatch) -> None:
+    from deeptutor.services.subagent.partner import PartnerBackend
+
+    manager = _FakePartnerManager(running=False)
+    _patch_manager(monkeypatch, manager)
+
+    async def on_event(ev):
+        pass
+
+    await PartnerBackend().consult("q", on_event=on_event, partner_id="paul")
+    assert manager.started == ["paul"]  # brought online before messaging
+
+
+@pytest.mark.asyncio
+async def test_partner_consult_requires_partner_id() -> None:
+    from deeptutor.services.subagent.partner import PartnerBackend
+
+    async def on_event(ev):
+        pass
+
+    result = await PartnerBackend().consult("q", on_event=on_event)
+    assert result.success is False
+    assert "partner" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_partner_consult_unknown_partner(monkeypatch) -> None:
+    from deeptutor.services.subagent.partner import PartnerBackend
+
+    manager = _FakePartnerManager(exists=False)
+    _patch_manager(monkeypatch, manager)
+
+    async def on_event(ev):
+        pass
+
+    result = await PartnerBackend().consult("q", on_event=on_event, partner_id="ghost")
+    assert result.success is False
+    assert manager.sent == []  # never messaged a non-existent partner
+
+
+@pytest.mark.asyncio
+async def test_partner_consult_empty_reply_is_unsuccessful(monkeypatch) -> None:
+    from deeptutor.services.subagent.partner import PartnerBackend
+
+    manager = _FakePartnerManager(reply="")
+    _patch_manager(monkeypatch, manager)
+
+    async def on_event(ev):
+        pass
+
+    result = await PartnerBackend().consult("q", on_event=on_event, partner_id="paul")
+    assert result.success is False
+    assert result.final_text == ""
+
+
+def _partner_trace_state() -> dict[str, dict[str, str]]:
+    return {"text": {}, "reason": {}, "pending_tools": {}}
+
+
+def test_partner_event_mapping_covers_channels() -> None:
+    from deeptutor.core.stream import StreamEvent, StreamEventType
+    from deeptutor.services.subagent.partner import _to_subagent_events
+
+    def kinds(etype, **kw):
+        return [
+            e.kind
+            for e in _to_subagent_events(StreamEvent(type=etype, **kw), _partner_trace_state())
+        ]
+
+    assert kinds(StreamEventType.CONTENT, content="hi") == ["text"]
+    assert kinds(StreamEventType.THINKING, content="plan") == ["reasoning"]
+    # A tool call without a call_id can't be paired -> emitted immediately.
+    assert kinds(StreamEventType.TOOL_CALL, content="rag") == ["tool"]
+    # A tool result with no buffered call -> just the result row.
+    assert kinds(StreamEventType.TOOL_RESULT, content="rows") == ["tool_result"]
+    assert kinds(StreamEventType.ERROR, content="boom") == ["error"]
+    # Status / bookkeeping markers are dropped (the tool rows already carry the
+    # substance - keeping the trace clean like the CLI backends).
+    assert kinds(StreamEventType.PROGRESS, content="step 1") == []
+    assert kinds(StreamEventType.RESULT, content="final") == []
+    assert kinds(StreamEventType.DONE) == []
+    # Only a truly-empty CONTENT delta is dropped; whitespace is preserved so
+    # streamed spacing survives the accumulation.
+    assert kinds(StreamEventType.CONTENT, content="") == []
+    assert kinds(StreamEventType.CONTENT, content=" ") == ["text"]
+
+
+def test_partner_tool_call_pairs_with_its_result_adjacently() -> None:
+    # The loop dispatches tools in parallel - both TOOL_CALL events, then both
+    # TOOL_RESULT events - sharing a call_id per tool. Each call is buffered and
+    # re-emitted right before its own result, so the trace reads as adjacent
+    # call -> result pairs (never two calls then two results).
+    from deeptutor.core.stream import StreamEvent, StreamEventType
+    from deeptutor.services.subagent.partner import _to_subagent_events
+
+    st = _partner_trace_state()
+    a = _to_subagent_events(
+        StreamEvent(
+            type=StreamEventType.TOOL_CALL,
+            content="partner_search",
+            metadata={"call_id": "c1", "args": {"query": "Agentic RAG"}},
+        ),
+        st,
+    )
+    b = _to_subagent_events(
+        StreamEvent(
+            type=StreamEventType.TOOL_CALL,
+            content="read_skill",
+            metadata={"call_id": "c2", "args": {"name": "x"}},
+        ),
+        st,
+    )
+    assert a == [] and b == []  # both deferred until their results
+
+    r1 = _to_subagent_events(
+        StreamEvent(type=StreamEventType.TOOL_RESULT, content="hits", metadata={"call_id": "c1"}),
+        st,
+    )
+    assert [e.kind for e in r1] == ["tool", "tool_result"]
+    assert "partner_search" in r1[0].text and "Agentic RAG" in r1[0].text
+    assert r1[1].text == "hits"
+
+    r2 = _to_subagent_events(
+        StreamEvent(type=StreamEventType.TOOL_RESULT, content="body", metadata={"call_id": "c2"}),
+        st,
+    )
+    assert [e.kind for e in r2] == ["tool", "tool_result"]
+    assert "read_skill" in r2[0].text
+    # No shared merge_id - each call and result is its own row.
+    assert not any(e.meta.get("merge_id") for e in r1 + r2)
+
+
+def test_partner_content_accumulates_cumulatively() -> None:
+    # Incremental CONTENT deltas accumulate into a growing full-text row under a
+    # stable merge_id - so the streamed answer never gets wiped by a new chunk.
+    from deeptutor.core.stream import StreamEvent, StreamEventType
+    from deeptutor.services.subagent.partner import _to_subagent_events
+
+    st = _partner_trace_state()
+    a = _to_subagent_events(
+        StreamEvent(type=StreamEventType.CONTENT, content="The ", metadata={"call_id": "f1"}), st
+    )
+    b = _to_subagent_events(
+        StreamEvent(type=StreamEventType.CONTENT, content="answer", metadata={"call_id": "f1"}), st
+    )
+    assert a[0].text == "The " and b[0].text == "The answer"
+    assert a[0].meta["merge_id"] == b[0].meta["merge_id"] == "text:f1"

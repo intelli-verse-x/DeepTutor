@@ -285,7 +285,7 @@ interface KnowledgeBase {
   metadata?: {
     /** Connected-source kind, e.g. "obsidian" | "subagent". */
     type?: string;
-    /** Backend of a connected subagent: "claude_code" | "codex". */
+    /** Backend of a connected subagent: "claude_code" | "codex" | "partner". */
     agent_kind?: string;
   };
 }

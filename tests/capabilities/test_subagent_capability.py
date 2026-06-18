@@ -141,7 +141,9 @@ class _FakeBackend:
         self.calls: list[tuple[str, str | None]] = []
         self.last_images: list[str] | None = None
 
-    async def consult(self, question, *, on_event, cwd, session_id, config, images=None):
+    async def consult(
+        self, question, *, on_event, cwd, session_id, config, images=None, partner_id=None
+    ):
         self.calls.append((question, session_id))
         self.last_images = images
         await on_event(SubagentEvent(kind="tool", text="$ ls"))

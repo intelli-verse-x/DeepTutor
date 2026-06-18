@@ -137,8 +137,12 @@ class TestConfigAndSoul:
         body = client.get("/api/v1/partners/tool-options").json()
         assert {"tools", "builtin_tools", "mcp_tools"} <= set(body)
         builtin_names = {t["name"] for t in body["builtin_tools"]}
-        # The memory tools are configurable built-ins now.
-        assert {"rag", "read_memory", "write_memory"} <= builtin_names
+        # rag stays owner-configurable; the chat memory tools are NOT — partners
+        # use the mandatory partner_read / partner_memorize / partner_search
+        # instead, so they never surface in the partner config UI.
+        assert "rag" in builtin_names
+        assert "read_memory" not in builtin_names
+        assert "write_memory" not in builtin_names
 
     def test_avatar_roundtrip_and_validation(self, client):
         _create(client)

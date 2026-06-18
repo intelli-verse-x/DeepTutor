@@ -420,13 +420,15 @@ async def tool_options():
 
     ``tools`` mirrors the user-toggleable system tools (the same pool the
     chat composer / settings expose); ``builtin_tools`` lists the auto-mounted
-    built-in tools (rag / read_memory / web_fetch / …) the owner can allow or
-    deny; ``mcp_tools`` lists every configured MCP tool the partner could be
-    allowed to load.
+    built-in tools (rag / web_fetch / …) the owner can allow or deny;
+    ``mcp_tools`` lists every configured MCP tool the partner could be allowed
+    to load. ``read_memory`` / ``write_memory`` are excluded: partners use the
+    mandatory ``partner_read`` / ``partner_memorize`` / ``partner_search`` tools
+    instead, which are always on and not owner-configurable.
     """
     from deeptutor.api.utils.tool_options import build_tool_options
 
-    return await build_tool_options()
+    return await build_tool_options(exclude_builtin={"read_memory", "write_memory"})
 
 
 # ── Create / read / update / lifecycle ─────────────────────────

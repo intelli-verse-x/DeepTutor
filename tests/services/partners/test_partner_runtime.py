@@ -446,20 +446,22 @@ class TestBuiltinToolsAndMemory:
         assert context.allowed_builtin_tools == ["rag", "web_fetch"]
 
     @pytest.mark.asyncio
-    async def test_turn_runs_against_owner_memory(self, partners_root, fake_orchestrator):
-        """The turn resolves memory to the admin (owner) workspace, not the
-        partner's own empty scope — so read_memory can know the user."""
-        from deeptutor.multi_user.paths import get_admin_path_service
+    async def test_turn_runs_against_partner_memory(self, partners_root, fake_orchestrator):
+        """The turn resolves memory to the partner's OWN synthetic workspace, not
+        the owner's. The partner_* tools (force-mounted) own the split-memory
+        model: partner_read folds in the owner's shared L3 on top, while
+        partner_memorize writes only the partner's own scope."""
+        from deeptutor.partners.config.paths import get_partner_workspace
 
         fake_orchestrator.script = _finish("ok")
         runner = _runner(partners_root)
 
         await runner.process_message(_msg())
 
-        admin_memory = get_admin_path_service().get_memory_dir().resolve()
+        partner_memory = (get_partner_workspace("ada") / "memory").resolve()
         seen = fake_orchestrator.seen_memory_roots[0].resolve()
-        assert seen == admin_memory
-        assert "partners" not in seen.parts  # NOT the partner's own scope
+        assert seen == partner_memory
+        assert "partners" in seen.parts  # the partner's own scope, NOT admin
 
     @pytest.mark.asyncio
     async def test_memory_override_is_reset_after_turn(self, partners_root, fake_orchestrator):

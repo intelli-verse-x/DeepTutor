@@ -13,11 +13,11 @@ flavours exist today:
   engine index the user built elsewhere (LlamaIndex / GraphRAG / LightRAG).
   Retrieval reads that index in place — the indexing step is skipped, and the
   KB is queried by its bound ``rag_provider`` exactly like an ordinary KB.
-* ``subagent`` — a pointer to one of the user's *local* agent CLIs (Claude
-  Code / Codex). It has no path on disk: ``agent_kind`` names the backend and
-  an optional ``cwd`` is the working directory. There is nothing to index or
-  retrieve — the subagent capability drives the live CLI through the
-  ``consult_subagent`` tool. See ``capabilities/subagent``.
+* ``subagent`` — a pointer to a connected agent the capability drives live
+  through the ``consult_subagent`` tool. ``agent_kind`` names the backend: a
+  *local* CLI (Claude Code / Codex), keyed by an optional ``cwd``; or a
+  ``partner`` (one of the user's own partners), keyed by ``partner_id``. It has
+  no path on disk and nothing to index or retrieve. See ``capabilities/subagent``.
 
 All connected flavours share the same lifecycle quirks: no on-disk folder under
 ``base_dir``, no embedding reconcile, and deletion must never touch the

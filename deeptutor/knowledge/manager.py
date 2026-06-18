@@ -788,18 +788,21 @@ class KnowledgeBaseManager:
         agent_kind: str,
         *,
         cwd: str = "",
+        partner_id: str = "",
         description: str = "",
     ) -> dict:
-        """Register a connected subagent (local Claude Code / Codex) as a KB.
+        """Register a connected subagent (local Claude Code / Codex, or a partner) as a KB.
 
         Like the other connected types this creates no folder and runs no index:
         it records a ``type: subagent`` pointer naming the backend (``agent_kind``)
-        and an optional working directory (``cwd``). The subagent capability
-        drives the live CLI; there is nothing on disk to retrieve or reconcile.
-        Raises ``ValueError`` on a missing name/kind or a name clash.
+        and its target — an optional working directory (``cwd``) for a local CLI,
+        or the bound ``partner_id`` for the partner backend. The subagent
+        capability drives the live agent; there is nothing on disk to retrieve or
+        reconcile. Raises ``ValueError`` on a missing name/kind or a name clash.
         """
         name = (name or "").strip()
         agent_kind = (agent_kind or "").strip()
+        partner_id = (partner_id or "").strip()
         if not name:
             raise ValueError("Connection name is required.")
         if not agent_kind:
@@ -822,6 +825,7 @@ class KnowledgeBaseManager:
             "type": SUBAGENT_KB_TYPE,
             "agent_kind": agent_kind,
             "cwd": resolved_cwd,
+            "partner_id": partner_id,
             "description": description or f"Connected subagent: {name}",
             "status": "ready",
             "created_at": now,
@@ -976,6 +980,7 @@ class KnowledgeBaseManager:
                 # Subagent connection fields (None for non-subagent KBs).
                 "agent_kind": kb_config.get("agent_kind"),
                 "cwd": kb_config.get("cwd"),
+                "partner_id": kb_config.get("partner_id"),
             }
             metadata.update(self._embedding_fields(kb_config))
             # Remove None values

@@ -176,6 +176,17 @@ export default function ToolPicker({
         </div>
       )}
 
+      <div>
+        <h4 className="mb-1.5 text-[13px] font-medium text-[var(--muted-foreground)]">
+          {t("Memory")}
+        </h4>
+        <p className="px-2 text-[11.5px] text-[var(--muted-foreground)]">
+          {t(
+            "Always on and built in — not configurable. partner_read sees the owner's shared memory plus the partner's own; partner_memorize writes only the partner's own memory; partner_search keyword-searches past conversations.",
+          )}
+        </p>
+      </div>
+
       {options.mcp_tools.length > 0 && (
         <div>
           <div className="mb-1.5 flex items-baseline justify-between">
