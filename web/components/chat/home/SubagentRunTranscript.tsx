@@ -84,7 +84,9 @@ function BulletLine({
 }) {
   return (
     <div className="flex gap-2 leading-[1.65] text-[var(--foreground)]">
-      <span className={`mt-[3px] shrink-0 text-[10px] leading-[1.5] ${bulletClass}`}>
+      <span
+        className={`mt-[3px] shrink-0 text-[10px] leading-[1.5] ${bulletClass}`}
+      >
         ●
       </span>
       <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
@@ -113,7 +115,11 @@ function SubagentLine({ channel, text }: { channel: string; text: string }) {
       );
     case "text":
     case "result":
-      return <BulletLine bulletClass="text-[var(--foreground)]/70">{text}</BulletLine>;
+      return (
+        <BulletLine bulletClass="text-[var(--foreground)]/70">
+          {text}
+        </BulletLine>
+      );
     case "tool":
       return (
         <BulletLine bulletClass="text-amber-500">
@@ -149,7 +155,8 @@ function ToolResultBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const lines = text.split("\n");
   const overflow = lines.length > RESULT_PREVIEW_LINES;
-  const shown = open || !overflow ? lines : lines.slice(0, RESULT_PREVIEW_LINES);
+  const shown =
+    open || !overflow ? lines : lines.slice(0, RESULT_PREVIEW_LINES);
   const hidden = lines.length - RESULT_PREVIEW_LINES;
   return (
     <div className="ml-4 rounded-md border border-[var(--border)]/60 bg-[var(--muted)]/50 px-2.5 py-1.5">

@@ -141,7 +141,9 @@ async def create_connection(payload: ConnectSubagentRequest, auth=Depends(requir
         await require_admin(auth)
         partner_id = (payload.partner_id or "").strip()
         if not partner_id:
-            raise HTTPException(status_code=400, detail="A partner_id is required to connect a partner.")
+            raise HTTPException(
+                status_code=400, detail="A partner_id is required to connect a partner."
+            )
         from deeptutor.services.partners import get_partner_manager
 
         if not get_partner_manager().partner_exists(partner_id):

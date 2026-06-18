@@ -46,6 +46,8 @@
 
 ### 📦 Releases
 
+> **[2026.6.18]** [v1.4.8](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.8) — Connect your own **Partners** under **My Agents** and consult them live in chat (their persona, library and skills answer through their own loop), and every Partner gains a private memory via `partner_read` / `partner_memorize` / `partner_search`.
+
 > **[2026.6.18]** [v1.4.7](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.7) — Connect your local **Claude Code / Codex** and consult it live mid-turn, **My Agents** graduates to a top-level `/agents`, and Partner conversations gain branch / resume / delete with a replayable trace.
 
 > **[2026.6.17]** [v1.4.6](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.6) — Four-surface consolidation: a **Knowledge Center** with GraphRAG / PageIndex / LightRAG engines and linked-KB / Obsidian mounts, a Space learning dashboard with **My Agents** and top-level Memory, plus document parsing / voice / media settings.

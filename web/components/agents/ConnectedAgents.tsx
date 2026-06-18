@@ -156,54 +156,58 @@ export default function ConnectedAgents() {
                 ? partners.find((p) => p.partner_id === conn.partner_id)
                 : undefined;
             return (
-            <div
-              key={conn.name}
-              className="group flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3"
-            >
-              {partner ? (
-                <PartnerAvatar
-                  name={partner.name}
-                  emoji={partner.emoji}
-                  color={partner.color}
-                  image={partner.avatar}
-                  size={40}
-                  className="shrink-0"
-                />
-              ) : (
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--border)]/60 bg-[var(--background)] text-[var(--foreground)]">
-                  {Glyph ? <Glyph size={20} /> : <Cpu size={18} strokeWidth={1.6} />}
-                </span>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13.5px] font-semibold tracking-tight text-[var(--foreground)]">
-                  {conn.name}
-                </div>
-                <div className="mt-0.5 truncate text-[11.5px] text-[var(--muted-foreground)]">
-                  {backendLabel(conn.agent_kind, tr)}
-                  {conn.agent_kind === PARTNER_KIND
-                    ? conn.partner_id
-                      ? ` · ${partnerName(conn.partner_id)}`
-                      : ""
-                    : conn.cwd
-                      ? ` · ${conn.cwd}`
-                      : ""}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleDisconnect(conn.name)}
-                disabled={busyName === conn.name}
-                title={tr({ zh: "断开", en: "Disconnect" })}
-                aria-label={tr({ zh: "断开", en: "Disconnect" })}
-                className="rounded-lg border border-[var(--border)]/50 p-2 text-[var(--muted-foreground)] transition-colors hover:border-red-300 hover:text-red-600 disabled:opacity-50 dark:hover:border-red-900 dark:hover:text-red-400"
+              <div
+                key={conn.name}
+                className="group flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] px-4 py-3"
               >
-                {busyName === conn.name ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {partner ? (
+                  <PartnerAvatar
+                    name={partner.name}
+                    emoji={partner.emoji}
+                    color={partner.color}
+                    image={partner.avatar}
+                    size={40}
+                    className="shrink-0"
+                  />
                 ) : (
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--border)]/60 bg-[var(--background)] text-[var(--foreground)]">
+                    {Glyph ? (
+                      <Glyph size={20} />
+                    ) : (
+                      <Cpu size={18} strokeWidth={1.6} />
+                    )}
+                  </span>
                 )}
-              </button>
-            </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13.5px] font-semibold tracking-tight text-[var(--foreground)]">
+                    {conn.name}
+                  </div>
+                  <div className="mt-0.5 truncate text-[11.5px] text-[var(--muted-foreground)]">
+                    {backendLabel(conn.agent_kind, tr)}
+                    {conn.agent_kind === PARTNER_KIND
+                      ? conn.partner_id
+                        ? ` · ${partnerName(conn.partner_id)}`
+                        : ""
+                      : conn.cwd
+                        ? ` · ${conn.cwd}`
+                        : ""}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleDisconnect(conn.name)}
+                  disabled={busyName === conn.name}
+                  title={tr({ zh: "断开", en: "Disconnect" })}
+                  aria-label={tr({ zh: "断开", en: "Disconnect" })}
+                  className="rounded-lg border border-[var(--border)]/50 p-2 text-[var(--muted-foreground)] transition-colors hover:border-red-300 hover:text-red-600 disabled:opacity-50 dark:hover:border-red-900 dark:hover:text-red-400"
+                >
+                  {busyName === conn.name ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
             );
           })}
         </div>
@@ -277,7 +281,12 @@ function ConnectModal({
       return;
     }
     if (existingNames.includes(trimmed)) {
-      setError(tr({ zh: "已存在同名连接。", en: "A connection with this name already exists." }));
+      setError(
+        tr({
+          zh: "已存在同名连接。",
+          en: "A connection with this name already exists.",
+        }),
+      );
       return;
     }
     if (isPartner && !partnerId) {
@@ -382,7 +391,10 @@ function ConnectModal({
                 setName(e.target.value);
                 setNameTouched(true);
               }}
-              placeholder={tr({ zh: "例如：我的代码助手", en: "e.g. My coding agent" })}
+              placeholder={tr({
+                zh: "例如：我的代码助手",
+                en: "e.g. My coding agent",
+              })}
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[13px] text-[var(--foreground)] outline-none focus:border-[var(--ring)]"
             />
           </div>
@@ -390,7 +402,10 @@ function ConnectModal({
           {!isPartner && (
             <div>
               <label className="mb-1.5 block text-[12px] font-medium text-[var(--foreground)]">
-                {tr({ zh: "工作目录（可选）", en: "Working directory (optional)" })}
+                {tr({
+                  zh: "工作目录（可选）",
+                  en: "Working directory (optional)",
+                })}
               </label>
               <input
                 value={cwd}
@@ -414,7 +429,9 @@ function ConnectModal({
           )}
 
           {error && (
-            <p className="text-[12px] text-red-600 dark:text-red-400">{error}</p>
+            <p className="text-[12px] text-red-600 dark:text-red-400">
+              {error}
+            </p>
           )}
         </div>
 

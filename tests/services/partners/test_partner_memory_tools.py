@@ -47,9 +47,7 @@ def _write_owner_preference(text: str) -> None:
 
 def test_memorize_writes_own_not_owner(partners_root: Path) -> None:
     with user_context(partner_user(PID, name="Alice")):
-        result = _run(
-            PartnerMemorizeTool().execute(op="add", text="prefers terse answers")
-        )
+        result = _run(PartnerMemorizeTool().execute(op="add", text="prefers terse answers"))
     assert result.success, result.content
 
     own_pref = get_partner_workspace(PID) / "memory" / "L3" / "preferences.md"

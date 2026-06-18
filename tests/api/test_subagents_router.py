@@ -237,9 +237,7 @@ def test_message_connection_streams_and_persists(client, monkeypatch, tmp_path):
             await on_event(SubagentEvent(kind="text", text="hi", meta={"merge_id": "txt:m:0"}))
             return ConsultResult(final_text="hi", session_id="sess-9", success=True, event_count=1)
 
-    monkeypatch.setattr(
-        "deeptutor.services.subagent.get_backend", lambda kind: _FakeBackend()
-    )
+    monkeypatch.setattr("deeptutor.services.subagent.get_backend", lambda kind: _FakeBackend())
 
     res = client.post(
         "/api/v1/subagents/connections/MyClaude/message",

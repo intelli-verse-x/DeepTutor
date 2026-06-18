@@ -18,8 +18,7 @@ from deeptutor.services.subagent.partner import PartnerBackend
 from deeptutor.services.subagent.types import DetectResult
 
 _BACKENDS: dict[str, SubagentBackend] = {
-    backend.kind: backend
-    for backend in (ClaudeCodeBackend(), CodexBackend(), PartnerBackend())
+    backend.kind: backend for backend in (ClaudeCodeBackend(), CodexBackend(), PartnerBackend())
 }
 
 

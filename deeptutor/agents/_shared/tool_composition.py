@@ -170,9 +170,7 @@ def compose_enabled_tools(
     return _finalize(composed, forced, suppressed)
 
 
-def _finalize(
-    names: Iterable[str], forced: Iterable[str], suppressed: Iterable[str]
-) -> list[str]:
+def _finalize(names: Iterable[str], forced: Iterable[str], suppressed: Iterable[str]) -> list[str]:
     """Append ``forced`` (bypassing all gates), dedupe, then drop ``suppressed``."""
     out = list(names)
     out.extend(str(name) for name in forced if str(name).strip())

@@ -125,9 +125,7 @@ class CodexBackend(SubagentBackend):
         partner_id: str | None = None,  # noqa: ARG002 — partner-only; ignored here
     ) -> ConsultResult:
         config = config or BackendConfig()
-        cmd = self._build_command(
-            question, session_id=session_id, config=config, images=images
-        )
+        cmd = self._build_command(question, session_id=session_id, config=config, images=images)
         result = ConsultResult(session_id=session_id)
 
         async def emit(
@@ -219,7 +217,10 @@ class CodexBackend(SubagentBackend):
             await emit(EVENT_LOG, _compact(event), event)
 
     def _handle_item(self, item: dict[str, Any], etype: str, result: ConsultResult) -> None:
-        if etype.endswith(".completed") and _item_type(item) in ("agent_message", "assistant_message"):
+        if etype.endswith(".completed") and _item_type(item) in (
+            "agent_message",
+            "assistant_message",
+        ):
             text = _item_text(item)
             if text:
                 result.final_text = text
@@ -275,7 +276,9 @@ def _render_item(item: dict[str, Any], etype: str) -> tuple[str, str]:
         return EVENT_TOOL, _truncate(f"file change · {_compact(changes)}")
     if itype in ("mcp_tool_call", "tool_call"):
         name = str(item.get("name") or item.get("tool") or "tool")
-        return EVENT_TOOL, _truncate(f"{name} · {_compact(item.get('arguments') or item.get('input') or {})}")
+        return EVENT_TOOL, _truncate(
+            f"{name} · {_compact(item.get('arguments') or item.get('input') or {})}"
+        )
     if itype == "web_search":
         query = str(item.get("query") or item.get("action") or "").strip()
         # Start (or no query yet) → placeholder; completion → fill in the query.

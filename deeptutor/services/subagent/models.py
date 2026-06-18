@@ -135,7 +135,9 @@ async def _claude_options() -> BackendOptions:
 
 async def _codex_options() -> BackendOptions:
     backend = get_backend("codex")
-    ok, version = await probe_version([backend.cli_command, "--version"]) if backend else (False, "")
+    ok, version = (
+        await probe_version([backend.cli_command, "--version"]) if backend else (False, "")
+    )
     models: list[ModelOption] = []
     synced_at = ""
     cache = _codex_home() / "models_cache.json"

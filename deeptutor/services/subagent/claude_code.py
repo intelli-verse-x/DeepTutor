@@ -131,9 +131,7 @@ class ClaudeCodeBackend(SubagentBackend):
         partner_id: str | None = None,  # noqa: ARG002 — partner-only; ignored here
     ) -> ConsultResult:
         config = config or BackendConfig()
-        cmd = self._build_command(
-            question, session_id=session_id, config=config, images=images
-        )
+        cmd = self._build_command(question, session_id=session_id, config=config, images=images)
         result = ConsultResult(session_id=session_id)
         assistant_text: list[str] = []
         # Token-streaming accumulator: per content-block running text, keyed by the
@@ -245,9 +243,7 @@ class ClaudeCodeBackend(SubagentBackend):
         # Unknown event type — keep it visible as a log rather than dropping it.
         await emit(EVENT_LOG, _compact(event), event)
 
-    async def _handle_stream_event(
-        self, inner: Any, stream: dict[str, Any], emit: Any
-    ) -> None:
+    async def _handle_stream_event(self, inner: Any, stream: dict[str, Any], emit: Any) -> None:
         """Accumulate a partial Anthropic streaming event into a growing row.
 
         ``stream_event`` wraps a raw Messages-API event. We track the message id
@@ -282,7 +278,9 @@ class ClaudeCodeBackend(SubagentBackend):
         elif dtype == "thinking_delta":
             acc = stream["blocks"].get(idx, "") + str(delta.get("thinking") or "")
             stream["blocks"][idx] = acc
-            await emit(EVENT_REASONING, acc.strip(), inner, _merge("rsn", stream.get("msg_id"), idx))
+            await emit(
+                EVENT_REASONING, acc.strip(), inner, _merge("rsn", stream.get("msg_id"), idx)
+            )
 
 
 def _message_id(obj: dict[str, Any]) -> str:

@@ -57,24 +57,51 @@ const DEFAULTS: Required<
 };
 
 const PERMISSION_MODES: { value: string; label: Lang }[] = [
-  { value: "bypassPermissions", label: { zh: "绕过权限 · 全自主（推荐）", en: "Bypass permissions · autonomous (recommended)" } },
-  { value: "acceptEdits", label: { zh: "自动接受编辑", en: "Accept edits automatically" } },
-  { value: "default", label: { zh: "默认 · 可能等待确认", en: "Default · may wait for prompts" } },
-  { value: "plan", label: { zh: "计划模式 · 只读", en: "Plan mode · read-only" } },
+  {
+    value: "bypassPermissions",
+    label: {
+      zh: "绕过权限 · 全自主（推荐）",
+      en: "Bypass permissions · autonomous (recommended)",
+    },
+  },
+  {
+    value: "acceptEdits",
+    label: { zh: "自动接受编辑", en: "Accept edits automatically" },
+  },
+  {
+    value: "default",
+    label: { zh: "默认 · 可能等待确认", en: "Default · may wait for prompts" },
+  },
+  {
+    value: "plan",
+    label: { zh: "计划模式 · 只读", en: "Plan mode · read-only" },
+  },
 ];
 
 const SANDBOXES: { value: string; label: Lang }[] = [
   { value: "read-only", label: { zh: "只读", en: "Read-only" } },
-  { value: "workspace-write", label: { zh: "工作目录可写（推荐）", en: "Workspace write (recommended)" } },
+  {
+    value: "workspace-write",
+    label: { zh: "工作目录可写（推荐）", en: "Workspace write (recommended)" },
+  },
   { value: "danger-full-access", label: { zh: "完全访问", en: "Full access" } },
-  { value: "bypass", label: { zh: "绕过沙箱与审批", en: "Bypass sandbox & approvals" } },
+  {
+    value: "bypass",
+    label: { zh: "绕过沙箱与审批", en: "Bypass sandbox & approvals" },
+  },
 ];
 
 const APPROVALS: { value: string; label: Lang }[] = [
-  { value: "never", label: { zh: "从不询问（推荐）", en: "Never ask (recommended)" } },
+  {
+    value: "never",
+    label: { zh: "从不询问（推荐）", en: "Never ask (recommended)" },
+  },
   { value: "on-failure", label: { zh: "失败时询问", en: "On failure" } },
   { value: "on-request", label: { zh: "按需询问", en: "On request" } },
-  { value: "untrusted", label: { zh: "不可信命令时询问", en: "Untrusted commands" } },
+  {
+    value: "untrusted",
+    label: { zh: "不可信命令时询问", en: "Untrusted commands" },
+  },
 ];
 
 export function SubagentSettingsEditor({ kind }: { kind: string }) {
@@ -191,7 +218,8 @@ export function SubagentSettingsEditor({ kind }: { kind: string }) {
     [options, isCodex, config.effort, save],
   );
 
-  const displayName = options?.display_name ?? (isCodex ? "Codex" : "Claude Code");
+  const displayName =
+    options?.display_name ?? (isCodex ? "Codex" : "Claude Code");
 
   return (
     <div>
@@ -233,7 +261,10 @@ export function SubagentSettingsEditor({ kind }: { kind: string }) {
                 options.available
                   ? options.version
                   : options.detail ||
-                    tr({ zh: "未在 PATH 上找到该 CLI。", en: "CLI not found on PATH." })
+                    tr({
+                      zh: "未在 PATH 上找到该 CLI。",
+                      en: "CLI not found on PATH.",
+                    })
               }
               control={
                 <span
@@ -341,7 +372,9 @@ export function SubagentSettingsEditor({ kind }: { kind: string }) {
                       onChange={(e) =>
                         setConfig((p) => ({ ...p, model: e.target.value }))
                       }
-                      onBlur={(e) => void save({ model: e.target.value.trim() })}
+                      onBlur={(e) =>
+                        void save({ model: e.target.value.trim() })
+                      }
                     />
                   )}
                 </div>

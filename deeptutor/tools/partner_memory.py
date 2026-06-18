@@ -114,8 +114,7 @@ class PartnerReadTool(BaseTool):
             own = _concat_l3()
 
         sections = [
-            "## Shared memory (the owner's — read-only)\n\n"
-            + (shared or "(none yet)"),
+            "## Shared memory (the owner's — read-only)\n\n" + (shared or "(none yet)"),
             "## Your own memory\n\n" + (own or "(none yet — use partner_memorize to add)"),
         ]
         text = "\n\n".join(sections)

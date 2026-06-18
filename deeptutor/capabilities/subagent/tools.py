@@ -81,7 +81,9 @@ class ConsultSubagentTool(BaseTool):
             )
         question = str(kwargs.get("question") or "").strip()
         if not question:
-            return ToolResult(content="consult_subagent needs a non-empty 'question'.", success=False)
+            return ToolResult(
+                content="consult_subagent needs a non-empty 'question'.", success=False
+            )
 
         state = spec["state"]
         budget = int(spec["budget"])
@@ -100,15 +102,15 @@ class ConsultSubagentTool(BaseTool):
 
         backend = get_backend(str(spec.get("kind") or ""))
         if backend is None:
-            return ToolResult(content=f"Unknown subagent backend: {spec.get('kind')!r}", success=False)
+            return ToolResult(
+                content=f"Unknown subagent backend: {spec.get('kind')!r}", success=False
+            )
 
         state["count"] = int(state.get("count", 0)) + 1
         consult_index = state["count"]
         event_sink = kwargs.get("event_sink")
 
-        async def _stream(
-            channel: str, text: str, extra: dict[str, object] | None = None
-        ) -> None:
+        async def _stream(channel: str, text: str, extra: dict[str, object] | None = None) -> None:
             if event_sink is None or not text:
                 return
             metadata: dict[str, object] = {

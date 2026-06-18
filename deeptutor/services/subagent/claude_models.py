@@ -164,7 +164,7 @@ def _capture_model_screen() -> str | None:
         os.environ["LINES"] = str(_ROWS)
         try:
             os.chdir(workdir)
-            os.execvp("claude", ["claude"])
+            os.execvp("claude", ["claude"])  # nosec B606 B607 — PATH-resolved CLI in a forked PTY child, no shell
         except Exception:
             os._exit(127)
 
@@ -191,8 +191,10 @@ def _capture_model_screen() -> str | None:
                 time.sleep(1.3)
                 continue
             # 2) Once the composer is ready, open the model picker.
-            if trusted and not opened and (
-                "forshortcuts" in packed or "tryedit" in packed or 'try"' in packed
+            if (
+                trusted
+                and not opened
+                and ("forshortcuts" in packed or "tryedit" in packed or 'try"' in packed)
             ):
                 os.write(fd, b"/model")
                 time.sleep(0.5)

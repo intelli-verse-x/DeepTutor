@@ -208,20 +208,32 @@ async def test_claude_partial_messages_stream_cumulative_text() -> None:
         {"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_1"}}},
         {
             "type": "stream_event",
-            "event": {"type": "content_block_start", "index": 0,
-                      "content_block": {"type": "text", "text": ""}},
+            "event": {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            },
         },
         {
             "type": "stream_event",
-            "event": {"type": "content_block_delta", "index": 0,
-                      "delta": {"type": "text_delta", "text": "Hel"}},
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "Hel"},
+            },
         },
         {
             "type": "stream_event",
-            "event": {"type": "content_block_delta", "index": 0,
-                      "delta": {"type": "text_delta", "text": "lo"}},
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "lo"},
+            },
         },
-        {"type": "assistant", "message": {"id": "msg_1", "content": [{"type": "text", "text": "Hello"}]}},
+        {
+            "type": "assistant",
+            "message": {"id": "msg_1", "content": [{"type": "text", "text": "Hello"}]},
+        },
     ]
     for ev in events:
         await backend._handle_event(ev, result, assistant_text, stream, emit)
@@ -258,7 +270,12 @@ async def test_codex_event_parsing_thread_items_and_final() -> None:
         {"type": "item.started", "item": {"type": "command_execution", "command": "ls"}},
         {
             "type": "item.completed",
-            "item": {"type": "command_execution", "command": "ls", "exit_code": 0, "output": "a\nb"},
+            "item": {
+                "type": "command_execution",
+                "command": "ls",
+                "exit_code": 0,
+                "output": "a\nb",
+            },
         },
         {"type": "item.completed", "item": {"type": "agent_message", "text": "All done."}},
         {"type": "turn.completed", "usage": {}},
@@ -323,8 +340,14 @@ async def test_codex_item_updated_streams_cumulative_answer() -> None:
     events = [
         {"type": "item.started", "item": {"id": "m1", "type": "agent_message", "text": ""}},
         {"type": "item.updated", "item": {"id": "m1", "type": "agent_message", "text": "The ans"}},
-        {"type": "item.updated", "item": {"id": "m1", "type": "agent_message", "text": "The answer"}},
-        {"type": "item.completed", "item": {"id": "m1", "type": "agent_message", "text": "The answer is 42"}},
+        {
+            "type": "item.updated",
+            "item": {"id": "m1", "type": "agent_message", "text": "The answer"},
+        },
+        {
+            "type": "item.completed",
+            "item": {"id": "m1", "type": "agent_message", "text": "The answer is 42"},
+        },
     ]
     for ev in events:
         await backend._handle_event(ev, result, emit)
@@ -341,9 +364,7 @@ async def test_codex_item_updated_streams_cumulative_answer() -> None:
 @pytest.mark.asyncio
 async def test_codex_turn_failed_marks_error() -> None:
     backend = CodexBackend()
-    result, emitted = await _drive(
-        backend, [{"type": "turn.failed", "message": "boom"}]
-    )
+    result, emitted = await _drive(backend, [{"type": "turn.failed", "message": "boom"}])
     assert result.success is False and result.error == "boom"
     assert ("error", "boom") in emitted
 
@@ -405,7 +426,9 @@ def test_materialize_images_writes_only_resolvable_images(tmp_path) -> None:
     from deeptutor.services.subagent.images import materialize_images
 
     atts = [
-        Attachment(type="image", base64=_b64.b64encode(b"\x89PNGdata").decode(), mime_type="image/png"),
+        Attachment(
+            type="image", base64=_b64.b64encode(b"\x89PNGdata").decode(), mime_type="image/png"
+        ),
         Attachment(
             type="image",
             base64="data:image/jpeg;base64," + _b64.b64encode(b"JPEGdata").decode(),
@@ -627,7 +650,9 @@ class _FakePartnerInstance:
 class _FakePartnerManager:
     """Stands in for the partner manager: records calls, scripts a reply/trace."""
 
-    def __init__(self, *, exists: bool = True, running: bool = True, reply: str = "Hi from partner.") -> None:
+    def __init__(
+        self, *, exists: bool = True, running: bool = True, reply: str = "Hi from partner."
+    ) -> None:
         self._exists = exists
         self._running = running
         self._reply = reply
@@ -674,8 +699,14 @@ async def test_partner_consult_mints_session_key_and_returns_reply(monkeypatch) 
     manager.script_trace(
         [
             StreamEvent(type=StreamEventType.THINKING, content="thinking…"),
-            StreamEvent(type=StreamEventType.TOOL_CALL, content="web_search", metadata={"call_id": "c1", "args": {"q": "x"}}),
-            StreamEvent(type=StreamEventType.CONTENT, content="The answer.", metadata={"call_id": "c2"}),
+            StreamEvent(
+                type=StreamEventType.TOOL_CALL,
+                content="web_search",
+                metadata={"call_id": "c1", "args": {"q": "x"}},
+            ),
+            StreamEvent(
+                type=StreamEventType.CONTENT, content="The answer.", metadata={"call_id": "c2"}
+            ),
             StreamEvent(type=StreamEventType.DONE),  # bookkeeping → dropped
         ]
     )

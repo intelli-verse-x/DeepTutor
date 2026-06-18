@@ -87,7 +87,9 @@ export default function AgentSelector({
         )}
         <span
           className={`flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin-left] duration-300 ease-out ${
-            expanded ? "ml-1.5 max-w-[160px] opacity-100" : "ml-0 max-w-0 opacity-0"
+            expanded
+              ? "ml-1.5 max-w-[160px] opacity-100"
+              : "ml-0 max-w-0 opacity-0"
           }`}
         >
           <span className="min-w-0 truncate">{label}</span>
@@ -115,7 +117,9 @@ export default function AgentSelector({
                     setOpen(false);
                   }}
                   className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors active:bg-[var(--muted)]/70 ${
-                    active ? "bg-[var(--primary)]/[0.06]" : "hover:bg-[var(--muted)]/45"
+                    active
+                      ? "bg-[var(--primary)]/[0.06]"
+                      : "hover:bg-[var(--muted)]/45"
                   }`}
                 >
                   <RowGlyph size={15} className="shrink-0" />
@@ -123,7 +127,11 @@ export default function AgentSelector({
                     {agent.name}
                   </span>
                   {active && (
-                    <Check size={14} strokeWidth={2} className="shrink-0 text-[var(--primary)]" />
+                    <Check
+                      size={14}
+                      strokeWidth={2}
+                      className="shrink-0 text-[var(--primary)]"
+                    />
                   )}
                 </button>
               );
@@ -141,7 +149,9 @@ export default function AgentSelector({
                   aria-label={t("Fewer rounds")}
                   disabled={(budget ?? BUDGET_MIN) <= BUDGET_MIN}
                   onClick={() =>
-                    onBudgetChange(Math.max(BUDGET_MIN, (budget ?? BUDGET_MIN) - 1))
+                    onBudgetChange(
+                      Math.max(BUDGET_MIN, (budget ?? BUDGET_MIN) - 1),
+                    )
                   }
                   className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)]/60 hover:text-[var(--foreground)] disabled:opacity-40"
                 >
@@ -155,7 +165,9 @@ export default function AgentSelector({
                   aria-label={t("More rounds")}
                   disabled={(budget ?? BUDGET_MAX) >= BUDGET_MAX}
                   onClick={() =>
-                    onBudgetChange(Math.min(BUDGET_MAX, (budget ?? BUDGET_MIN) + 1))
+                    onBudgetChange(
+                      Math.min(BUDGET_MAX, (budget ?? BUDGET_MIN) + 1),
+                    )
                   }
                   className="flex h-5 w-5 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)]/60 hover:text-[var(--foreground)] disabled:opacity-40"
                 >

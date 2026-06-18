@@ -113,10 +113,10 @@ class PartnerBackend(SubagentBackend):
         #   adjacent. We hold each call (keyed by its call_id, shared with its
         #   result) and emit it back-to-back with its result, so the trace reads
         #   as call → result pairs.
-        state = {
-            "text": {},  # type: dict[str, str]
-            "reason": {},  # type: dict[str, str]
-            "pending_tools": {},  # type: dict[str, str]
+        state: dict[str, dict[str, str]] = {
+            "text": {},
+            "reason": {},
+            "pending_tools": {},
         }
 
         async def relay(event: "StreamEvent") -> None:

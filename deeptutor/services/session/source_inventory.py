@@ -730,7 +730,7 @@ def _load_partner_session(ref: str, *, language: str = "en") -> tuple[str, str]:
     turn, so a non-admin must not be able to pull a partner's transcript by
     hand-crafting a reference id. Returns ``("", "")`` on any miss.
     """
-    rest = ref[len(_PARTNER_REF_PREFIX):]
+    rest = ref[len(_PARTNER_REF_PREFIX) :]
     pid, _, session_key = rest.partition(":")
     pid, session_key = pid.strip(), session_key.strip()
     if not pid or not session_key:

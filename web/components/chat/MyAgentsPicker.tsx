@@ -285,7 +285,8 @@ export default function MyAgentsPicker({
   // source buckets.
   const chips = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const row of rows) counts.set(row.ownerKey, (counts.get(row.ownerKey) ?? 0) + 1);
+    for (const row of rows)
+      counts.set(row.ownerKey, (counts.get(row.ownerKey) ?? 0) + 1);
     const importAgents = [...agents]
       .sort(
         (a, b) => (b.lastSyncAt || b.createdAt) - (a.lastSyncAt || a.createdAt),
@@ -386,7 +387,9 @@ export default function MyAgentsPicker({
               content: String(m.content || ""),
             }));
       setPreview((cur) =>
-        cur && cur.row.id === row.id ? { ...cur, messages, loading: false } : cur,
+        cur && cur.row.id === row.id
+          ? { ...cur, messages, loading: false }
+          : cur,
       );
     } catch {
       setPreview((cur) =>
@@ -572,7 +575,9 @@ export default function MyAgentsPicker({
                                     {row.lastMessage ? (
                                       <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-[var(--muted-foreground)]">
                                         {truncateText(
-                                          normalizeMessageContent(row.lastMessage),
+                                          normalizeMessageContent(
+                                            row.lastMessage,
+                                          ),
                                           200,
                                         )}
                                       </p>

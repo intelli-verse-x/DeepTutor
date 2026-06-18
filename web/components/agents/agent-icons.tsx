@@ -11,7 +11,10 @@ import { type ComponentType, type SVGProps, useId } from "react";
  * and callers fall back to a generic icon.
  */
 
-type GlyphProps = { size?: number } & Omit<SVGProps<SVGSVGElement>, "width" | "height">;
+type GlyphProps = { size?: number } & Omit<
+  SVGProps<SVGSVGElement>,
+  "width" | "height"
+>;
 
 // Claude / Anthropic sunburst, in the brand clay.
 export function ClaudeGlyph({ size = 16, ...props }: GlyphProps) {

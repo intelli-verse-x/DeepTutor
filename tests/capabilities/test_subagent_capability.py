@@ -81,7 +81,9 @@ def test_consult_budget_override_from_config(monkeypatch) -> None:
         knowledge_bases=["myagent"],
         config_overrides={"subagent_consult_budget": 3},
     )
-    assert cap.augment_kwargs("consult_subagent", {"question": "q"}, ctx)["_subagent"]["budget"] == 3
+    assert (
+        cap.augment_kwargs("consult_subagent", {"question": "q"}, ctx)["_subagent"]["budget"] == 3
+    )
     # Out-of-range values are clamped, not trusted.
     ctx_hi = UnifiedContext(
         user_message="hi",
