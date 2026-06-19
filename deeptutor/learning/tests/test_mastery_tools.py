@@ -9,8 +9,8 @@ import json
 
 import pytest
 
-from deeptutor.services.session.sqlite_store import SQLiteSessionStore
 from deeptutor.learning.storage import LearningStore
+from deeptutor.services.session.sqlite_store import SQLiteSessionStore
 from deeptutor.tools.mastery_tool import (
     MasteryAssessTool,
     MasteryBuildTool,

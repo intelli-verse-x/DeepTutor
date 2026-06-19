@@ -38,7 +38,10 @@ const enRoot = path.join(localesRoot, "en");
 for (const file of listJsonFiles(enRoot)) {
   const rel = path.relative(localesRoot, file).replaceAll("\\", "/");
   test(`en locale ${rel} has no untranslated placeholder values`, () => {
-    const json = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    const json = JSON.parse(fs.readFileSync(file, "utf8")) as Record<
+      string,
+      unknown
+    >;
     const placeholders: string[] = [];
     for (const [key, value] of Object.entries(json)) {
       if (NAMESPACE_KEY.test(key) && value === key) placeholders.push(key);
