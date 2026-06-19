@@ -34,7 +34,7 @@
 [![Feishu](https://img.shields.io/badge/Feishu-Group-00D4AA?style=flat-square&logo=feishu&logoColor=white)](../../Communication.md)
 [![WeChat](https://img.shields.io/badge/WeChat-Group-07C160?style=flat-square&logo=wechat&logoColor=white)](https://github.com/HKUDS/DeepTutor/issues/78)
 
-[Características](#-características-principales) · [Comenzar](#-comenzar) · [Explorar](#-explorar-deeptutor) · [CLI](#️-deeptutor-cli--interfaz-nativa-de-agentes) · [Multi-Usuario](#-multi-usuario--despliegues-compartidos) · [Comunidad](#-comunidad-y-ecosistema)
+[Características](#-características-principales) · [Comenzar](#-comenzar) · [Explorar](#-explorar-deeptutor) · [CLI](#️-deeptutor-cli--interfaz-nativa-de-agentes) · [Ecosistema](#-ecosistema--eduhub-y-la-comunidad-de-skills) · [Comunidad](#-comunidad)
 
 </div>
 
@@ -44,16 +44,22 @@
 
 ### 📦 Versiones
 
+> **[2026.6.17]** [v1.4.6](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.6) — Space se convierte en un dashboard de aprendizaje con Mis Agentes y Memory de nivel superior; el Centro de Conocimiento añade motores GraphRAG, PageIndex y LightRAG junto con bases de conocimiento vinculadas y Obsidian; Settings incorpora análisis de documentos, voz e imagen+video; capacidades bloqueadas por modelo LLM.
+
+> **[2026.6.14]** [v1.4.5](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.5) — Guided Learning reconstruido sobre el bucle de chat; puertas de dominio; marco de loop-plugins; exportación Markdown para Partners.
+
+> **[2026.6.13]** [v1.4.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.4) — Habilidades comunitarias desde ClawHub; previsualizaciones de DOCX/XLSX en el navegador.
+
 > **[2026.6.12]** [v1.4.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.3) — TutorBot se convierte en **Partners** con un pipeline de IM de nivel producción con respuestas en streaming en vivo y 15 canales, Chat pasa a un único bucle de agente, aislamiento real por usuario para despliegues multi-usuario, Visualize reconstruido con validación+reparación local, más mejoras en Co-writer, visor de archivos, análisis MinerU en la nube y la CLI. Documentación completamente actualizada en [deeptutor.info](https://deeptutor.info/).
+
+<details>
+<summary><b>Versiones anteriores (más de 2 semanas)</b></summary>
 
 > **[2026.5.28]** [v1.4.2](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.2) — Estabilidad + pulido sobre v1.4.1: Gemini 2.5+ desbloqueado en Visualize y Chat, corrección de enrutamiento de autenticación ContextVar (#485), protocolo de etiquetas de razonamiento + herramientas nativas endurecido, UX de streaming fluido en todas las superficies de chat, nueva barra lateral de Recientes plegable y soporte del proveedor local Lemonade.
 
 > **[2026.5.27]** [v1.4.1](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.1) — Parche de seguridad + estabilidad: sandbox de herramientas TutorBot bloqueado, aislamiento de recursos por usuario, alternativa de imagen multimodal para proveedores con visión, una API HTTP/SSE para hablar con un TutorBot y corrección de regresión de chat de v1.4.0.
 
 > **[2026.5.22]** [v1.4.0](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0) — Versión GA de v1.4: Modo Auto, Memoria de tres capas, Deep Research / Solve / Question agénticos, refactorización de RAG con LlamaIndex, fusión Visualize/Animator, normalización de esfuerzo de razonamiento, alternativa de esquema de herramientas y tiempo de ejecución de turno seguro ante reinicios.
-
-<details>
-<summary><b>Versiones anteriores (más de 2 semanas)</b></summary>
 
 > **[2026.5.21]** [v1.4.0-beta](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.0-beta) — Banco de trabajo de Memoria de tres capas (L1/L2/L3), todas las capacidades de chat reconstruidas sobre un único motor agéntico, RAG exclusivo de LlamaIndex y una superficie unificada de Settings + Capabilities.
 
@@ -135,8 +141,6 @@
 
 > **[2026.4.10]** 📄 ¡Nuestro artículo ya está en arXiv! Lee el [preprint](https://arxiv.org/abs/2604.26962) para conocer más sobre el diseño y las ideas detrás de DeepTutor.
 
-> **[2026.4.4]** ¡Cuánto tiempo! ✨ DeepTutor v1.0.0 finalmente está aquí — una evolución nativa de agentes con una reescritura de arquitectura de cero, TutorBot y cambio flexible de modos bajo la licencia Apache-2.0. ¡Un nuevo capítulo comienza y nuestra historia continúa!
-
 > **[2026.2.6]** 🚀 ¡Hemos alcanzado 10k estrellas en solo 39 días! ¡Un enorme agradecimiento a nuestra increíble comunidad!
 
 > **[2026.1.1]** ¡Feliz Año Nuevo! Únete a nuestro [Discord](https://discord.gg/eRsjPgMU4t), [WeChat](https://github.com/HKUDS/DeepTutor/issues/78) o [Discussions](https://github.com/HKUDS/DeepTutor/discussions) — ¡juntos demos forma al futuro de DeepTutor!
@@ -151,17 +155,12 @@ DeepTutor se organiza en torno a un runtime nativo de agentes: un ChatOrchestrat
 <img src="../../assets/figs/system/system%20architecture.png" alt="Arquitectura del sistema DeepTutor" width="900">
 </div>
 
-**Un espacio de trabajo de aprendizaje**
-
-- **Chat como el bucle predeterminado** — tutoría casual, preguntas y respuestas fundamentadas en fuentes, Deep Solve, Deep Question, Deep Research, Visualize y Auto Mode comparten el mismo contexto de sesión e inventario de fuentes.
-- **Superficies de aprendizaje que permanecen conectadas** — los borradores de Co-Writer, las páginas de Book, las Bases de Conocimiento, los activos de Space y la Memoria son espacios de trabajo separados, pero alimentan el mismo runtime de agentes en lugar de convertirse en aplicaciones aisladas.
-- **Partners para compañía persistente** — los compañeros conectados por IM ahora se ejecutan en el mismo bucle de agente de chat que el producto principal, con su propio espacio de trabajo sintético y biblioteca asignada.
-
-**Herramientas, memoria y control**
-
-- **Herramientas componibles** — RAG, lectura de fuentes, lectura/escritura de memoria, notebooks, obtención de URL, búsqueda en GitHub, pausas de pregunta al usuario, ejecución en sandbox y herramientas opcionales de lluvia de ideas/web/artículos/razonamiento se pueden montar según el contexto y la configuración.
-- **Memoria de tres capas** — las trazas L1, los resúmenes por superficie L2 y la síntesis entre superficies L3 hacen que la personalización sea inspeccionable en lugar de estar oculta detrás de una caja negra.
-- **Configuración y CLI unificadas** — los catálogos de modelos, embeddings, búsqueda, red, servidores MCP, herramientas, capacidades y configuración de despliegue son editables desde la UI web y programables desde `deeptutor`.
+- **Un runtime para todos los modos** — Chat, Quiz, Research, Visualize, Solve y Mastery Path comparten el mismo bucle de agente, el mismo inventario de fuentes y el mismo contexto de sesión.
+- **Contexto de aprendizaje conectado** — Bases de conocimiento, libros, borradores de Co-Writer, cuadernos, bancos de preguntas, personas y Memory disponibles en todos los flujos de trabajo en lugar de aplicaciones aisladas.
+- **Subagentes y Partners** — consulta Claude Code, Codex o un Partner en vivo desde cualquier turno; ejecuta compañeros IM persistentes que corren el mismo bucle de agente.
+- **Conocimiento multi-motor** — bibliotecas RAG con versiones: LlamaIndex, PageIndex, GraphRAG, LightRAG u Obsidian vinculado, cada una intercambiable por base de conocimiento.
+- **Herramientas y habilidades extensibles** — herramientas integradas, servidores MCP, modelos de generación de imagen/video/voz, habilidades de EduHub y ClawHub.
+- **Memoria inspectable** — trazas L1, resúmenes L2, síntesis L3; Memory Graph traza cada afirmación hasta su evidencia de respaldo y eventos brutos.
 
 ---
 
@@ -169,7 +168,7 @@ DeepTutor se organiza en torno a un runtime nativo de agentes: un ChatOrchestrat
 
 DeepTutor incluye cuatro rutas de instalación. Todas comparten un diseño de espacio de trabajo: la configuración vive en `data/user/settings/` bajo el directorio desde el que se inicia (o bajo `DEEPTUTOR_HOME` / `deeptutor start --home` si se establece explícitamente). Para la aplicación completa, el flujo recomendado es **elegir un directorio de espacio de trabajo → instalar → `deeptutor init` → `deeptutor start`**.
 
-> ✨ **v1.4.3 está disponible.** `pip install -U deeptutor` obtiene la versión estable más reciente. Las versiones preliminares (cuando estén disponibles) se activan con `pip install --pre -U deeptutor`.
+> ✨ **v1.4.6 está disponible.** `pip install -U deeptutor` obtiene la versión estable más reciente. Las versiones preliminares (cuando estén disponibles) se activan con `pip install --pre -U deeptutor`.
 
 ### Opción 1 — Instalar desde PyPI
 
@@ -379,14 +378,20 @@ El `.env` de la raíz del proyecto **no** se lee como archivo de configuración 
 
 </details>
 
+---
+
 ## 📖 Explorar DeepTutor
 
-El tour del README sigue las superficies del producto en el orden en que las encontrarás con más frecuencia: Chat, Partner, Co-Writer, Book, Knowledge, Space, Memory y Settings.
-
-### 💬 Chat — El Bucle de Agente que Realmente Usas
+El tour del README sigue las superficies del producto en el orden en que las encontrarás con más frecuencia: Chat, Partner, Mis Agentes, Co-Writer, Book, Centro de Conocimiento, Espacio de Aprendizaje, Memory y Settings.
 
 <div align="center">
-<img src="../../assets/figs/webui/chat.png" alt="Espacio de trabajo de chat DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/OVERVIEW.png" alt="Visión general de DeepTutor" width="900">
+</div>
+
+### 💬 Chat
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/home/00-overview.png" alt="Espacio de trabajo de chat DeepTutor" width="900">
 </div>
 
 Chat es la capacidad predeterminada y el lugar donde comienza la mayor parte del trabajo. Un único hilo puede conversar normalmente, llamar herramientas, fundamentarse en bases de conocimiento seleccionadas, leer adjuntos, escribir registros de notebook y continuar con el mismo inventario de fuentes entre turnos.
@@ -395,93 +400,143 @@ Chat es la capacidad predeterminada y el lugar donde comienza la mayor parte del
 <img src="../../assets/figs/system/chat-agent-loop.png" alt="Bucle de agente de chat DeepTutor" width="900">
 </div>
 
-El bucle actual es deliberadamente simple: el modelo piensa en rondas, llama herramientas cuando es útil, observa los resultados de las herramientas y termina cuando tiene suficiente evidencia. Las herramientas que el usuario puede activar son `brainstorm`, `web_search`, `paper_search` y `reason`; las herramientas contextuales como `rag`, `read_source`, `read_memory`, `write_memory`, `read_skill`, `load_tools`, `exec`, `web_fetch`, `ask_user`, `list_notebook`, `write_note` y `github` se montan cuando el turno tiene el contexto adecuado.
+El bucle actual es deliberadamente simple: el modelo piensa en rondas, llama herramientas cuando es útil, observa los resultados de las herramientas y termina cuando tiene suficiente evidencia. La herramienta `ask_user` pausa el turno para pedir aclaraciones al usuario antes de continuar.
+
+**Herramientas que el usuario puede activar:** `brainstorm`, `web_search`, `paper_search`, `reason`, `geogebra_analysis`, `imagegen`, `videogen`.
+
+**Contexto persistente (barra de herramientas):** subagente activo, bases de conocimiento, persona, modelo, voz.
+
+**Referencias de un solo uso (menú +):** archivos, historial de chat, libros, cuadernos, banco de preguntas, agentes importados.
 
 Chat también es el punto de lanzamiento para capacidades más profundas: `deep_solve` para razonamiento trabajado, `deep_question` para generación de preguntas, `deep_research` para informes con citas, `visualize` y `math_animator` para salidas visuales, `auto` para enrutamiento y `mastery_path` para flujos de planes de aprendizaje.
 
-### 🤝 Partner — Compañeros Persistentes en el Mismo Cerebro
+### 🤝 Partner
 
 <div align="center">
-<img src="../../assets/figs/webui/partners.png" alt="Espacio de trabajo de partners DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/partners/00-partners%20overview.png" alt="Vista general de partners DeepTutor" width="900">
 </div>
 
-Los Partners reemplazan el motor TutorBot más antiguo con un modelo más limpio: cada mensaje web o IM entrante se convierte en un turno normal de ChatOrchestrator dentro de un espacio de trabajo con alcance de partner. No hay un cerebro de bot separado que mantener sincronizado.
+Los Partners son compañeros persistentes que se ejecutan directamente en el mismo bucle de agente de chat — no hay un motor de bot separado que mantener sincronizado. Cada mensaje web o IM entrante se convierte en un turno normal de ChatOrchestrator dentro de un espacio de trabajo con alcance de partner.
 
 <div align="center">
 <img src="../../assets/figs/system/partners-architecture.png" alt="Arquitectura de partners DeepTutor" width="900">
 </div>
 
-Cada partner tiene un `SOUL.md`, selección de modelo, canales, política de herramientas y biblioteca asignada. Las bases de conocimiento, skills y notebooks se copian en `data/partners/<id>/workspace/`, por lo que las mismas herramientas de RAG, skill, notebook y memoria funcionan sin casos especiales.
+Cada partner tiene un `SOUL.md`, selección de modelo, canales, política de herramientas y biblioteca asignada. Las bases de conocimiento, skills y notebooks se copian en `data/partners/<id>/workspace/`, por lo que las mismas herramientas de RAG, skill, notebook y memoria funcionan sin casos especiales. Un Partner lee la memoria del propietario pero solo escribe en su propio espacio de memoria.
 
 <div align="center">
-<img src="../../assets/figs/webui/partners02.png" alt="Vista detallada del partner DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/partners/02-IM%20config%20for%20each%20partner.png" alt="Configuración de canales IM de partners" width="900">
 </div>
 
-La capa de canales está impulsada por esquema y puede conectarse a plataformas de IM como Feishu, Telegram, Slack, DingTalk, QQ/Napcat, WeCom, WhatsApp, Zulip, Matrix y Microsoft Teams según los extras instalados y las credenciales configuradas.
+La capa de canales está impulsada por esquema y puede conectarse a: Feishu, Telegram, Slack, DingTalk, QQ/NapCat, WeCom, WhatsApp, Zulip, Matrix y Microsoft Teams. Los Partners también pueden conectarse como subagentes y ser consultados directamente desde cualquier turno de chat.
 
-### ✍️ Co-Writer — Redacción Markdown con Conciencia de Selección
+### 🧑‍🚀 Mis Agentes
 
-Co-Writer es un espacio de trabajo Markdown de vista dividida para informes, tutoriales, notas y artefactos de aprendizaje de formato largo. Los documentos se guardan automáticamente, renderizan una vista previa en vivo y se pueden guardar de vuelta en notebooks cuando el borrador se convierte en contexto reutilizable.
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/myagents/00-overview.png" alt="Vista general de Mis Agentes" width="900">
+</div>
 
-Selecciona texto y pide a DeepTutor que lo reescriba, expanda o acorte. El agente de edición mantiene un rastro de llamadas a herramientas y puede fundamentar una edición en una base de conocimiento o evidencia web, por lo que Co-Writer se comporta más como un editor con recuperación que como un cuadro de texto desconectado.
+Mis Agentes reúne dos capacidades: conectar un agente en vivo (Claude Code, Codex o un Partner) para consultas en tiempo real, e importar conversaciones pasadas de agentes para contexto de referencia.
 
-### 📖 Book — Libros Vivos de tus Materiales
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/home/08-subagent%20demo%20with%20claude%20code.png" alt="Demo de subagente con Claude Code" width="900">
+</div>
+
+Una vez conectado, la herramienta `consult_subagent` permite consultar al agente desde cualquier turno de chat. El agente también aparece como un chip en la barra de herramientas o se puede mencionar con `@`. Para conversaciones importadas, selecciona una carpeta de historial de Claude Code o Codex, elige cuántos días importar y DeepTutor las convierte en sesiones consultables con actualización por demanda.
+
+### ✍️ Co-Writer
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/co-writer/00-overview.png" alt="Vista general de Co-Writer" width="900">
+</div>
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/co-writer/01-edit%20panel.png" alt="Panel de edición de Co-Writer" width="900">
+</div>
+
+Co-Writer es un espacio de trabajo Markdown de vista dividida para informes, tutoriales, notas y artefactos de aprendizaje de formato largo. Los documentos se guardan automáticamente y renderizan una vista previa en vivo.
+
+Selecciona texto y pide a DeepTutor que lo reescriba, expanda o acorte — cada edición se muestra como un diff de aceptar/rechazar. El agente de edición puede fundamentar una revisión en una base de conocimiento o evidencia web, por lo que Co-Writer se comporta más como un editor con recuperación que como un cuadro de texto desconectado. Los borradores terminados se pueden guardar de vuelta en notebooks como contexto reutilizable.
+
+### 📖 Book (Libro)
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/book/00-book_overview.png" alt="Vista general de Book" width="900">
+</div>
 
 <p align="center">
-<img src="../../assets/figs/webui/book01.png" alt="Vista de lectura del libro DeepTutor" width="31%">
+<img src="../../assets/figs/web-1.4.6+/book/01-book-demo-quiz%20card.png" alt="Tarjeta de quiz en Book" width="31%">
 &nbsp;
-<img src="../../assets/figs/webui/book02.png" alt="Vista de bloque interactivo del libro DeepTutor" width="31%">
+<img src="../../assets/figs/web-1.4.6+/book/02-book-demo-manim%20video.png" alt="Video Manim en Book" width="31%">
 &nbsp;
-<img src="../../assets/figs/webui/book03.png" alt="Vista de creación del libro DeepTutor" width="31%">
+<img src="../../assets/figs/web-1.4.6+/book/03-book-demo%20interactive%20module.png" alt="Módulo interactivo en Book" width="31%">
 </p>
 
-Book convierte las fuentes seleccionadas en material de aprendizaje interactivo. Un libro puede comenzar desde bases de conocimiento, notebooks, bancos de preguntas o historial de chat; el flujo de creación propone una estructura antes de que se genere el contenido, para que los usuarios puedan revisar la forma en lugar de aceptar una salida ciega de un solo disparo.
+Book convierte las fuentes seleccionadas en un libro vivo interactivo. El contenido se compila en bloques tipados: texto, secciones, callouts, quizzes, tarjetas flash, líneas de tiempo, código, figuras, HTML interactivo, animaciones, gráficos de conceptos y notas de usuario. Cada página tiene un Page Chat propio para discutir el contenido de esa sección en contexto.
 
-El BookEngine compila páginas en bloques tipados: texto, secciones, callouts, quizzes, tarjetas flash, líneas de tiempo, código, figuras, HTML interactivo, animaciones, gráficos de conceptos, inmersiones profundas y notas de usuario. Los comandos de mantenimiento como `deeptutor book health` y `deeptutor book refresh-fingerprints` ayudan a detectar cuándo el conocimiento fuente ha divergido de las páginas compiladas.
-
-### 📚 Knowledge — Bibliotecas RAG Versionadas
+### 📚 Centro de Conocimiento
 
 <div align="center">
-<img src="../../assets/figs/webui/knowledge.png" alt="Espacio de trabajo de base de conocimiento DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/knowledge/00-overview.png" alt="Vista general del Centro de Conocimiento" width="900">
 </div>
-
-Las Bases de Conocimiento son las colecciones de documentos detrás de RAG. La pila actual es exclusivamente LlamaIndex, con un diseño de almacenamiento plano `version-N` codificado por firma de embedding. La reindexación preserva las versiones anteriores y evita sobrescribir un índice funcional mientras se procesan nuevos documentos.
-
-El espacio de trabajo web expone archivos, carga, versiones de índice y configuración. La CLI refleja el mismo ciclo de vida con `deeptutor kb list`, `info`, `create`, `add`, `search`, `set-default` y `delete`.
-
-### 🌐 Space — Skills, Personas y Contexto Reutilizable
 
 <div align="center">
-<img src="../../assets/figs/webui/space.png" alt="Espacio de trabajo Space de DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/knowledge/01-create%20knowledge%20base.png" alt="Crear base de conocimiento" width="900">
 </div>
 
-Space es la capa de biblioteca para el contexto reutilizable. Reúne skills creadas por el usuario, personas, notebooks, historial de chat y activos de estilo de banco de preguntas para que el agente pueda ser dirigido con contexto deliberado en lugar de prompts ad hoc.
+El Centro de Conocimiento es la consola para las bibliotecas RAG. Soporta cinco motores: **LlamaIndex**, **PageIndex**, **GraphRAG**, **LightRAG** y **Obsidian**. Puedes crear una nueva base de conocimiento desde documentos o vincular una ya existente como puntero de solo lectura (incluyendo vaults de Obsidian).
 
-Los Skills se almacenan como archivos `SKILL.md` bajo el espacio de trabajo del usuario y se pueden etiquetar, editar o mantener de solo lectura cuando son integrados. Las Personas siguen la misma idea para el rol y la voz. Estos activos se pueden asignar a partners, referenciar en chat y reutilizar en flujos de trabajo de aprendizaje.
+El análisis de documentos soporta cuatro modos: Text-only, MinerU (extracción avanzada de PDF), Docling y markitdown. El espacio de trabajo web expone archivos, carga, versiones de índice y configuración de motor por KB. La CLI refleja el mismo ciclo de vida con `deeptutor kb list`, `info`, `create`, `add`, `search`, `set-default` y `delete`.
 
-### 🧠 Memory — Personalización Inspeccionable
+### 🌐 Espacio de Aprendizaje
 
 <div align="center">
-<img src="../../assets/figs/webui/memory01.png" alt="Banco de trabajo de memoria DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/learning-space/00-overview.png" alt="Vista general del Espacio de Aprendizaje" width="900">
 </div>
 
-Memory es un sistema de tres capas arraigado en el espacio de trabajo del usuario activo: `trace/<surface>/<date>.jsonl` para trazas de eventos L1, `L2/<surface>.md` para hechos por superficie y `L3/<recent|profile|scope|preferences>.md` para síntesis entre superficies.
+El Espacio de Aprendizaje es el dashboard central para gestionar materiales de aprendizaje y personalización. Reúne:
+
+**Conversaciones y materiales:** historial de chat, cuadernos, banco de preguntas.
+
+**Personalización:** rutas de dominio (Mastery Path), personas, habilidades.
 
 <div align="center">
-<img src="../../assets/figs/webui/memory02.png" alt="Gráfico de memoria DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/learning-space/07-%20download%20skills%20from%20eduhub.png" alt="Importar habilidades desde EduHub" width="900">
 </div>
 
-Las superficies de memoria compatibles son `chat`, `notebook`, `quiz`, `kb`, `book`, `tutorbot` y `cowriter`. El nombre heredado `tutorbot` permanece en la capa de memoria por compatibilidad, aunque el modelo de compañero orientado al producto ahora son los Partners. El banco de trabajo te permite inspeccionar, editar, ejecutar consolidación y usar el gráfico para rastrear las afirmaciones sintetizadas hasta sus hechos de apoyo y eventos brutos.
+Las habilidades se pueden instalar directamente desde EduHub con un clic — navega el catálogo, previsualiza y descarga al espacio de trabajo local. Las Personas siguen el mismo patrón para el rol y la voz del agente. Estos activos se pueden asignar a Partners, referenciar en chat y reutilizar en flujos de trabajo de aprendizaje.
 
-### ⚙️ Settings — Un Plano de Control
+### 🧠 Memory (Memoria)
 
 <div align="center">
-<img src="../../assets/figs/webui/settings.png" alt="Espacio de trabajo de configuración DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/memory/00-overview.png" alt="Vista general de Memory" width="900">
 </div>
 
-Settings es el plano de control operativo. Cubre apariencia, puertos de red y base de API externa, catálogos de LLM y embeddings, proveedores de búsqueda, análisis MinerU, presupuestos de capacidades, cadencia de memoria, servidores MCP, herramientas integradas y la lista de herramientas opcionales habilitadas.
+Memory es un sistema de tres capas arraigado en el espacio de trabajo del usuario activo y respaldado por archivos planos:
 
-La mayoría de las configuraciones usan un flujo de borrador y aplicación para que los usuarios puedan probar los proveedores antes de confirmarlos. Los archivos `.env` de la raíz del proyecto se ignoran intencionalmente; la configuración de runtime vive bajo `data/user/settings/*.json` a menos que `DEEPTUTOR_HOME` o `deeptutor start --home` apunte la aplicación a otro lugar.
+- **L1** — trazas de eventos brutas por sesión (`trace/<surface>/<date>.jsonl`)
+- **L2** — hechos consolidados por superficie (`L2/<surface>.md`)
+- **L3** — síntesis entre superficies (`L3/<recent|profile|scope|preferences>.md`)
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/memory/01-3%20layer%20memory%20graph.png" alt="Gráfico de memoria de 3 capas" width="900">
+</div>
+
+El Memory Graph permite rastrear cada afirmación sintetizada hasta sus hechos de respaldo y eventos brutos, haciendo que la personalización sea inspeccionable en lugar de estar oculta detrás de una caja negra. El banco de trabajo permite inspeccionar, editar y ejecutar consolidación manual.
+
+### ⚙️ Configuración
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/settings/00-setting%20overview.png" alt="Vista general de configuración" width="900">
+</div>
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/settings/01-appearance%20settings.png" alt="Configuración de apariencia" width="900">
+</div>
+
+Settings es el panel de control operativo. Tarjetas disponibles: **Apariencia** (4 temas: Default, Cream, Dark, Glass), **Red** (puertos, base de API externa, CORS), **Modelos** (catálogos LLM/embeddings/búsqueda), **KB** (análisis de documentos, MinerU), **Chat** (herramientas, capacidades, servidores MCP), **Partners & Agents** (configuración de canales), **Memory** (cadencia de consolidación, presupuestos).
+
+La mayoría de las configuraciones usan un flujo de borrador y aplicación para que los usuarios puedan probar los proveedores antes de confirmarlos.
 
 ---
 
@@ -508,11 +563,12 @@ deeptutor kb create calculus --doc textbook.pdf
 | `deeptutor run <capability> <message>` | Ejecutar un turno de capacidad único (`chat`, `deep_solve`, `deep_question`, `deep_research`, `visualize`, `math_animator`, `auto`, `mastery_path`) |
 | `deeptutor chat` | REPL interactivo con controles de capacidad, herramienta, KB, notebook e historial |
 | `deeptutor partner list/create/start/stop` | Gestionar partners conectados por IM |
-| `deeptutor kb list/info/create/add/search/set-default/delete` | Gestionar bases de conocimiento LlamaIndex |
+| `deeptutor kb list/info/create/add/search/set-default/delete` | Gestionar bases de conocimiento |
 | `deeptutor memory show/clear` | Inspeccionar documentos de memoria L2/L3 o borrar memoria L1/toda |
 | `deeptutor session list/show/open/rename/delete` | Gestionar sesiones compartidas |
 | `deeptutor notebook list/create/show/add-md/replace-md/remove-record` | Gestionar notebooks desde archivos Markdown |
 | `deeptutor book list/health/refresh-fingerprints` | Inspeccionar libros y actualizar huellas dactilares de fuentes |
+| `deeptutor skill search/install/list/remove/login/publish/update` | Gestionar habilidades, instalar desde hubs y publicar las propias (`eduhub:<slug>` por defecto) |
 | `deeptutor plugin list/info` | Inspeccionar herramientas y capacidades registradas |
 | `deeptutor config show` | Imprimir resumen de configuración |
 | `deeptutor provider login <provider>` | Gestionar inicio de sesión OAuth del proveedor donde sea compatible |
@@ -524,10 +580,6 @@ La distribución de solo CLI está en `packaging/deeptutor-cli`; en este checkou
 ---
 
 ## 👥 Multi-Usuario — Despliegues Compartidos
-
-<div align="center">
-<img src="../../assets/figs/webui/multi-user.png" alt="Espacio de trabajo de administrador multi-usuario DeepTutor" width="900">
-</div>
 
 La autenticación es opcional y está desactivada por defecto. Cuando se habilita, DeepTutor se convierte en un despliegue compartido con un espacio de trabajo de administrador, espacios de trabajo por usuario, espacios de trabajo de partners y estado del sistema bajo un árbol `data/`.
 
@@ -546,23 +598,85 @@ data/
     └── audit/usage.jsonl
 ```
 
-El primer usuario registrado se convierte en administrador y puede configurar catálogos de modelos, credenciales de proveedores, bases de conocimiento, skills y permisos de usuario. Los usuarios no administradores obtienen historial de chat aislado, memoria, notebooks, bases de conocimiento personales y una página de Settings redactada; los recursos asignados por el administrador aparecen como opciones limitadas de solo lectura en lugar de exponer claves API o componentes internos del proveedor.
+El primer usuario registrado se convierte en administrador y puede configurar catálogos de modelos, credenciales de proveedores, bases de conocimiento, skills y permisos de usuario. Los usuarios no administradores obtienen historial de chat aislado, memoria, notebooks, bases de conocimiento personales y una página de Settings redactada.
 
 Para una prueba local, establece `data/user/settings/auth.json` para habilitar la autenticación, reinicia `deeptutor start`, registra al primer administrador en `/register`, luego crea usuarios desde `/admin/users` y asigna modelos, KBs, skills, política de herramientas, política MCP y acceso de ejecución de código a través de permisos.
 
-El modo PocketBase sigue siendo una integración de un solo usuario en este árbol; los despliegues multi-usuario deben mantener `integrations.pocketbase_url` en blanco y usar los almacenes de autenticación y sesión JSON/SQLite predeterminados a menos que se haya diseñado explícitamente un almacén de usuarios externo para el despliegue.
+---
+
+## 🧩 Ecosistema — EduHub y la Comunidad de Skills
+
+DeepTutor incluye [EduHub](https://eduhub.deeptutor.info) (`eduhub.deeptutor.info`) como hub de habilidades predeterminado — un repositorio educativo donde la comunidad publica, versiona e instala skills.
+
+<details>
+<summary><b>EduHub — el ecosistema de habilidades de DeepTutor</b></summary>
+
+EduHub es el hub educativo oficial de DeepTutor. Las habilidades publicadas aparecen en el catálogo y se pueden instalar directamente desde el Espacio de Aprendizaje → Habilidades → Importar desde EduHub, o desde la CLI:
+
+```bash
+deeptutor skill search "calculus"
+deeptutor skill install eduhub:calculus-solver
+deeptutor skill list
+deeptutor skill login          # autenticación para publicar
+deeptutor skill publish        # publicar en EduHub
+deeptutor skill update         # listar las propias y actualizar versiones
+```
+
+También puedes instalar usando el CLI propio de EduHub:
+
+```bash
+npx eduhub install calculus-solver
+```
+
+</details>
+
+<details>
+<summary><b>La puerta de seguridad de importación</b></summary>
+
+Cada skill pasa por una puerta de seguridad antes de instalarse:
+
+- **Veredicto de seguridad** — análisis estático del contenido de la habilidad antes de la instalación.
+- **Protección zip-slip** — los archivos zip se inspeccionan para prevenir traversal de rutas.
+- **Lista blanca de sufijos** — solo se aceptan tipos de archivo declarados explícitamente.
+- **`always:` eliminado** — las entradas `always:` en skills de terceros se ignoran para evitar montaje forzado de herramientas.
+- **`.hub-lock.json`** — archivo de bloqueo que registra el origen exacto y el hash de cada skill instalada.
+
+</details>
+
+<details>
+<summary><b>También compatible con ClawHub</b></summary>
+
+DeepTutor también es compatible con [ClawHub](https://github.com/OpenClaw/clawhub) como hub alternativo:
+
+```bash
+deeptutor skill install --hub clawhub my-skill
+```
+
+O configura el hub predeterminado en `skill_hubs.json` bajo el directorio de configuración.
+
+</details>
 
 ---
 
-## 🌐 Comunidad y Ecosistema
+## 🤝 Comunidad
+
+**Contacto:** Bingxi Zhao · [HKUDS Group](https://github.com/HKUDS) · bingxizhao39@gmail.com
+
+**Agradecimientos:** Chao Huang, Jiahao Zhang, Zirui Guo, Xubin Ren — por sus contribuciones fundamentales al diseño y la implementación de DeepTutor.
 
 DeepTutor se apoya en proyectos de código abierto excepcionales:
 
 | Proyecto | Rol en DeepTutor |
 |:---|:---|
-| [**nanobot**](https://github.com/HKUDS/nanobot) | Motor de agente ultraligero que impulsó el TutorBot original (los Partners ahora se ejecutan en el bucle de agente de chat de DeepTutor) |
 | [**LlamaIndex**](https://github.com/run-llama/llama_index) | Columna vertebral del pipeline RAG y la indexación de documentos |
-| [**ManimCat**](https://github.com/Wing900/ManimCat) | Generación de animaciones matemáticas impulsada por IA para Math Animator |
+| [**nanobot**](https://github.com/HKUDS/nanobot) | Motor de agente ultraligero que impulsó el TutorBot original |
+| [**LightRAG**](https://github.com/HKUDS/LightRAG) | Motor KB de grafo RAG simple y rápido |
+| [**AutoAgent**](https://github.com/HKUDS/AutoAgent) | Marco de agentes sin código del ecosistema HKUDS |
+| [**AI-Researcher**](https://github.com/HKUDS/AI-Researcher) | Investigación automatizada del ecosistema HKUDS |
+| [**OpenClaw**](https://github.com/OpenClaw/clawhub) | Infraestructura ClawHub para distribución de skills |
+| [**Codex**](https://github.com/openai/codex) | Agente de codificación en CLI compatible como subagente |
+| [**Claude Code**](https://github.com/anthropics/claude-code) | Agente de codificación en CLI compatible como subagente |
+| [**ManimCat**](https://github.com/Wing900/ManimCat) | Generación de animaciones matemáticas impulsada por IA |
 
 **Del ecosistema HKUDS:**
 
@@ -570,8 +684,7 @@ DeepTutor se apoya en proyectos de código abierto excepcionales:
 |:---:|:---:|:---:|:---:|
 | RAG Simple y Rápido | Marco de Agentes Sin Código | Investigación Automatizada | Agente IA Ultraligero |
 
-
-## 🤝 Contribuir
+Vota en los elementos del roadmap o propone nuevos en [issue #498](https://github.com/HKUDS/DeepTutor/issues/498). Consulta [CONTRIBUTING.md](../../CONTRIBUTING.md) para obtener pautas sobre cómo configurar tu entorno de desarrollo, estándares de código y flujo de trabajo de pull requests.
 
 <div align="center">
 
@@ -582,8 +695,6 @@ Esperamos que DeepTutor se convierta en un regalo para la comunidad. 🎁
 </a>
 
 </div>
-
-Consulta [CONTRIBUTING.md](../../CONTRIBUTING.md) para obtener pautas sobre cómo configurar tu entorno de desarrollo, estándares de código y flujo de trabajo de pull requests.
 
 ## ⭐ Historial de Estrellas
 

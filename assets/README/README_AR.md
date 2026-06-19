@@ -34,7 +34,7 @@
 [![Feishu](https://img.shields.io/badge/Feishu-Group-00D4AA?style=flat-square&logo=feishu&logoColor=white)](../../Communication.md)
 [![WeChat](https://img.shields.io/badge/WeChat-Group-07C160?style=flat-square&logo=wechat&logoColor=white)](https://github.com/HKUDS/DeepTutor/issues/78)
 
-[المميزات](#-المميزات-الرئيسية) · [البدء](#-البدء) · [الاستكشاف](#-استكشاف-deeptutor) · [واجهة سطر الأوامر](#%EF%B8%8F-واجهة-سطر-أوامر-deeptutor--الواجهة-الأصيلة-للوكلاء) · [متعدد المستخدمين](#-متعدد-المستخدمين--النشر-المشترك) · [المجتمع](#-المجتمع-والنظام-البيئي)
+[الميزات](#-الميزات-الرئيسية) · [البدء](#-البدء) · [الاستكشاف](#-استكشاف-deeptutor) · [واجهة CLI](#%EF%B8%8F-واجهة-سطر-أوامر-deeptutor--الواجهة-الأصيلة-للوكلاء) · [النظام البيئي](#-النظام-البيئي--eduhub-ومجتمع-المهارات) · [المجتمع](#-المجتمع-والمساهمة)
 
 </div>
 
@@ -43,6 +43,12 @@
 > 🤝 **نرحب بجميع أنواع المساهمات!** صوّت على عناصر خارطة الطريق أو اقترح عناصر جديدة في [`خارطة الطريق`](https://github.com/HKUDS/DeepTutor/issues/498)، وراجع [دليل المساهمة](../../CONTRIBUTING.md) لمعرفة استراتيجية الفروع ومعايير البرمجة وكيفية البدء.
 
 ### 📦 الإصدارات
+
+> **[2026.6.17]** [v1.4.6](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.6) — Space → لوحة تعلم مع وكلائي + Memory؛ مركز المعرفة: GraphRAG/PageIndex/LightRAG + KB مرتبطة/Obsidian؛ الإعدادات: تحليل/صوت/صور+فيديو
+
+> **[2026.6.14]** [v1.4.5](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.5) — إعادة بناء التعلم الموجه على حلقة الدردشة؛ بوابات إتقان صارمة؛ إطار loop-plugin؛ تصدير Markdown للشركاء
+
+> **[2026.6.13]** [v1.4.4](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.4) — مهارات مجتمعية من ClawHub؛ معاينة DOCX/XLSX في المتصفح
 
 > **[2026.6.12]** [v1.4.3](https://github.com/HKUDS/DeepTutor/releases/tag/v1.4.3) — أصبح TutorBot **Partners** على خط أنابيب إنتاجي لتطبيقات المراسلة الفورية مع ردود بث مباشر و15 قناة، وانتقل Chat إلى حلقة وكيل واحدة، وعزل حقيقي لكل مستخدم في بيئات النشر متعددة المستخدمين، وإعادة بناء Visualize مع التحقق والإصلاح المحلي، فضلاً عن ترقيات في Co-writer ومشاهد الملفات وتحليل MinerU السحابي وواجهة سطر الأوامر. تم تحديث الوثائق بالكامل على [deeptutor.info](https://deeptutor.info/).
 
@@ -123,7 +129,7 @@
 
 > **[2026.1.5]** [v0.3.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.3.0) — معمارية PromptManager الموحّدة، وCI/CD عبر GitHub Actions، وصور Docker مُبنية مسبقاً على GHCR.
 
-> **[2026.1.2]** [v0.2.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.2.0) — نشر Docker، وترقية Next.js 16 وReact 19، وتصليب أمان WebSocket، وإصلاح ثغرات حرجة.
+> **[2026.1.2]** [v0.2.0](https://github.com/HKUDS/DeepTutor/releases/tag/v0.2.0) — نشر Docker، وترقية Next.js 16 وReact 19، وتصليح أمان WebSocket، وإصلاح ثغرات حرجة.
 
 </details>
 
@@ -131,19 +137,17 @@
 
 > **[2026.5.22]** 🌐 موقع وثائقنا الرسمي متاح الآن على [**deeptutor.info**](https://deeptutor.info/) — الأدلة والمراجع وجولات القدرات كلها في مكان واحد.
 
-> **[2026.4.19]** 🎉 وصلنا إلى 20 ألف نجمة بعد 111 يوماً! شكراً على الدعم الرائع — نلتزم بالتطوير المستمر نحو تدريس شخصي وذكي حقيقي للجميع.
+> **[2026.4.19]** 🎉 وصلنا إلى 20 ألف نجمة في 111 يومًا! شكراً على الدعم الرائع — نلتزم بالتطوير المستمر نحو تدريس شخصي وذكي حقيقي للجميع.
 
 > **[2026.4.10]** 📄 ورقتنا البحثية متاحة الآن على arXiv! اقرأ [النسخة الأولية](https://arxiv.org/abs/2604.26962) لتعرف المزيد عن التصميم والأفكار وراء DeepTutor.
 
-> **[2026.4.4]** لم نرَ بعضنا منذ زمن! ✨ DeepTutor v1.0.0 هنا أخيراً — تطور أصيل للوكيل يتميز بإعادة كتابة معمارية من الصفر، وTutorBot، وتبديل وضع مرن تحت رخصة Apache-2.0. تبدأ فصل جديد، وتستمر قصتنا!
+> **[2026.2.6]** 🚀 وصلنا إلى 10 آلاف نجمة في 39 يومًا فقط! شكر جزيل لمجتمعنا الرائع على هذا الدعم!
 
-> **[2026.2.6]** 🚀 وصلنا إلى 10 آلاف نجمة في 39 يوماً فقط! شكر جزيل لمجتمعنا الرائع على هذا الدعم!
+> **[2026.1.1]** كل عام وأنتم بخير! انضم إلى [Discord](https://discord.gg/eRsjPgMU4t)، أو [WeChat](https://github.com/HKUDS/DeepTutor/issues/78)، أو [النقاشات](https://github.com/HKUDS/DeepTutor/discussions) — لنشكّل معاً مستقبل DeepTutor!
 
-> **[2026.1.1]** سنة سعيدة! انضم إلى [Discord](https://discord.gg/eRsjPgMU4t)، أو [WeChat](https://github.com/HKUDS/DeepTutor/issues/78)، أو [النقاشات](https://github.com/HKUDS/DeepTutor/discussions) — لنشكّل معاً مستقبل DeepTutor!
+> **[2025.12.29]** تم إطلاق DeepTutor رسميًا!
 
-> **[2025.12.29]** تم إطلاق DeepTutor رسمياً!
-
-## ✨ المميزات الرئيسية
+## ✨ الميزات الرئيسية
 
 يتمحور DeepTutor حول بيئة تشغيل أصيلة للوكيل: يوجّه ChatOrchestrator المشترك كل دور إلى القدرات، ويكشف ToolRegistry عن أدوات من استخدام واحد عندما يحتاجها النموذج، ويتيح CapabilityRegistry لسير العمل الأعمق الاستيلاء على الدور عندما تحتاج المهمة إلى هيكلة.
 
@@ -151,17 +155,12 @@
 <img src="../../assets/figs/system/system%20architecture.png" alt="معمارية نظام DeepTutor" width="900">
 </div>
 
-**مساحة عمل تعليمية واحدة**
-
-- **المحادثة كحلقة افتراضية** — يشترك التدريس غير الرسمي والأسئلة والأجوبة المرتكزة على المصادر وDeep Solve وDeep Question وDeep Research وVisualize والوضع التلقائي في نفس سياق الجلسة ومخزون المصادر.
-- **أسطح التعلم المترابطة** — مسودات Co-Writer وصفحات الكتاب وقواعد المعرفة وأصول Space والذاكرة هي مساحات عمل منفصلة، لكنها تُغذّي نفس وقت تشغيل الوكيل بدلاً من أن تصبح تطبيقات معزولة.
-- **الشركاء للرفقة الدائمة** — الرفقاء المتصلون بتطبيقات المراسلة الفورية يعملون الآن على نفس حلقة وكيل المحادثة للمنتج الرئيسي، مع مساحة عمل اصطناعية خاصة ومكتبة مخصصة.
-
-**الأدوات والذاكرة والتحكم**
-
-- **أدوات قابلة للتركيب** — يمكن تثبيت RAG وقراءة المصادر وقراءة/كتابة الذاكرة ودفاتر الملاحظات وجلب URL والبحث في GitHub وإيقاف السؤال للمستخدم والتنفيذ في صندوق الأمان وأدوات اختيارية للعصف الذهني/الويب/الأوراق/العقل وفقاً للسياق والإعدادات.
-- **ذاكرة ثلاثية الطبقات** — آثار L1 وملخصات L2 لكل سطح وتوليف L3 عبر الأسطح تجعل التخصيص قابلاً للفحص بدلاً من إخفائه خلف صندوق أسود.
-- **إعدادات موحّدة وCLI** — كتالوجات النماذج والتضمينات والبحث والشبكة وخوادم MCP والأدوات والقدرات وإعدادات النشر قابلة للتحرير من واجهة مستخدم الويب والبرمجة من `deeptutor`.
+- **بيئة تشغيل واحدة لجميع الأوضاع** — Chat وQuiz وResearch وVisualize وSolve وMastery Path على نفس حلقة الوكيل
+- **سياق تعلم متصل** — قواعد المعرفة والكتب ومسودات Co-Writer والدفاتر وبنوك الأسئلة والشخصيات والذاكرة متاحة في جميع سير العمل
+- **الوكلاء الفرعيون والشركاء** — استشارة Claude Code أو Codex أو Partner مباشرة؛ رفاق IM دائمون
+- **معرفة متعددة المحركات** — مكتبات RAG مع LlamaIndex وPageIndex وGraphRAG وLightRAG أو Obsidian مرتبط
+- **أدوات ومهارات قابلة للتوسيع** — أدوات مدمجة وخوادم MCP ونماذج توليد الصور/الفيديو/الصوت ومهارات EduHub
+- **ذاكرة قابلة للتدقيق** — آثار L1 وملخصات L2 وتركيب L3، Memory Graph يتتبع كل ادعاء
 
 ---
 
@@ -169,7 +168,7 @@
 
 يأتي DeepTutor بأربعة مسارات تثبيت. وكلها تشترك في تخطيط مساحة عمل واحد: تعيش الإعدادات في `data/user/settings/` تحت الدليل الذي تُطلق منه التطبيق (أو تحت `DEEPTUTOR_HOME` / `deeptutor start --home` إذا حددت واحداً صراحةً). للتطبيق الكامل، التدفق الموصى به هو **اختر دليل مساحة عمل → تثبيت → `deeptutor init` → `deeptutor start`**.
 
-> ✨ **v1.4.3 متاح الآن.** `pip install -U deeptutor` يحصل على أحدث إصدار مستقر. الإصدارات التجريبية (عند توفرها) تُفعَّل بـ `pip install --pre -U deeptutor`.
+> ✨ **v1.4.6 متاح الآن.** `pip install -U deeptutor` يحصل على أحدث إصدار مستقر. الإصدارات التجريبية (عند توفرها) تُفعَّل بـ `pip install --pre -U deeptutor`.
 
 ### الخيار 1 — التثبيت من PyPI
 
@@ -381,12 +380,16 @@ deeptutor config show
 
 ## 📖 استكشاف DeepTutor
 
-تتبع جولة README أسطح المنتج بالترتيب الذي ستقابلها غالباً: المحادثة، الشريك، Co-Writer، الكتاب، المعرفة، Space، الذاكرة، والإعدادات. اللقطات أدناه مأخوذة من شجرة `assets/figs` المُعاد تنظيمها؛ الصور القديمة المؤرشفة لا تُستخدم هنا عمداً.
-
-### 💬 المحادثة — حلقة الوكيل التي تستخدمها فعلاً
+تتبع جولة README أسطح المنتج بالترتيب الذي ستقابلها غالباً: نظرة عامة، المحادثة، الشركاء، وكلائي، Co-Writer، الكتاب، مركز المعرفة، فضاء التعلم، الذاكرة، والإعدادات. اللقطات أدناه مأخوذة من شجرة `assets/figs/web-1.4.6+`.
 
 <div align="center">
-<img src="../../assets/figs/webui/chat.png" alt="مساحة عمل محادثة DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/OVERVIEW.png" alt="نظرة عامة على DeepTutor" width="900">
+</div>
+
+### 💬 Chat
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/home/00-overview.png" alt="مساحة عمل محادثة DeepTutor" width="900">
 </div>
 
 المحادثة هي القدرة الافتراضية والمكان الذي يبدأ فيه معظم العمل. يمكن لخيط واحد أن يتحدث عادياً، ويستدعي الأدوات، ويرتكز على قواعد المعرفة المحددة، ويقرأ المرفقات، ويكتب سجلات دفتر الملاحظات، ويستمر بنفس مخزون المصادر عبر الأدوار.
@@ -399,10 +402,10 @@ deeptutor config show
 
 المحادثة هي أيضاً نقطة انطلاق للقدرات الأعمق: `deep_solve` للتفكير المعمق، و`deep_question` لتوليد الأسئلة، و`deep_research` للتقارير المستشهَد بها، و`visualize` و`math_animator` للمخرجات المرئية، و`auto` للتوجيه، و`mastery_path` لتدفقات خطط التعلم.
 
-### 🤝 الشريك — رفقاء دائمون على نفس الدماغ
+### 🤝 الشركاء (Partner)
 
 <div align="center">
-<img src="../../assets/figs/webui/partners.png" alt="مساحة عمل شركاء DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/partners/00-partners%20overview.png" alt="مساحة عمل شركاء DeepTutor" width="900">
 </div>
 
 يحل الشركاء محل محرك TutorBot القديم بنموذج أنظف: كل رسالة ويب أو IM واردة تصبح دوراً عادياً لـ ChatOrchestrator داخل مساحة عمل محدودة بنطاق الشريك. لا يوجد دماغ بوت منفصل يجب الحفاظ على مزامنته.
@@ -414,72 +417,104 @@ deeptutor config show
 لكل شريك `SOUL.md` واختيار نموذج وقنوات وسياسة أدوات ومكتبة مخصصة. تُنسخ قواعد المعرفة والمهارات ودفاتر الملاحظات إلى `data/partners/<id>/workspace/`، لذا تعمل نفس أدوات RAG والمهارة ودفتر الملاحظات والذاكرة بدون حالات خاصة.
 
 <div align="center">
-<img src="../../assets/figs/webui/partners02.png" alt="عرض تفاصيل شريك DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/partners/02-IM%20config%20for%20each%20partner.png" alt="إعداد قنوات IM لشركاء DeepTutor" width="900">
 </div>
 
 طبقة القناة مدفوعة بالمخطط ويمكنها الاتصال بمنصات IM مثل Feishu وTelegram وSlack وDingTalk وQQ/Napcat وWeCom وWhatsApp وZulip وMatrix وMicrosoft Teams بناءً على الإضافات المثبتة والبيانات الاعتمادية المهيأة.
 
-### ✍️ Co-Writer — صياغة Markdown واعية بالتحديد
+### 🧑‍🚀 وكلائي (My Agents)
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/myagents/00-overview.png" alt="صفحة وكلائي في DeepTutor" width="900">
+</div>
+
+وكلائي هو المحور الذي يجمع كل الوكلاء الفرعيين القابلين للاتصال: Claude Code وCodex وأي Partner مُعدّ. يمكن استشارة كل وكيل مباشرة من واجهة المحادثة لجلسات متعددة الأدوار.
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/home/08-subagent%20demo%20with%20claude%20code.png" alt="عرض الوكيل الفرعي في DeepTutor" width="900">
+</div>
+
+يستطيع الوكيل الفرعي المتصل استقبال السياق من الجلسة الحالية والرد بتدفق مباشر؛ تُستأنف الجلسة عند العودة إلى نفس المحادثة، مما يتيح استشارات متعددة الأدوار حقيقية.
+
+### ✍️ Co-Writer
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/co-writer/00-overview.png" alt="مساحة عمل Co-Writer في DeepTutor" width="900">
+</div>
 
 Co-Writer هو مساحة عمل Markdown ذات عرض مقسَّم للتقارير والدروس التعليمية والملاحظات والقطع التعليمية الطويلة. تحفظ المستندات تلقائياً، وتُظهر معاينة مباشرة، ويمكن حفظها مرة أخرى في دفاتر الملاحظات عندما تصبح المسودة سياقاً قابلاً لإعادة الاستخدام.
 
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/co-writer/01-edit%20panel.png" alt="تحرير بالتحديد في Co-Writer" width="900">
+</div>
+
 حدد النص واطلب من DeepTutor إعادة كتابته أو توسيعه أو تقصيره. يحتفظ وكيل التحرير بآثار استدعاءات الأدوات ويمكنه ترسيخ التعديل في قاعدة معرفة أو دليل ويب، لذا يتصرف Co-Writer أكثر كمحرر مع استرداد بدلاً من كونه مربع نص منفصل.
 
-### 📖 الكتاب — كتب حية من موادك
+### 📖 الكتاب (Book)
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/book/00-book_overview.png" alt="عرض قراءة كتاب DeepTutor" width="900">
+</div>
 
 <p align="center">
-<img src="../../assets/figs/webui/book01.png" alt="عرض قراءة كتاب DeepTutor" width="31%">
+<img src="../../assets/figs/web-1.4.6+/book/01-book-demo-quiz%20card.png" alt="بطاقة اختبار في كتاب DeepTutor" width="31%">
 &nbsp;
-<img src="../../assets/figs/webui/book02.png" alt="عرض كتلة تفاعلية في كتاب DeepTutor" width="31%">
+<img src="../../assets/figs/web-1.4.6+/book/02-book-demo-manim%20video.png" alt="فيديو Manim في كتاب DeepTutor" width="31%">
 &nbsp;
-<img src="../../assets/figs/webui/book03.png" alt="عرض إنشاء كتاب DeepTutor" width="31%">
+<img src="../../assets/figs/web-1.4.6+/book/03-book-demo%20interactive%20module.png" alt="وحدة تفاعلية في كتاب DeepTutor" width="31%">
 </p>
 
 يحوّل الكتاب المصادر المحددة إلى مواد تعليمية تفاعلية. يمكن أن يبدأ الكتاب من قواعد المعرفة أو دفاتر الملاحظات أو بنوك الأسئلة أو تاريخ المحادثة؛ يقترح تدفق الإنشاء هيكلاً قبل توليد المحتوى، لذا يمكن للمستخدمين مراجعة الشكل بدلاً من قبول مخرجات عشوائية.
 
 يُجمِّع BookEngine الصفحات إلى كتل مكتوبة: النص والأقسام والتنبيهات والاختبارات وبطاقات الفلاش والجداول الزمنية والرمز والأشكال وHTML التفاعلية والرسوم المتحركة وأشكال المفاهيم والغوص العميق وملاحظات المستخدم. أوامر الصيانة مثل `deeptutor book health` و`deeptutor book refresh-fingerprints` تساعد في الكشف عن انجراف المعرفة المصدرية من الصفحات المُجمَّعة.
 
-### 📚 المعرفة — مكتبات RAG ذات إصدارات
+### 📚 مركز المعرفة
 
 <div align="center">
-<img src="../../assets/figs/webui/knowledge.png" alt="مساحة عمل قاعدة المعرفة في DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/knowledge/00-overview.png" alt="مركز المعرفة في DeepTutor" width="900">
 </div>
-
-قواعد المعرفة هي مجموعات المستندات وراء RAG. المكدس الحالي يعمل على LlamaIndex فقط، مع تخطيط تخزين مسطح `version-N` مُفهرَس بتوقيع التضمين. تحتفظ إعادة الفهرسة بالإصدارات السابقة وتتجنب الكتابة فوق الفهرس العامل أثناء معالجة المستندات الجديدة.
-
-تعرض مساحة عمل الويب الملفات والرفع وإصدارات الفهرس والإعدادات. يعكس CLI نفس دورة الحياة بـ `deeptutor kb list` و`info` و`create` و`add` و`search` و`set-default` و`delete`.
-
-### 🌐 Space — المهارات والشخصيات والسياق القابل لإعادة الاستخدام
 
 <div align="center">
-<img src="../../assets/figs/webui/space.png" alt="مساحة عمل Space في DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/knowledge/01-create%20knowledge%20base.png" alt="إنشاء قاعدة معرفة في DeepTutor" width="900">
 </div>
 
-Space هو طبقة المكتبة للسياق القابل لإعادة الاستخدام. يجمع المهارات التي يؤلفها المستخدم والشخصيات ودفاتر الملاحظات وتاريخ المحادثة وأصول بنك الأسئلة حتى يمكن توجيه الوكيل بسياق متعمد بدلاً من الموجهات المخصصة.
+مركز المعرفة هو لوحة تحكم قواعد المعرفة وRAG. يدعم المكدس الحالي محركات متعددة: LlamaIndex وPageIndex وGraphRAG وLightRAG، فضلاً عن مخازن مرتبطة من Obsidian أو مجلدات محلية كمؤشرات للقراءة فقط. تحتفظ إعادة الفهرسة بالإصدارات السابقة وتتجنب الكتابة فوق الفهرس العامل أثناء معالجة المستندات الجديدة. تعرض مساحة عمل الويب الملفات والرفع وإصدارات الفهرس والإعدادات.
 
-تُخزَّن المهارات كملفات `SKILL.md` تحت مساحة عمل المستخدم ويمكن تصنيفها أو تحريرها أو إبقاؤها للقراءة فقط عندما تكون مدمجة. تتبع الشخصيات نفس الفكرة للدور والصوت. يمكن تعيين هذه الأصول للشركاء والإشارة إليها في المحادثة وإعادة استخدامها عبر سير عمل التعلم.
-
-### 🧠 الذاكرة — تخصيص قابل للفحص
+### 🌐 فضاء التعلم
 
 <div align="center">
-<img src="../../assets/figs/webui/memory01.png" alt="محطة عمل الذاكرة في DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/learning-space/00-overview.png" alt="فضاء التعلم في DeepTutor" width="900">
 </div>
-
-الذاكرة نظام ثلاثي الطبقات متجذّر في مساحة عمل المستخدم النشطة: `trace/<surface>/<date>.jsonl` لآثار أحداث L1، و`L2/<surface>.md` لحقائق كل سطح، و`L3/<recent|profile|scope|preferences>.md` للتوليف عبر الأسطح.
 
 <div align="center">
-<img src="../../assets/figs/webui/memory02.png" alt="رسم بياني لذاكرة DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/learning-space/07-%20download%20skills%20from%20eduhub.png" alt="تنزيل مهارات من EduHub في فضاء التعلم" width="900">
 </div>
 
-أسطح الذاكرة المدعومة هي `chat` و`notebook` و`quiz` و`kb` و`book` و`tutorbot` و`cowriter`. يبقى اسم سطح `tutorbot` القديم في طبقة الذاكرة للتوافق حتى لو أصبح نموذج المرافق الموجّه للمنتج هو الشركاء الآن. تتيح لك محطة العمل الفحص والتحرير وتشغيل التوحيد واستخدام الرسم البياني لتتبع الادعاءات المُوليفة إلى حقائقها الداعمة والأحداث الخام.
+فضاء التعلم هو لوحة التحكم المركزية للتعلم. يجمع وكلائي والمهارات التي يؤلفها المستخدم والشخصيات ودفاتر الملاحظات وتاريخ المحادثة وأصول بنك الأسئلة ومسار الإتقان حتى يمكن توجيه الوكيل بسياق متعمد. تُخزَّن المهارات كملفات `SKILL.md` تحت مساحة عمل المستخدم ويمكن تصنيفها أو تحريرها أو إبقاؤها للقراءة فقط عندما تكون مدمجة.
 
-### ⚙️ الإعدادات — لوحة تحكم واحدة
+### 🧠 الذاكرة (Memory)
 
 <div align="center">
-<img src="../../assets/figs/webui/settings.png" alt="مساحة عمل الإعدادات في DeepTutor" width="900">
+<img src="../../assets/figs/web-1.4.6+/memory/00-overview.png" alt="محطة عمل الذاكرة في DeepTutor" width="900">
 </div>
 
-الإعدادات هي لوحة التحكم التشغيلية. تشمل المظهر ومنافذ الشبكة وقاعدة API الخارجية وكتالوجات LLM والتضمين ومزودي البحث وتحليل MinerU وميزانيات القدرات ونبضات الذاكرة وخوادم MCP والأدوات المدمجة وقائمة الأدوات الاختيارية المفعّلة.
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/memory/01-3%20layer%20memory%20graph.png" alt="رسم بياني لذاكرة DeepTutor" width="900">
+</div>
+
+الذاكرة نظام ثلاثي الطبقات متجذّر في مساحة عمل المستخدم النشطة: `trace/<surface>/<date>.jsonl` لآثار أحداث L1، و`L2/<surface>.md` لحقائق كل سطح، و`L3/<recent|profile|scope|preferences>.md` للتوليف عبر الأسطح. تتيح لك محطة العمل الفحص والتحرير وتشغيل التوحيد واستخدام الرسم البياني لتتبع الادعاءات المُوليفة إلى حقائقها الداعمة والأحداث الخام.
+
+### ⚙️ الإعدادات
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/settings/00-setting%20overview.png" alt="مساحة عمل الإعدادات في DeepTutor" width="900">
+</div>
+
+<div align="center">
+<img src="../../assets/figs/web-1.4.6+/settings/01-appearance%20settings.png" alt="إعدادات المظهر في DeepTutor" width="900">
+</div>
+
+الإعدادات هي لوحة التحكم التشغيلية. تشمل المظهر ومنافذ الشبكة وقاعدة API الخارجية وكتالوجات LLM والتضمين ومزودي البحث وتحليل المستندات (MinerU) وإعدادات الصوت (TTS/STT) وتوليد الصور والفيديو وميزانيات القدرات ونبضات الذاكرة وخوادم MCP والأدوات المدمجة وقائمة الأدوات الاختيارية المفعّلة.
 
 تستخدم معظم الإعدادات تدفق صياغة-وتطبيق حتى يتمكن المستخدمون من اختبار المزودين قبل الالتزام بهم. ملفات `.env` في جذر المشروع تُتجاهل عمداً؛ يعيش تهيئة وقت التشغيل تحت `data/user/settings/*.json` إلا إذا وجّه `DEEPTUTOR_HOME` أو `deeptutor start --home` التطبيق في مكان آخر.
 
@@ -487,7 +522,7 @@ Space هو طبقة المكتبة للسياق القابل لإعادة الا
 
 ## ⌨️ واجهة سطر أوامر DeepTutor — الواجهة الأصيلة للوكلاء
 
-DeepTutor أصيلة لـ CLI: يمكن لنفس نقطة دخول `deeptutor` تهيئة مساحة عمل، وتشغيل تطبيق الويب، وتشغيل قدرة من استخدام واحد، وفتح REPL تفاعلي، وإدارة قواعد المعرفة، وفحص الجلسات، وصيانة الكتب، وتشغيل الشركاء.
+DeepTutor أصيلة لـ CLI: يمكن لنفس نقطة دخول `deeptutor` تهيئة مساحة عمل، وتشغيل تطبيق الويب، وتشغيل قدرة من استخدام واحد، وفتح REPL تفاعلي، وإدارة قواعد المعرفة، وفحص الجلسات، وصيانة الكتب، وتشغيل الشركاء، وإدارة المهارات.
 
 ```bash
 deeptutor run chat "Explain Fourier transform" --tool rag --kb textbook
@@ -495,6 +530,8 @@ deeptutor run deep_solve "Solve x^2 = 4" --tool reason
 deeptutor chat --capability deep_research --kb papers
 deeptutor partner create math-tutor --soul "Socratic math tutor"
 deeptutor kb create calculus --doc textbook.pdf
+deeptutor skill search "python data science"
+deeptutor skill install eduhub:pandas-tutor
 ```
 
 <details>
@@ -508,11 +545,12 @@ deeptutor kb create calculus --doc textbook.pdf
 | `deeptutor run <capability> <message>` | تشغيل دور قدرة واحدة (`chat`، `deep_solve`، `deep_question`، `deep_research`، `visualize`، `math_animator`، `auto`، `mastery_path`) |
 | `deeptutor chat` | REPL تفاعلي مع تحكمات القدرة والأداة وقاعدة المعرفة ودفتر الملاحظات والتاريخ |
 | `deeptutor partner list/create/start/stop` | إدارة الشركاء المتصلين بـ IM |
-| `deeptutor kb list/info/create/add/search/set-default/delete` | إدارة قواعد المعرفة LlamaIndex |
+| `deeptutor kb list/info/create/add/search/set-default/delete` | إدارة قواعد المعرفة |
 | `deeptutor memory show/clear` | فحص مستندات الذاكرة L2/L3 أو مسح ذاكرة L1/الكل |
 | `deeptutor session list/show/open/rename/delete` | إدارة الجلسات المشتركة |
 | `deeptutor notebook list/create/show/add-md/replace-md/remove-record` | إدارة دفاتر الملاحظات من ملفات Markdown |
 | `deeptutor book list/health/refresh-fingerprints` | فحص الكتب وتحديث بصمات المصادر |
+| `deeptutor skill search/install/list/remove/login/publish/update` | إدارة المهارات، التثبيت من المراكز ونشر المهارات الخاصة (eduhub:<slug> افتراضيًا) |
 | `deeptutor plugin list/info` | فحص الأدوات والقدرات المسجلة |
 | `deeptutor config show` | طباعة ملخص التهيئة |
 | `deeptutor provider login <provider>` | إدارة تسجيل دخول OAuth للمزود حيثما كان مدعوماً |
@@ -524,10 +562,6 @@ deeptutor kb create calculus --doc textbook.pdf
 ---
 
 ## 👥 متعدد المستخدمين — النشر المشترك
-
-<div align="center">
-<img src="../../assets/figs/webui/multi-user.png" alt="مساحة عمل مشرف متعدد المستخدمين في DeepTutor" width="900">
-</div>
 
 المصادقة اختيارية ومعطلة افتراضياً. عند التفعيل، يصبح DeepTutor نشراً مشتركاً مع مساحة عمل مشرف واحدة، ومساحات عمل لكل مستخدم، ومساحات عمل للشركاء، وحالة النظام تحت شجرة `data/` واحدة.
 
@@ -553,24 +587,88 @@ data/
 يبقى وضع PocketBase تكاملاً لمستخدم واحد في هذه الشجرة؛ يجب على بيئات النشر متعددة المستخدمين إبقاء `integrations.pocketbase_url` فارغاً واستخدام مخازن المصادقة والجلسات JSON/SQLite الافتراضية ما لم يُصمَّم مخزن مستخدم خارجي صراحةً لبيئة النشر.
 
 ---
-## 🌐 المجتمع والنظام البيئي
 
-يقوم DeepTutor على أكتاف مشاريع مفتوحة المصدر متميزة:
+## 🧩 النظام البيئي — EduHub ومجتمع المهارات
+
+يأتي DeepTutor مع EduHub (eduhub.deeptutor.info) كمركز افتراضي. يمكن تثبيت المهارات من EduHub أو أي مركز متوافق مع ClawHub مباشرة من CLI أو من صفحة فضاء التعلم في واجهة الويب.
+
+<details>
+<summary><b>EduHub — النظام البيئي للمهارات</b></summary>
+
+[EduHub](https://eduhub.deeptutor.info) هو السجل الرسمي للمهارات التعليمية القابلة للمشاركة. يمكن البحث عن المهارات وتثبيتها ونشرها من خلال:
+
+```bash
+# البحث والتثبيت من EduHub
+deeptutor skill search "calculus tutor"
+deeptutor skill install eduhub:calculus-tutor
+
+# التثبيت عبر npx (بدون DeepTutor مثبت)
+npx eduhub install calculus-tutor
+
+# نشر مهارة خاصة
+deeptutor skill login
+deeptutor skill publish ./my-skill/
+
+# تحديث مهارة منشورة
+deeptutor skill update eduhub:my-skill
+```
+
+تُخزَّن المهارات المثبتة محلياً كملفات `SKILL.md` تحت `data/user/workspace/skills/` ويمكن تعيينها للشركاء أو استخدامها في أي محادثة عبر منتقي السياق.
+
+</details>
+
+<details>
+<summary><b>بوابة أمان الاستيراد</b></summary>
+
+عند تثبيت مهارة من أي مصدر خارجي، يفحص DeepTutor:
+
+- **التحقق من الهيكل:** يجب أن تتوافق المهارة مع مخطط `SKILL.md` المعتمد
+- **فحص المحتوى الثابت:** يتم رصد الأنماط المشبوهة مثل عناوين URL الخارجية غير المتوقعة أو تعليمات الأذونات المضمنة
+- **حكم التثبيت:** يُعرض تقرير الفحص على المستخدم؛ المهارات ذات الحكم `rejected` لا يمكن تثبيتها تلقائياً وتتطلب تأكيداً صريحاً من المسؤول
+
+</details>
+
+<details>
+<summary><b>متوافق أيضًا مع ClawHub (--hub clawhub)</b></summary>
+
+أي سجل يتبع مواصفات ClawHub API يمكن استخدامه كمصدر بديل للمهارات:
+
+```bash
+deeptutor skill search "python tutor" --hub clawhub
+deeptutor skill install clawhub:python-tutor
+```
+
+يمكن للمؤسسات والمجتمعات استضافة سجلات ClawHub خاصة بها ونشر مهارات متخصصة لبيئاتها.
+
+</details>
+
+---
+
+## 🤝 المجتمع والمساهمة
+
+**التواصل:**
+- [Bingxi Zhao](https://github.com/pancacake) — المؤلف الرئيسي، مجموعة HKUDS
+- البريد الإلكتروني: bingxizhao39@gmail.com
+- [Discord](https://discord.gg/eRsjPgMU4t) · [WeChat](https://github.com/HKUDS/DeepTutor/issues/78) · [Feishu](../../Communication.md)
+
+**الشكر والتقدير:**
+شكر خاص لـ Chao Huang وJiahao Zhang وZirui Guo وXubin Ren على مساهماتهم القيّمة.
+
+**يقوم DeepTutor على أكتاف مشاريع مفتوحة المصدر متميزة:**
 
 | المشروع | الدور في DeepTutor |
 |:---|:---|
-| [**nanobot**](https://github.com/HKUDS/nanobot) | محرك وكيل خفيف الوزن للغاية مكّن TutorBot الأصلي (يعمل الشركاء الآن على حلقة وكيل محادثة DeepTutor) |
 | [**LlamaIndex**](https://github.com/run-llama/llama_index) | العمود الفقري لخط أنابيب RAG وفهرسة المستندات |
-| [**ManimCat**](https://github.com/Wing900/ManimCat) | توليد رسوم متحركة رياضية مدفوع بالذكاء الاصطناعي لـ Math Animator |
+| [**nanobot**](https://github.com/HKUDS/nanobot) | محرك وكيل خفيف الوزن للغاية مكّن TutorBot الأصلي |
+| [**LightRAG**](https://github.com/HKUDS/LightRAG) | RAG بسيط وسريع قائم على الرسم البياني |
+| [**AutoAgent**](https://github.com/HKUDS/AutoAgent) | إطار وكيل بدون رمز من HKUDS |
+| [**AI-Researcher**](https://github.com/HKUDS/AI-Researcher) | بحث آلي من HKUDS |
+| [**OpenClaw**](https://github.com/clawhub/openclaw) | بنية تحتية للمهارات والمراكز |
+| [**Codex**](https://github.com/openai/codex) | وكيل برمجة من OpenAI قابل للاستشارة كوكيل فرعي |
+| [**Claude Code**](https://github.com/anthropics/claude-code) | وكيل برمجة من Anthropic قابل للاستشارة كوكيل فرعي |
+| [**ManimCat**](https://github.com/Wing900/ManimCat) | توليد رسوم متحركة رياضية مدفوع بالذكاء الاصطناعي |
 
-**من النظام البيئي لـ HKUDS:**
-
-| [⚡ LightRAG](https://github.com/HKUDS/LightRAG) | [🤖 AutoAgent](https://github.com/HKUDS/AutoAgent) | [🔬 AI-Researcher](https://github.com/HKUDS/AI-Researcher) | [🧬 nanobot](https://github.com/HKUDS/nanobot) |
-|:---:|:---:|:---:|:---:|
-| RAG بسيط وسريع | إطار وكيل بدون رمز | بحث آلي | وكيل ذكاء اصطناعي خفيف الوزن للغاية |
-
-
-## 🤝 المساهمة
+راجع [خارطة الطريق #498](https://github.com/HKUDS/DeepTutor/issues/498) للتصويت على الميزات القادمة، و[CONTRIBUTING.md](../../CONTRIBUTING.md) للحصول على إرشادات حول إعداد بيئة التطوير ومعايير الرمز وسير عمل طلبات السحب.
 
 <div align="center">
 
@@ -581,8 +679,6 @@ data/
 </a>
 
 </div>
-
-راجع [CONTRIBUTING.md](../../CONTRIBUTING.md) للحصول على إرشادات حول إعداد بيئة التطوير ومعايير الرمز وسير عمل طلبات السحب.
 
 ## ⭐ تاريخ النجوم
 
