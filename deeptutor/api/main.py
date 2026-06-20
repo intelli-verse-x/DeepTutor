@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import logging
+import sys
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -226,8 +227,29 @@ app = FastAPI(
     redirect_slashes=False,
 )
 
-# Log only non-200 requests (uvicorn access_log is disabled in run_server.py)
-_access_logger = logging.getLogger("uvicorn.access")
+# Access logging is funneled through this one middleware. uvicorn's own
+# per-request access log is disabled on every launch path (run_server.py via
+# access_log=False; the launcher and Docker via `--no-access-log`), so routine
+# 200s — the chatty frontend polling of /settings, /tools, /knowledge/list,
+# etc. — never reach the logs. Only non-200s are surfaced, since those are the
+# ones worth seeing.
+#
+# The `deeptutor.access` logger gets its own INFO stdout handler rather than
+# leaning on the root handlers: the root console handler runs at the global log
+# level (WARNING by default), which would swallow these INFO access lines.
+# propagate=False keeps them from also printing through root if the global
+# level is ever lowered to INFO/DEBUG.
+_access_logger = logging.getLogger("deeptutor.access")
+if not any(
+    getattr(h, "_deeptutor_access_handler", False) for h in _access_logger.handlers
+):
+    _access_handler = logging.StreamHandler(sys.stdout)
+    _access_handler.setLevel(logging.INFO)
+    _access_handler.setFormatter(logging.Formatter("%(message)s"))
+    _access_handler._deeptutor_access_handler = True  # type: ignore[attr-defined]
+    _access_logger.addHandler(_access_handler)
+    _access_logger.setLevel(logging.INFO)
+    _access_logger.propagate = False
 
 
 @app.middleware("http")

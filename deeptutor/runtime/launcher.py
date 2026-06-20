@@ -838,6 +838,11 @@ def start(home: str | Path | None = None) -> None:
         str(backend_port),
         "--log-level",
         "info",
+        # Disable uvicorn's per-request access log. The selective_access_log
+        # middleware (deeptutor/api/main.py) surfaces only non-200s, so routine
+        # 200 polling (/settings, /tools, /knowledge/list, ...) stays out of the
+        # logs — matching run_server.py's access_log=False.
+        "--no-access-log",
     ]
 
     processes: list[ManagedProcess] = []
