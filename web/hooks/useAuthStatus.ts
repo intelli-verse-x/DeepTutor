@@ -31,19 +31,35 @@ const INITIAL: AuthStatusState = {
  * constant, so it works identically on Docker (read-only rootfs), the PyPI
  * `deeptutor start` launcher, and source dev.
  */
+// Several components (sidebar Admin / Logout / Profile links) mount this hook
+// at once. Share a single in-flight request so a page load makes one
+// /api/v1/auth/status call instead of one per consumer, and clear it once
+// settled so a later mount (e.g. after login/logout) fetches fresh.
+let inflight: Promise<AuthStatusState> | null = null;
+
+function loadAuthStatus(): Promise<AuthStatusState> {
+  if (!inflight) {
+    inflight = fetchAuthStatus()
+      .then((status) => ({
+        enabled: Boolean(status?.enabled),
+        authenticated: Boolean(status?.authenticated),
+        isAdmin: status?.role === "admin",
+        loading: false,
+      }))
+      .finally(() => {
+        inflight = null;
+      });
+  }
+  return inflight;
+}
+
 export function useAuthStatus(): AuthStatusState {
   const [state, setState] = useState<AuthStatusState>(INITIAL);
 
   useEffect(() => {
     let alive = true;
-    fetchAuthStatus().then((status) => {
-      if (!alive) return;
-      setState({
-        enabled: Boolean(status?.enabled),
-        authenticated: Boolean(status?.authenticated),
-        isAdmin: status?.role === "admin",
-        loading: false,
-      });
+    loadAuthStatus().then((next) => {
+      if (alive) setState(next);
     });
     return () => {
       alive = false;

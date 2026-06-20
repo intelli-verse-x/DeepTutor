@@ -108,13 +108,18 @@ export function UserAvatar({
   const isImage =
     descriptor.kind === "image" && Boolean(userId) && !imageBroken;
 
+  // A stored marker can name an icon/color this build doesn't know (an older
+  // client, or a hand-set marker). Validate against the known sets and fall
+  // back to the deterministic avatar so it never renders blank
+  // (AVATAR_COLORS[unknown] would be undefined -> an invisible avatar).
+  const fallback = fallbackAvatarFor(username);
   let iconName: string;
   let colorName: string;
   if (descriptor.kind === "icon") {
-    iconName = descriptor.icon;
-    colorName = descriptor.color;
+    iconName = descriptor.icon in AVATAR_ICONS ? descriptor.icon : fallback.icon;
+    colorName =
+      descriptor.color in AVATAR_COLORS ? descriptor.color : fallback.color;
   } else {
-    const fallback = fallbackAvatarFor(username);
     iconName = fallback.icon;
     colorName = fallback.color;
   }
