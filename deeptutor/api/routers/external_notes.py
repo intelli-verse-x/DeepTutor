@@ -95,13 +95,13 @@ async def _build_auth_headers() -> dict[str, str]:
 
 
 async def _proxy_get(
-    path: str, *, params: dict[str, Any] | None = None
+    path: str, *, params: dict[str, Any] | None = None, timeout: float | None = None
 ) -> dict[str, Any] | list[Any] | None:
     """Call Intelliverse-X-AI API and return the JSON response."""
     url = f"{_INTELLIVERSE_API_URL}{path}"
     headers = await _build_auth_headers()
 
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=timeout or _TIMEOUT) as client:
         resp = await client.get(url, headers=headers, params=params)
         if resp.status_code == 404:
             return None
@@ -109,11 +109,49 @@ async def _proxy_get(
         return resp.json()
 
 
+async def _proxy_post(
+    path: str,
+    *,
+    json_body: dict[str, Any] | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any] | list[Any] | None:
+    """POST to Intelliverse-X-AI API and return the JSON response."""
+    url = f"{_INTELLIVERSE_API_URL}{path}"
+    headers = await _build_auth_headers()
+    headers["Content-Type"] = "application/json"
+
+    async with httpx.AsyncClient(timeout=timeout or _TIMEOUT) as client:
+        resp = await client.post(url, headers=headers, json=json_body or {})
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _unwrap_ai_payload(data: Any) -> dict[str, Any]:
+    """Normalize Intelliverse-X-AI envelope { status, data } vs flat body."""
+    if not isinstance(data, dict):
+        return {}
+    if data.get("data") and isinstance(data["data"], dict):
+        return data["data"]
+    return data
+
+
 class ImportToKBRequest(BaseModel):
     note_id: str
     kb_name: str
     title: str = ""
     content: str = ""
+
+
+class CreateLinkNoteRequest(BaseModel):
+    type: str = "website"
+    url: str
+    title: str = ""
+
+
+class GenerateStudyMaterialsRequest(BaseModel):
+    note_id: str
 
 
 @router.get("/notes")
@@ -204,6 +242,170 @@ async def list_user_folders(
     except Exception as e:
         logger.warning("Folders fetch failed: %s", e)
         return {"folders": [], "error": str(e), "source": "intelliverse-x"}
+
+
+@router.post("/notes/create")
+async def create_link_note(
+    request: CreateLinkNoteRequest,
+    user_id: str = Depends(require_user_id),
+):
+    """Kick off URL/YouTube ingestion on Intelliverse-X-AI for the current user."""
+    note_type = (request.type or "website").strip().lower()
+    body: dict[str, Any] = {
+        "type": note_type,
+        "url": request.url,
+        "ownerUserId": user_id,
+        "sourceChannel": "web_chat",
+        "autoGenerateStudyMaterials": False,
+    }
+    if request.title.strip():
+        body["title"] = request.title.strip()
+    if note_type == "youtube":
+        body["youtubeUrl"] = request.url
+
+    try:
+        data = await _proxy_post("/api/ai/notes/create", json_body=body, timeout=20.0)
+        if data is None:
+            raise HTTPException(status_code=502, detail="Notes create returned 404")
+        payload = _unwrap_ai_payload(data)
+        job_id = payload.get("jobId") or payload.get("job_id")
+        note_id = payload.get("noteId") or payload.get("note_id")
+        status = payload.get("status") or "queued"
+        if not job_id and not note_id:
+            raise HTTPException(status_code=502, detail="Notes create missing jobId/noteId")
+        return {
+            "success": True,
+            "job_id": job_id,
+            "note_id": note_id,
+            "status": status,
+            "source": "intelliverse-x",
+        }
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        logger.warning("Notes create failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Upstream error: {e}") from e
+    except Exception as e:
+        logger.error("Notes create failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/notes/jobs/{job_id}/status")
+async def get_link_note_job_status(
+    job_id: str,
+    user_id: str = Depends(require_user_id),
+):
+    """Poll ingestion job status for a link note."""
+    del user_id  # tenancy enforced upstream via ownerUserId at create time
+    try:
+        data = await _proxy_get(f"/api/ai/notes/jobs/{job_id}/status")
+        if data is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        payload = _unwrap_ai_payload(data)
+        return {
+            "success": True,
+            "job_id": job_id,
+            "status": payload.get("status") or "unknown",
+            "note_id": payload.get("noteId") or payload.get("note_id"),
+            "error": payload.get("error"),
+            "source": "intelliverse-x",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Job status fetch failed: %s", e)
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@router.post("/notes/generate-study-materials")
+async def generate_link_study_materials(
+    request: GenerateStudyMaterialsRequest,
+    user_id: str = Depends(require_user_id),
+):
+    """Generate flashcards + quiz for an ingested note."""
+    del user_id
+    note_id = request.note_id.strip()
+    if not note_id:
+        raise HTTPException(status_code=400, detail="note_id is required")
+
+    try:
+        data = await _proxy_post(
+            f"/api/ai/notes/{note_id}/generate-flashcards-quizzes",
+            json_body={},
+            timeout=120.0,
+        )
+        if data is None:
+            raise HTTPException(status_code=404, detail="Note not found")
+
+        envelope = data if isinstance(data, dict) else {}
+        if envelope.get("status") is False:
+            raise HTTPException(status_code=502, detail="Generation failed upstream")
+
+        payload = _unwrap_ai_payload(envelope)
+        flashcards_raw = payload.get("flashcards") or []
+        quiz_raw = payload.get("quiz") or {}
+
+        flashcards: list[dict[str, str]] = []
+        if isinstance(flashcards_raw, list):
+            for item in flashcards_raw:
+                if not isinstance(item, dict):
+                    continue
+                front = str(item.get("question") or item.get("front") or "").strip()
+                back = str(item.get("answer") or item.get("back") or "").strip()
+                if front and back:
+                    flashcards.append({"front": front, "back": back})
+
+        questions: list[dict[str, Any]] = []
+        quiz_questions = quiz_raw.get("questions") if isinstance(quiz_raw, dict) else None
+        if isinstance(quiz_questions, list):
+            for q in quiz_questions:
+                if not isinstance(q, dict):
+                    continue
+                stem = str(q.get("question") or q.get("stem") or "").strip()
+                opts = q.get("options") or q.get("choices") or []
+                if not stem or not isinstance(opts, list) or len(opts) < 2:
+                    continue
+                options = [str(o) for o in opts]
+                correct = q.get("correct")
+                if isinstance(correct, int):
+                    correct_idx = correct
+                elif isinstance(correct, str):
+                    correct_idx = options.index(correct) if correct in options else -1
+                else:
+                    ans = str(q.get("answer") or q.get("correctAnswer") or "").strip()
+                    correct_idx = next(
+                        (i for i, o in enumerate(options) if o.strip().lower() == ans.lower()),
+                        -1,
+                    )
+                if correct_idx < 0 or correct_idx >= len(options):
+                    continue
+                questions.append(
+                    {
+                        "q": stem,
+                        "opts": options,
+                        "correct": correct_idx,
+                        "explanation": str(q.get("explanation") or ""),
+                    }
+                )
+
+        return {
+            "success": True,
+            "note_id": note_id,
+            "title": quiz_raw.get("title") if isinstance(quiz_raw, dict) else None,
+            "flashcards": flashcards,
+            "questions": questions,
+            "flash_count": len(flashcards),
+            "quiz_count": len(questions),
+            "source": "intelliverse-x",
+        }
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as e:
+        logger.warning("Study materials generation failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Upstream error: {e}") from e
+    except Exception as e:
+        logger.error("Study materials generation failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/notes/import-to-kb")
