@@ -60,7 +60,6 @@ mappings.
 ```bash
 docker run --rm --name deeptutor \
   -p 127.0.0.1:3782:3782 \
-  -p 127.0.0.1:8001:8001 \
   -v deeptutor-data:/app/data \
   ghcr.io/hkuds/deeptutor:latest
 ```
@@ -72,12 +71,14 @@ memory, and knowledge bases persist in the `deeptutor-data` named volume.
 
 Notes:
 
-- **Map both `3782` and `8001`.** `3782` serves the Web UI; `8001` is the
-  FastAPI backend the UI's API calls land on. The frontend bundle no
-  longer contains a backend URL — the rewrite is done at request time by
-  `proxy.ts` — but the browser still talks to `:8001` over the network.
-  Skip the `8001` mapping and the page still loads, but **Settings**
-  shows "Backend unreachable".
+- **Only `3782` needs to be published.** The browser talks exclusively to
+  the frontend origin (`:3782`); all `/api/*` and `/ws/*` traffic is
+  forwarded to the FastAPI backend **inside the container** by the Next.js
+  middleware (`web/proxy.ts`), which reads `DEEPTUTOR_API_BASE_URL`
+  (`http://localhost:8001` by default) at request time. You do **not** need
+  to expose `:8001` to the host for the UI to work. Publishing `:8001`
+  (`-p 127.0.0.1:8001:8001`) is optional — handy only for hitting the API
+  directly (curl, scripts) or debugging.
 - **Different host ports:** change the left side of each `-p host:container`
   mapping (e.g. `-p 127.0.0.1:8088:3782`). If you change container-side
   ports in `data/user/settings/system.json` (`backend_port`,
@@ -90,24 +91,32 @@ Notes:
 
 ### Remote / reverse-proxy deployments
 
-The Web UI runs in the browser, so the browser needs a backend URL it
-can reach. For remote servers, edit `data/user/settings/system.json` on
-the host (inside the `deeptutor-data` volume — `docker volume inspect
-deeptutor-data` to find its mountpoint) and set:
+For the common **single-container** case (this image), you do **not** need
+to configure an API base at all. The browser issues relative `/api/*` and
+`/ws/*` requests against whatever origin serves the UI
+(`https://deeptutor.example.com`), and the in-container Next.js middleware
+forwards them to the backend on `localhost:8001`. Just point your reverse
+proxy / TLS terminator at the published `:3782` and you're done.
+
+You only need to set an API base for a **split deployment** where the
+backend runs in a separate container. Edit `data/user/settings/system.json`
+on the host (inside the `deeptutor-data` volume — `docker volume inspect
+deeptutor-data` to find its mountpoint) and set the in-network address the
+frontend container uses to reach the backend container:
 
 ```json
 {
-  "next_public_api_base_external": "https://deeptutor.example.com"
+  "next_public_api_base": "http://backend:8001"
 }
 ```
 
 The entrypoint reads this on every start and exports
-`DEEPTUTOR_API_BASE_URL` for `proxy.ts`. The in-network
-`next_public_api_base` (same Docker network, e.g. a future split where
-backend and frontend live in separate containers) is preferred when set;
-`next_public_api_base_external` is the override for cloud/external.
-`public_api_base` is accepted as a compatibility alias and is normalized
-into `next_public_api_base_external` on save.
+`DEEPTUTOR_API_BASE_URL` for `proxy.ts` (precedence: `next_public_api_base`,
+then `next_public_api_base_external`, then `http://localhost:8001`). Note
+that because the proxy is **server-side**, `DEEPTUTOR_API_BASE_URL` is the
+address the frontend *server* uses to reach the backend — not a URL the
+browser ever sees. `public_api_base` is accepted as a compatibility alias
+and normalized into `next_public_api_base_external` on save.
 
 CORS uses frontend **origins**, not API URLs. With auth disabled,
 DeepTutor permits normal HTTP/HTTPS browser origins by default. With
@@ -305,8 +314,12 @@ supervised children still come up; only the `supervisord` master logs
 this. Fix: change the tmpfs mode to `1777` (match `/tmp`) — see the
 known follow-up note above.
 
-**Page loads but Settings says "Backend unreachable".** The `8001` port
-mapping is missing. Add it (or use `--network=host` on Linux).
+**Page loads but Settings says "Backend unreachable".** The UI reaches the
+backend through the in-container proxy, not a host port, so this is almost
+always a backend that failed to start (check `docker logs deeptutor` for the
+`[program:backend]` lines) or a wrong `DEEPTUTOR_API_BASE_URL` in a split
+deployment — **not** a missing `:8001` host mapping (which the UI does not
+need).
 
 **`Cannot connect to the Docker daemon` on a podman host.** Run
 `systemctl --user start podman.socket` (rootless) or set
