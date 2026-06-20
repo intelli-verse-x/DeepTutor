@@ -50,10 +50,12 @@ import {
   type SessionActivity,
 } from "@/components/chat/home/SessionActivityPanel";
 import QuizFollowupTabBody from "@/components/quiz/QuizFollowupTabBody";
+import SubagentTabBody from "@/components/chat/home/SubagentTabBody";
 import type { QuizFollowupTabContext } from "@/context/QuizFollowupContext";
 import type { GeogebraTabPayload } from "@/context/GeogebraTabContext";
 import { apiUrl } from "@/lib/api";
 import type { MessageAttachment } from "@/context/UnifiedChatContext";
+import type { StreamEvent } from "@/lib/unified-ws";
 
 const PdfPreview = dynamic(
   () => import("@/components/chat/preview/previewers/PdfPreview"),
@@ -138,6 +140,13 @@ type ViewerTab =
       id: string;
       label: string;
       script: string;
+    }
+  | {
+      kind: "subagent";
+      id: string;
+      label: string;
+      callId: string;
+      events: StreamEvent[];
     };
 
 export interface SessionViewerPanelHandle {
@@ -147,6 +156,8 @@ export interface SessionViewerPanelHandle {
   openQuizFollowupTab(context: QuizFollowupTabContext): void;
   /** Opens (or focuses) an interactive GeoGebra applet tab. */
   openGeogebraTab(payload: GeogebraTabPayload): void;
+  /** Opens (first time) or live-updates a connected subagent's run tab. */
+  openSubagentTab(callId: string, label: string, events: StreamEvent[]): void;
   /** Opens the panel and switches to the Activity home (where the
    *  capability-config card lives). */
   focusActivityHome(): void;
@@ -177,6 +188,10 @@ function quizFollowupTabIdFor(questionKey: string): string {
 
 function geogebraTabIdFor(payloadId: string): string {
   return `geogebra:${payloadId}`;
+}
+
+function subagentTabIdFor(callId: string): string {
+  return `subagent:${callId}`;
 }
 
 function hostnameFor(url: string): string {
@@ -393,6 +408,33 @@ function SessionViewerPanelInner(
     [onAutoOpen],
   );
 
+  // A connected subagent's run streams into its own tab. The first call (when
+  // the consult starts) reveals + focuses the tab; later calls only refresh its
+  // events, so live streaming never yanks the user off whatever they're viewing.
+  const subagentSeenRef = useRef<Set<string>>(new Set());
+  const openSubagentTab = useCallback(
+    (callId: string, label: string, events: StreamEvent[]) => {
+      const id = subagentTabIdFor(callId);
+      const isNew = !subagentSeenRef.current.has(callId);
+      subagentSeenRef.current.add(callId);
+      setTabs((prev) => {
+        const existingIdx = prev.findIndex((tab) => tab.id === id);
+        const tab: ViewerTab = { kind: "subagent", id, label, callId, events };
+        if (existingIdx >= 0) {
+          const next = [...prev];
+          next[existingIdx] = tab;
+          return next;
+        }
+        return [...prev, tab];
+      });
+      if (isNew) {
+        setActiveTabId(id);
+        onAutoOpen();
+      }
+    },
+    [onAutoOpen],
+  );
+
   // Open the panel and return to the Activity home (where the
   // capability-config card surfaces). Used by the send-gate.
   const focusActivityHome = useCallback(() => {
@@ -407,6 +449,7 @@ function SessionViewerPanelInner(
       openWebTab,
       openQuizFollowupTab,
       openGeogebraTab,
+      openSubagentTab,
       focusActivityHome,
     }),
     [
@@ -414,6 +457,7 @@ function SessionViewerPanelInner(
       openWebTab,
       openQuizFollowupTab,
       openGeogebraTab,
+      openSubagentTab,
       focusActivityHome,
     ],
   );
@@ -523,6 +567,12 @@ function SessionViewerPanelInner(
           />
         ) : activeTab?.kind === "geogebra" ? (
           <GeogebraTabBody key={activeTab.id} script={activeTab.script} />
+        ) : activeTab?.kind === "subagent" ? (
+          <SubagentTabBody
+            key={activeTab.id}
+            tabEvents={activeTab.events}
+            sessionId={sessionId}
+          />
         ) : (
           <ActivityHome
             activity={activity}

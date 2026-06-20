@@ -26,6 +26,11 @@ class PartnerCommandResult:
 BUILTIN_PARTNER_COMMANDS: tuple[PartnerCommandSpec, ...] = (
     PartnerCommandSpec("/help", "Show available partner commands."),
     PartnerCommandSpec("/new", "Archive this conversation and start a fresh one."),
+    PartnerCommandSpec("/branch", "Archive this conversation and continue in a copy."),
+    PartnerCommandSpec("/stop", "Stop the reply that's currently being generated."),
+    PartnerCommandSpec("/sessions", "List this partner's conversations and their IDs."),
+    PartnerCommandSpec("/resume", "Reopen an archived conversation.", "<session ID>"),
+    PartnerCommandSpec("/delete", "Delete a conversation permanently.", "<session ID>"),
     PartnerCommandSpec("/status", "Show partner, session, model, and tool status."),
     PartnerCommandSpec("/history", "Show recent messages in this conversation.", "[n]"),
     PartnerCommandSpec("/tool", "Show or change enabled tools.", "[on|off <name>|reset]"),
@@ -88,6 +93,16 @@ class PartnerCommandHandler:
             return PartnerCommandResult(build_partner_help_text())
         if command in {"/new", "/clear"}:
             return self._new(msg)
+        if command == "/branch":
+            return self._branch(msg)
+        if command == "/stop":
+            return PartnerCommandResult("There's nothing being generated to stop.")
+        if command == "/sessions":
+            return self._sessions()
+        if command == "/resume":
+            return self._resume(args)
+        if command == "/delete":
+            return self._delete(args)
         if command == "/status":
             return self._status(msg)
         if command == "/history":
@@ -104,6 +119,49 @@ class PartnerCommandHandler:
                 f"Archived {archived['message_count']} message(s) as `{archived['session_key']}`."
             )
         return PartnerCommandResult("Started a new conversation. No prior messages to archive.")
+
+    def _branch(self, msg: InboundMessage) -> PartnerCommandResult:
+        # Branching to a *copy* needs a new session key, which only the web app
+        # mints; on IM there is one session per chat, so degrade to /new.
+        archived = self.store.archive(msg.session_key)
+        if archived:
+            return PartnerCommandResult(
+                f"Archived this conversation as `{archived['session_key']}` and started fresh. "
+                "To keep the full history in a new branch, use the web app."
+            )
+        return PartnerCommandResult("Nothing to branch yet.")
+
+    def _sessions(self) -> PartnerCommandResult:
+        sessions = self.store.list_sessions()
+        if not sessions:
+            return PartnerCommandResult("No conversations yet.")
+        lines = ["Conversations:"]
+        for session in sessions[:30]:
+            flag = " (archived)" if session.get("archived") else ""
+            title = str(session.get("title") or "").strip() or "(untitled)"
+            lines.append(
+                f"- `{session['session_key']}`{flag} — {title} · {session['message_count']} msg"
+            )
+        lines.append("\nUse /resume <session ID> or /delete <session ID>.")
+        return PartnerCommandResult("\n".join(lines))
+
+    def _resume(self, args: list[str]) -> PartnerCommandResult:
+        if not args:
+            return PartnerCommandResult("Usage: /resume <session ID>")
+        key = args[0]
+        self.store.set_archived(key, False)
+        return PartnerCommandResult(
+            f"Conversation `{key}` is active again. In the web app it reopens automatically."
+        )
+
+    def _delete(self, args: list[str]) -> PartnerCommandResult:
+        if not args:
+            return PartnerCommandResult("Usage: /delete <session ID>")
+        key = args[0]
+        removed = self.store.delete_session(key)
+        return PartnerCommandResult(
+            f"Deleted conversation `{key}`." if removed else f"No conversation `{key}` found."
+        )
 
     def _status(self, msg: InboundMessage) -> PartnerCommandResult:
         selection = getattr(self.config, "llm_selection", None) or {}

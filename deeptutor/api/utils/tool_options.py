@@ -1,8 +1,10 @@
 """Configurable-tool surface shared by the partners and multi-user admin APIs.
 
 ``tools`` mirrors the user-toggleable system tools (the same pool the chat
-composer / settings expose); ``mcp_tools`` lists every configured MCP tool
-that a whitelist (partner config or user grant) could allow.
+composer / settings expose); ``builtin_tools`` lists the auto-mounted built-in
+tools (rag / read_memory / web_fetch / …) a partner owner can selectively
+allow or deny; ``mcp_tools`` lists every configured MCP tool that a whitelist
+(partner config or user grant) could allow.
 """
 
 from __future__ import annotations
@@ -16,9 +18,21 @@ from deeptutor.i18n.metadata_i18n import localized_description, tool_description
 logger = logging.getLogger(__name__)
 
 
-async def build_tool_options() -> dict[str, list[dict[str, Any]]]:
+async def build_tool_options(
+    *, exclude_builtin: set[str] | None = None
+) -> dict[str, list[dict[str, Any]]]:
+    """Build the configurable-tool surface.
+
+    ``exclude_builtin`` drops built-in tools from the ``builtin_tools`` list —
+    the partners API passes ``{"read_memory", "write_memory"}`` because partners
+    use the mandatory ``partner_*`` memory tools instead and cannot configure
+    chat's memory tools.
+    """
     from deeptutor.agents._shared.tool_composition import default_optional_tools
     from deeptutor.runtime.registry.tool_registry import get_tool_registry
+    from deeptutor.tools.builtin import CONFIGURABLE_BUILTIN_TOOL_NAMES
+
+    exclude = exclude_builtin or set()
 
     registry = get_tool_registry()
     language = current_language()
@@ -29,8 +43,7 @@ async def build_tool_options() -> dict[str, list[dict[str, Any]]]:
     except Exception:
         logger.debug("MCP manager unavailable for tool options", exc_info=True)
 
-    tools: list[dict[str, Any]] = []
-    for name in default_optional_tools():
+    def _describe(name: str) -> dict[str, Any]:
         tool = registry.get(name)
         description = ""
         if tool is not None:
@@ -39,13 +52,16 @@ async def build_tool_options() -> dict[str, list[dict[str, Any]]]:
             except Exception:
                 description = ""
         descriptions = tool_description_i18n(name, description)
-        tools.append(
-            {
-                "name": name,
-                "description": localized_description(descriptions, language),
-                "description_i18n": descriptions,
-            }
-        )
+        return {
+            "name": name,
+            "description": localized_description(descriptions, language),
+            "description_i18n": descriptions,
+        }
+
+    tools: list[dict[str, Any]] = [_describe(name) for name in default_optional_tools()]
+    builtin_tools: list[dict[str, Any]] = [
+        _describe(name) for name in CONFIGURABLE_BUILTIN_TOOL_NAMES if name not in exclude
+    ]
 
     mcp_tools: list[dict[str, Any]] = []
     for tool in registry.deferred_tools():
@@ -65,7 +81,7 @@ async def build_tool_options() -> dict[str, list[dict[str, Any]]]:
             }
         )
 
-    return {"tools": tools, "mcp_tools": mcp_tools}
+    return {"tools": tools, "builtin_tools": builtin_tools, "mcp_tools": mcp_tools}
 
 
 __all__ = ["build_tool_options"]

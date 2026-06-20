@@ -27,6 +27,7 @@ class TestConfigRoundTrip:
             color="#aabbcc",
             soul_origin={"type": "library", "id": "math-tutor"},
             enabled_tools=["web_search"],
+            builtin_tools=["rag", "read_memory"],
             mcp_tools=[],
         )
         mgr.save_config("ada", config)
@@ -42,6 +43,7 @@ class TestConfigRoundTrip:
         mgr.save_config("p1", PartnerConfig(name="P1"))
         loaded = mgr.load_config("p1")
         assert loaded.enabled_tools is None
+        assert loaded.builtin_tools is None
         assert loaded.mcp_tools is None
 
 

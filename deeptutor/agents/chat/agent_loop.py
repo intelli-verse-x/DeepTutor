@@ -232,7 +232,7 @@ class AgentLoop:
         """
         explore_label = self.pipeline._t("labels.exploring", default="Exploring")
         nudged_empty_finish = False
-        for _round in range(max(1, self.pipeline.max_rounds)):
+        for _round in range(max(1, self.pipeline.effective_max_rounds(self.context))):
             try:
                 result = await self._call_llm(
                     messages=messages,

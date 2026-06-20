@@ -977,6 +977,7 @@ export default function SkillsSection() {
         <EduHubImportModal
           onClose={() => setImportOpen(false)}
           onInstalled={() => void load()}
+          installedNames={new Set(skills.map((s) => s.name))}
         />
       )}
     </div>

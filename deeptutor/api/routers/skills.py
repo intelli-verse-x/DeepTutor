@@ -137,6 +137,56 @@ async def list_skills() -> dict[str, list[dict[str, object]]]:
     return {"skills": merged}
 
 
+# ── hub browse (in-app EduHub skill browser; declared before `/{name}`) ──
+
+
+@router.get("/hub/catalog")
+async def hub_catalog(hub: str = "eduhub", q: str = "", limit: int = 50) -> dict[str, object]:
+    """Proxy a skill hub's public catalog for the in-app browser.
+
+    The web "Import from EduHub" panel renders these rows in DeepTutor's own
+    UI — no embedded iframe, no login — so users can browse, search, and
+    one-click download skills. Returns ``web_url`` (the hub's site origin) so
+    the panel can offer a "view on EduHub" link out.
+    """
+    import asyncio
+
+    from deeptutor.services.skill.hub import ClawHubProvider, HubError, get_hub_provider
+
+    try:
+        provider = get_hub_provider(hub)
+    except HubError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not isinstance(provider, ClawHubProvider):
+        raise HTTPException(status_code=400, detail=f"Hub `{hub}` does not support browsing.")
+    try:
+        skills = await asyncio.to_thread(provider.catalog, query=q, limit=limit)
+    except HubError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"hub": provider.name, "web_url": provider.web_origin, "skills": skills}
+
+
+@router.get("/hub/detail")
+async def hub_detail(slug: str, hub: str = "eduhub") -> dict[str, object]:
+    """Full metadata + SKILL.md body for one hub skill (browser detail view)."""
+    import asyncio
+
+    from deeptutor.services.skill.hub import ClawHubProvider, HubError, get_hub_provider
+
+    try:
+        provider = get_hub_provider(hub)
+    except HubError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not isinstance(provider, ClawHubProvider):
+        raise HTTPException(status_code=400, detail=f"Hub `{hub}` does not support browsing.")
+    try:
+        detail = await asyncio.to_thread(provider.detail, slug)
+    except HubError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    detail["web_url"] = f"{provider.web_origin}/skills/{slug}"
+    return detail
+
+
 @router.get("/{name}")
 async def get_skill(name: str) -> dict[str, object]:
     service = get_skill_service()

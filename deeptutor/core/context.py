@@ -42,6 +42,11 @@ class UnifiedContext:
         enabled_tools: Tool names the user has toggled on (Level 1).
             ``None`` means "not specified", while ``[]`` means
             "explicitly disable all optional tools".
+        allowed_builtin_tools: Whitelist gating the built-in auto-mounted tools
+            (rag / read_memory / web_fetch / …). ``None`` (the product-chat
+            default) means "no gating" — every built-in mounts under its usual
+            context condition. A list restricts which built-ins may mount;
+            partners set this so an owner can deny built-ins per companion.
         active_capability: Capability name selected by the user, or None for plain chat.
         knowledge_bases: KB names to use for RAG.
         attachments: Images / files sent with the message.
@@ -66,6 +71,7 @@ class UnifiedContext:
     user_message: str = ""
     conversation_history: list[dict[str, Any]] = field(default_factory=list)
     enabled_tools: list[str] | None = None
+    allowed_builtin_tools: list[str] | None = None
     active_capability: str | None = None
     knowledge_bases: list[str] = field(default_factory=list)
     attachments: list[Attachment] = field(default_factory=list)

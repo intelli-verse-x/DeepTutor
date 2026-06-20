@@ -16,6 +16,7 @@ race on a shared object.
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING, Any
 import uuid
 
@@ -58,6 +59,7 @@ MASTERY_TOOL_NAMES: tuple[str, ...] = (
 
 _QUESTION_TYPES = ("choice", "short", "open")
 _ALLOWED_KP_TYPES = {t.value for t in KnowledgeType}
+logger = logging.getLogger(__name__)
 
 
 def _new_service() -> LearningService:
@@ -69,6 +71,73 @@ def _new_service() -> LearningService:
 
 def _resolve_path_id(kwargs: dict[str, Any]) -> str:
     return str(kwargs.get("_mastery_path_id") or "").strip()
+
+
+def _resolve_session_id(kwargs: dict[str, Any]) -> str:
+    return str(kwargs.get("_session_id") or "").strip()
+
+
+def _resolve_turn_id(kwargs: dict[str, Any]) -> str:
+    return str(kwargs.get("_turn_id") or "").strip()
+
+
+def _question_bank_type(question_type: str) -> str:
+    qtype = str(question_type or "").strip().lower()
+    if qtype == "choice":
+        return "choice"
+    if qtype == "open":
+        return "written"
+    return "short_answer"
+
+
+def _question_bank_options(options: list[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for idx, raw in enumerate(options):
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if len(text) <= 3 and text.isalnum():
+            key = text.upper()
+            result[key] = text
+            continue
+        key = chr(ord("A") + idx) if idx < 26 else str(idx + 1)
+        result[key] = text
+    return result
+
+
+async def _sync_mastery_attempt_to_question_bank(
+    *,
+    session_id: str,
+    turn_id: str,
+    pending: PendingQuestion,
+    user_answer: str,
+    is_correct: bool,
+) -> None:
+    if not session_id:
+        return
+    item = {
+        "turn_id": turn_id,
+        "question_id": pending.question_id,
+        "question": pending.prompt,
+        "question_type": _question_bank_type(pending.question_type),
+        "options": _question_bank_options(list(pending.options or [])),
+        "correct_answer": pending.expected_answer,
+        "explanation": "",
+        "difficulty": "",
+        "user_answer": user_answer,
+        "is_correct": is_correct,
+    }
+    try:
+        from deeptutor.services.session import get_sqlite_session_store
+
+        await get_sqlite_session_store().upsert_notebook_entries(session_id, [item])
+    except Exception:
+        logger.warning(
+            "Failed to sync mastery question %s to question bank for session %s",
+            pending.question_id,
+            session_id,
+            exc_info=True,
+        )
 
 
 def _json_result(payload: dict[str, Any], *, meta_key: str, success: bool = True) -> ToolResult:
@@ -279,6 +348,13 @@ class MasteryGradeTool(BaseTool):
             expected_answer=pending.expected_answer,
             question_type=pending.question_type,
             scheduler=scheduler,
+        )
+        await _sync_mastery_attempt_to_question_bank(
+            session_id=_resolve_session_id(kwargs),
+            turn_id=_resolve_turn_id(kwargs),
+            pending=pending,
+            user_answer=answer,
+            is_correct=is_correct,
         )
         service.clear_pending_question(progress)
         kp, _, _ = find_knowledge_point(progress, pending.knowledge_point_id)

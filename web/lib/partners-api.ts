@@ -18,6 +18,7 @@ export interface PartnerInfo {
   avatar?: string;
   soul_origin?: { type?: string; id?: string };
   enabled_tools?: string[] | null;
+  builtin_tools?: string[] | null;
   mcp_tools?: string[] | null;
   running: boolean;
   started_at: string | null;
@@ -53,6 +54,8 @@ export interface McpToolOption extends ToolOption {
 
 export interface ToolOptions {
   tools: ToolOption[];
+  /** Auto-mounted built-in tools an owner may allow/deny (default: all). */
+  builtin_tools: ToolOption[];
   mcp_tools: McpToolOption[];
 }
 
@@ -64,6 +67,8 @@ export interface PartnerAssets {
 
 export interface PartnerSessionInfo {
   session_key: string;
+  /** Opening user message, trimmed — the conversation's human label. */
+  title?: string;
   message_count: number;
   updated_at: string;
   last_message: string;
@@ -95,6 +100,7 @@ export interface CreatePartnerPayload {
   color?: string;
   avatar?: string;
   enabled_tools?: string[] | null;
+  builtin_tools?: string[] | null;
   mcp_tools?: string[] | null;
   assets?: {
     knowledge_bases?: string[];
@@ -323,7 +329,7 @@ export async function getChannelSchemas(): Promise<ChannelsSchemaResponse> {
 
 export async function getPartnerHistory(
   partnerId: string,
-  options?: { sessionKey?: string; limit?: number },
+  options?: { sessionKey?: string; sessionId?: string; limit?: number },
 ): Promise<
   {
     role: string;
@@ -331,10 +337,13 @@ export async function getPartnerHistory(
     timestamp?: string;
     channel?: string;
     attachments?: Record<string, unknown>[];
+    /** Persisted turn trace (assistant rows only) for rehydrating activity. */
+    events?: Record<string, unknown>[];
   }[]
 > {
   const params = new URLSearchParams();
   if (options?.sessionKey) params.set("session_key", options.sessionKey);
+  if (options?.sessionId) params.set("session_id", options.sessionId);
   if (options?.limit) params.set("limit", String(options.limit));
   const query = params.toString() ? `?${params.toString()}` : "";
   return json(
@@ -353,6 +362,54 @@ export async function getPartnerSessions(
     await apiFetch(
       apiUrl(`/api/v1/partners/${encodeURIComponent(partnerId)}/sessions`),
       { cache: "no-store" },
+    ),
+  );
+}
+
+async function postSessionAction(
+  partnerId: string,
+  action: "archive" | "resume" | "delete",
+  sessionKey: string,
+): Promise<void> {
+  await apiFetch(
+    apiUrl(
+      `/api/v1/partners/${encodeURIComponent(partnerId)}/sessions/${action}`,
+    ),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_key: sessionKey }),
+    },
+  );
+}
+
+export function archivePartnerSession(partnerId: string, sessionKey: string) {
+  return postSessionAction(partnerId, "archive", sessionKey);
+}
+
+export function resumePartnerSession(partnerId: string, sessionKey: string) {
+  return postSessionAction(partnerId, "resume", sessionKey);
+}
+
+export function deletePartnerSession(partnerId: string, sessionKey: string) {
+  return postSessionAction(partnerId, "delete", sessionKey);
+}
+
+export async function branchPartnerSession(
+  partnerId: string,
+  sourceKey: string,
+  newKey: string,
+): Promise<{ session: PartnerSessionInfo }> {
+  return json(
+    await apiFetch(
+      apiUrl(
+        `/api/v1/partners/${encodeURIComponent(partnerId)}/sessions/branch`,
+      ),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_key: sourceKey, new_key: newKey }),
+      },
     ),
   );
 }

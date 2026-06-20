@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import {
   ArrowUpRight,
-  Bot,
   ClipboardList,
   GraduationCap,
   History,
@@ -15,8 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { listSessions, type SessionSummary } from "@/lib/session-api";
-import { listImportedSessions } from "@/lib/imports-api";
+import { listSessions } from "@/lib/session-api";
 import { listNotebooks, listNotebookEntries } from "@/lib/notebook-api";
 import { listPersonas } from "@/lib/personas-api";
 import { listSkills } from "@/lib/skills-api";
@@ -35,7 +33,6 @@ type Lang = { zh: string; en: string };
 
 type DashKey =
   | "chat_history"
-  | "agents"
   | "notebooks"
   | "question_bank"
   | "personas"
@@ -60,16 +57,6 @@ interface DashboardGroup {
   items: DashboardItem[];
 }
 
-function distinctAgentSources(sessions: SessionSummary[]): number {
-  const seen = new Set<string>();
-  for (const s of sessions) {
-    const src = (s.preferences as { import?: { source?: string } } | undefined)
-      ?.import?.source;
-    if (src === "claude_code" || src === "codex") seen.add(src);
-  }
-  return seen.size;
-}
-
 const GROUPS: DashboardGroup[] = [
   {
     label: { zh: "对话与资料", en: "Conversations & Materials" },
@@ -86,22 +73,6 @@ const GROUPS: DashboardGroup[] = [
         unit: { zh: "段对话", en: "conversations" },
         tile: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
         load: async () => (await listSessions(200, 0, { force: true })).length,
-      },
-      {
-        key: "agents",
-        href: "/space/agents",
-        icon: Bot,
-        title: { zh: "我的智能体", en: "My Agents" },
-        blurb: {
-          zh: "续聊导入的 Claude Code 与 Codex 对话。",
-          en: "Chat with imported Claude Code and Codex agents.",
-        },
-        unit: { zh: "个智能体", en: "agents" },
-        tile: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
-        load: async () =>
-          distinctAgentSources(
-            await listImportedSessions(200, 0, { force: true }),
-          ),
       },
       {
         key: "notebooks",

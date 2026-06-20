@@ -11,6 +11,8 @@ adapters keyed in ``adapters/__init__.py``.
 from __future__ import annotations
 
 import base64
+import binascii
+import json
 import logging
 from typing import Any
 
@@ -20,6 +22,7 @@ from deeptutor.services.voice.base import (
     BaseSTTAdapter,
     BaseTTSAdapter,
     VoiceProviderError,
+    VoiceProviderHTTPError,
     build_auth_headers,
     join_audio_path,
 )
@@ -34,7 +37,27 @@ _FORMAT_CONTENT_TYPES = {
     "flac": "audio/flac",
     "wav": "audio/wav",
     "pcm": "audio/pcm",
+    "pcm16": "audio/pcm",
 }
+
+_OPENAI_TTS_VOICES = {
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "fable",
+    "nova",
+    "onyx",
+    "sage",
+    "shimmer",
+    "verse",
+}
+
+
+def _provider_error_message(action: str, status_code: int, body: str = "") -> str:
+    detail = (body or "").strip()[:400]
+    return f"{action} failed with HTTP {status_code}" + (f": {detail}" if detail else ".")
 
 
 def _raise_for_provider(resp: httpx.Response, action: str) -> None:
@@ -42,10 +65,47 @@ def _raise_for_provider(resp: httpx.Response, action: str) -> None:
     if resp.status_code < 400:
         return
     body = resp.text or ""
-    detail = body.strip()[:400]
-    raise VoiceProviderError(
-        f"{action} failed with HTTP {resp.status_code}" + (f": {detail}" if detail else ".")
+    raise VoiceProviderHTTPError(
+        _provider_error_message(action, resp.status_code, body),
+        status_code=resp.status_code,
+        body=body,
     )
+
+
+def _join_api_path(base_url: str, suffix: str) -> str:
+    """Append a generic API path to ``base_url`` while preserving query strings."""
+    base = (base_url or "").strip()
+    if not base:
+        raise VoiceProviderError("No endpoint URL configured for this provider.")
+    head, sep, query = base.partition("?")
+    suffix = suffix.strip("/")
+    if head.rstrip("/").endswith(f"/{suffix}"):
+        return base
+    joined = f"{head.rstrip('/')}/{suffix}"
+    return f"{joined}?{query}" if sep else joined
+
+
+def _chat_audio_format(response_format: str) -> str:
+    """Map OpenAI speech formats onto OpenRouter chat audio formats."""
+    fmt = (response_format or "mp3").strip().lower()
+    return "pcm16" if fmt == "pcm" else fmt
+
+
+def _openrouter_tts_hint(config: TTSConfig) -> str:
+    """Return a provider/model-specific hint for opaque OpenRouter TTS errors."""
+    model = (config.model or "").lower()
+    voice = (config.voice or "").strip()
+    if (
+        config.provider_name == "openrouter"
+        and "gemini" in model
+        and "tts" in model
+        and voice.lower() in _OPENAI_TTS_VOICES
+    ):
+        return (
+            f" Voice `{voice}` is an OpenAI TTS voice; Gemini TTS expects Google "
+            "prebuilt voice names such as `Kore` or `Puck`."
+        )
+    return ""
 
 
 class OpenAICompatTTSAdapter(BaseTTSAdapter):
@@ -84,7 +144,13 @@ class OpenAICompatTTSAdapter(BaseTTSAdapter):
                 resp = await client.post(url, headers=headers, json=payload)
         except httpx.HTTPError as exc:
             raise VoiceProviderError(f"TTS request error: {exc}") from exc
-        _raise_for_provider(resp, "TTS synthesis")
+        try:
+            _raise_for_provider(resp, "TTS synthesis")
+        except VoiceProviderHTTPError as exc:
+            hint = _openrouter_tts_hint(config)
+            if hint:
+                raise VoiceProviderError(f"{exc}{hint}") from exc
+            raise
         audio = resp.content
         if not audio:
             raise VoiceProviderError("TTS provider returned empty audio.")
@@ -95,6 +161,127 @@ class OpenAICompatTTSAdapter(BaseTTSAdapter):
         if "json" in content_type:
             content_type = _FORMAT_CONTENT_TYPES.get(response_format, "audio/mpeg")
         return audio, content_type
+
+
+class OpenRouterTTSAdapter(BaseTTSAdapter):
+    """OpenRouter TTS with fallback for streaming chat-audio models.
+
+    OpenRouter documents both a dedicated ``/audio/speech`` endpoint for TTS
+    models and audio output through ``/chat/completions`` for models that expose
+    the ``audio`` output modality. Try the dedicated endpoint first, then fall
+    back to chat audio for configs pointed at audio-output chat models.
+    """
+
+    def __init__(self) -> None:
+        self._speech = OpenAICompatTTSAdapter()
+
+    async def synthesize(self, text: str, config: TTSConfig) -> tuple[bytes, str]:
+        try:
+            return await self._speech.synthesize(text, config)
+        except VoiceProviderHTTPError as exc:
+            if exc.status_code in {401, 403, 429}:
+                raise
+            logger.info(
+                "OpenRouter /audio/speech failed with HTTP %s; trying chat audio output.",
+                exc.status_code,
+            )
+            return await self._synthesize_chat_audio(text, config, original_error=exc)
+
+    async def _synthesize_chat_audio(
+        self,
+        text: str,
+        config: TTSConfig,
+        *,
+        original_error: VoiceProviderHTTPError,
+    ) -> tuple[bytes, str]:
+        if not config.base_url:
+            raise VoiceProviderError("No endpoint URL configured for TTS.")
+        url = _join_api_path(config.base_url, "chat/completions")
+        headers = {
+            "Content-Type": "application/json",
+            **build_auth_headers(config.auth_style, config.api_key),
+            **(config.extra_headers or {}),
+        }
+        audio_format = _chat_audio_format(config.response_format)
+        payload: dict[str, Any] = {
+            "model": config.model,
+            "messages": [{"role": "user", "content": text}],
+            "modalities": ["text", "audio"],
+            "audio": {
+                "voice": config.voice or "alloy",
+                "format": audio_format,
+            },
+            "stream": True,
+        }
+
+        logger.debug(
+            "OpenRouter chat-audio synthesize url=%s model=%s voice=%s fmt=%s chars=%d",
+            url,
+            config.model,
+            config.voice,
+            audio_format,
+            len(text),
+        )
+        audio_chunks: list[str] = []
+        try:
+            async with httpx.AsyncClient(timeout=config.request_timeout) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+            _raise_for_provider(resp, "OpenRouter chat audio synthesis")
+            for line in (resp.text or "").splitlines():
+                self._collect_audio_line(line, audio_chunks)
+        except httpx.HTTPError as exc:
+            detail = str(exc) or exc.__class__.__name__
+            raise VoiceProviderError(f"TTS request error: {detail}") from exc
+        except VoiceProviderHTTPError as exc:
+            raise VoiceProviderError(
+                f"{exc}; original /audio/speech error: {original_error}"
+            ) from exc
+
+        if not audio_chunks:
+            raise VoiceProviderError(
+                "OpenRouter chat audio returned no audio chunks; "
+                f"original /audio/speech error: {original_error}"
+            )
+        try:
+            audio = base64.b64decode("".join(audio_chunks))
+        except binascii.Error as exc:
+            raise VoiceProviderError("OpenRouter chat audio returned invalid base64.") from exc
+        if not audio:
+            raise VoiceProviderError("OpenRouter chat audio returned empty audio.")
+        content_type = _FORMAT_CONTENT_TYPES.get(audio_format, "application/octet-stream")
+        return audio, content_type
+
+    @staticmethod
+    def _collect_audio_line(line: str, audio_chunks: list[str]) -> None:
+        if not line:
+            return
+        raw = line.strip()
+        if not raw.startswith("data:"):
+            return
+        data = raw[len("data:") :].strip()
+        if not data or data == "[DONE]":
+            return
+        try:
+            chunk = json.loads(data)
+        except json.JSONDecodeError:
+            logger.debug("Ignoring malformed OpenRouter SSE line: %s", data[:160])
+            return
+        error = chunk.get("error")
+        if isinstance(error, dict):
+            message = error.get("message") or error.get("code") or "unknown error"
+            raise VoiceProviderError(f"OpenRouter chat audio error: {message}")
+        choices = chunk.get("choices")
+        if not isinstance(choices, list):
+            return
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            delta = choice.get("delta") or {}
+            if not isinstance(delta, dict):
+                continue
+            audio = delta.get("audio") or {}
+            if isinstance(audio, dict) and isinstance(audio.get("data"), str):
+                audio_chunks.append(audio["data"])
 
 
 class OpenAICompatSTTAdapter(BaseSTTAdapter):
@@ -188,4 +375,4 @@ class OpenAICompatSTTAdapter(BaseSTTAdapter):
         return (resp.text or "").strip()
 
 
-__all__ = ["OpenAICompatTTSAdapter", "OpenAICompatSTTAdapter"]
+__all__ = ["OpenAICompatTTSAdapter", "OpenRouterTTSAdapter", "OpenAICompatSTTAdapter"]

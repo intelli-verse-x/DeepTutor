@@ -259,6 +259,16 @@ class ClawHubProvider:
         """The configured ``/api/v1`` base URL (used to derive the web origin)."""
         return self._base_url
 
+    @property
+    def web_origin(self) -> str:
+        """The hub's website origin — ``base_url`` minus the ``/api/...`` suffix.
+
+        Used to build "view on EduHub" links for the in-app skill browser.
+        """
+        marker = "/api/"
+        idx = self._base_url.find(marker)
+        return self._base_url[:idx] if idx != -1 else self._base_url
+
     def _get(self, path: str, **params: Any) -> httpx.Response:
         url = f"{self._base_url}{path}"
         try:
@@ -357,6 +367,86 @@ class ClawHubProvider:
         if latest is None and isinstance(payload.get("skill"), dict):
             latest = payload["skill"].get("latestVersion")
         return str(latest or "").strip()
+
+    @staticmethod
+    def _listing_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
+        """Normalise one hub catalog/detail row into a display-ready dict."""
+        slug = str(row.get("slug") or "").strip()
+        if not slug:
+            return None
+        stats = row.get("stats") if isinstance(row.get("stats"), dict) else {}
+        owner = row.get("owner") if isinstance(row.get("owner"), dict) else {}
+        return {
+            "slug": slug,
+            "name": str(row.get("displayName") or row.get("name") or slug),
+            "summary": str(row.get("summary") or row.get("description") or ""),
+            "version": str(row.get("version") or ""),
+            "downloads": int(stats.get("downloads") or 0),
+            "stars": int(stats.get("stars") or 0),
+            "owner": str(owner.get("displayName") or row.get("ownerHandle") or ""),
+            "owner_url": str(owner.get("htmlUrl") or ""),
+            "updated_at": row.get("updatedAt"),
+        }
+
+    def catalog(
+        self, *, query: str = "", limit: int = 50, sort: str = "createdAt"
+    ) -> list[dict[str, Any]]:
+        """List skills published on the hub, for the in-app skill browser.
+
+        Uses ``/search`` when a query is given (server-side relevance) and the
+        plain ``/skills`` explore feed otherwise. Rows carry display name,
+        summary, version, download/star counts and owner — everything the
+        DeepTutor-native browser renders without a second round-trip.
+        """
+        if query.strip():
+            response = self._get("/search", q=query.strip(), limit=limit)
+        else:
+            response = self._get("/skills", limit=limit, sort=sort)
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise HubError(f"{self.name}: catalog returned invalid JSON") from exc
+        rows = payload if isinstance(payload, list) else None
+        if rows is None and isinstance(payload, dict):
+            for key in ("results", "skills", "items"):
+                if isinstance(payload.get(key), list):
+                    rows = payload[key]
+                    break
+        if rows is None:
+            raise HubError(f"{self.name}: unrecognised catalog response shape")
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            if isinstance(row, dict):
+                listing = self._listing_from_row(row)
+                if listing is not None:
+                    out.append(listing)
+        return out
+
+    def detail(self, slug: str) -> dict[str, Any]:
+        """Full metadata + SKILL.md body for one hub skill (browser detail view)."""
+        try:
+            payload = self._get(f"/skills/{slug}").json()
+        except ValueError as exc:
+            raise HubError(f"{self.name}: skill detail returned invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise HubError(f"{self.name}: unrecognised skill detail shape")
+        skill = payload.get("skill") if isinstance(payload.get("skill"), dict) else payload
+        listing = self._listing_from_row(skill) or {"slug": slug, "name": slug}
+        # Owner sometimes lives at the envelope top level, not inside ``skill``.
+        if not listing.get("owner") and isinstance(payload.get("owner"), dict):
+            owner = payload["owner"]
+            listing["owner"] = str(owner.get("displayName") or owner.get("handle") or "")
+            listing["owner_url"] = str(owner.get("htmlUrl") or "")
+        dist = payload.get("distTags") if isinstance(payload.get("distTags"), dict) else {}
+        listing["version"] = str(dist.get("latest") or listing.get("version") or "")
+        listing["content"] = str(skill.get("description") or "")
+        # EduHub's ``tags`` field is a dist-tags map; the topical labels live in
+        # ``keywords``. Fall back to a list-shaped ``tags`` for other hubs.
+        keywords = skill.get("keywords")
+        if not isinstance(keywords, list):
+            keywords = skill.get("tags") if isinstance(skill.get("tags"), list) else []
+        listing["tags"] = [str(t) for t in keywords if str(t).strip()]
+        return listing
 
     def publish(
         self,
@@ -613,6 +703,9 @@ def install_from_hub(
             rename_to=rename_to,
             fallback_description=fetched.ref.summary or None,
             force=force,
+            # Stamp the source hub as a tag so imported skills are visibly
+            # grouped (e.g. an ``eduhub`` tag) in the user's Skills list.
+            extra_tags=[hub],
             origin={
                 "hub": hub,
                 "slug": slug,

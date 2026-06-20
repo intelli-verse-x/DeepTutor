@@ -674,6 +674,11 @@ class TurnRuntimeManager:
             "_regenerated_from_message_id",
             "_superseded_turn_id",
             "followup_question_context",
+            # Per-turn subagent consult budget (composer stepper). Not part of
+            # any capability's public config schema, so it rides as a runtime
+            # key — stripped before validation, merged back into the turn config
+            # and read by the subagent capability from context.config_overrides.
+            "subagent_consult_budget",
         )
         runtime_only_config = {
             key: raw_config.pop(key) for key in runtime_only_keys if key in raw_config

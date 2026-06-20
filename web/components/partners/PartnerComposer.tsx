@@ -6,10 +6,14 @@
  * picker, paste, and drag/drop.
  */
 
-import { memo, useCallback, useRef, useState } from "react";
-import { ArrowUp, Paperclip, X } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, Info, Paperclip, Square, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { shouldSubmitOnEnter } from "@/lib/composer-keyboard";
+import {
+  getPartnerCommands,
+  type PartnerCommandInfo,
+} from "@/lib/partners-api";
 import {
   ATTACHMENT_ACCEPT,
   MAX_ATTACHMENT_BYTES,
@@ -36,11 +40,15 @@ export interface PartnerPendingAttachment {
 
 export const PartnerComposer = memo(function PartnerComposer({
   onSend,
+  onStop,
   disabled,
+  streaming,
   placeholder,
 }: {
   onSend: (content: string, attachments: PartnerPendingAttachment[]) => void;
+  onStop?: () => void;
   disabled?: boolean;
+  streaming?: boolean;
   placeholder?: string;
 }) {
   const { t } = useTranslation();
@@ -50,6 +58,10 @@ export const PartnerComposer = memo(function PartnerComposer({
   );
   const [dragging, setDragging] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [commands, setCommands] = useState<PartnerCommandInfo[]>([]);
+  const [slashClosed, setSlashClosed] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [showHelp, setShowHelp] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounterRef = useRef(0);
@@ -57,6 +69,44 @@ export const PartnerComposer = memo(function PartnerComposer({
   const isComposingRef = useRef(false);
 
   useAutoSizedTextarea(textareaRef, input, { min: 24, max: 180 });
+
+  // Slash commands (same 5 the IM channels expose) — fetched once; the palette
+  // is partner-independent so no id is needed.
+  useEffect(() => {
+    let cancelled = false;
+    void getPartnerCommands()
+      .then((next) => {
+        if (!cancelled) setCommands(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The menu is active while the input is a bare "/word" (no space yet) and the
+  // user hasn't dismissed it. Typing reopens it; Escape / accept closes it.
+  const slashMatch = /^\/([a-z]*)$/i.exec(input);
+  const slashQuery = slashMatch ? slashMatch[1].toLowerCase() : null;
+  const slashMatches = useMemo(
+    () =>
+      slashQuery !== null
+        ? commands.filter((c) =>
+            c.command.slice(1).toLowerCase().startsWith(slashQuery),
+          )
+        : [],
+    [commands, slashQuery],
+  );
+  const slashOpen = !slashClosed && slashMatches.length > 0;
+  const boundedSlashIndex = Math.min(slashIndex, slashMatches.length - 1);
+
+  const acceptCommand = useCallback((command: PartnerCommandInfo) => {
+    // Arg-taking commands keep the menu out of the way with a trailing space;
+    // zero-arg ones are left ready to send.
+    setInput(command.arg_hint ? `${command.command} ` : command.command);
+    setSlashClosed(true);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
 
   const showAttachmentError = useCallback((message: string) => {
     setAttachmentError(message);
@@ -152,12 +202,44 @@ export const PartnerComposer = memo(function PartnerComposer({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // When the slash menu is open it owns the arrow/enter/tab/escape keys.
+      if (slashOpen && !isComposingRef.current) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSlashIndex((i) => Math.min(i + 1, slashMatches.length - 1));
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSlashIndex((i) => Math.max(i - 1, 0));
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          acceptCommand(slashMatches[boundedSlashIndex]);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setSlashClosed(true);
+          return;
+        }
+      }
       if (shouldSubmitOnEnter(e, isComposingRef.current)) {
         e.preventDefault();
         submit();
       }
     },
-    [submit],
+    [acceptCommand, boundedSlashIndex, slashMatches, slashOpen, submit],
+  );
+
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setInput(e.target.value);
+      setSlashClosed(false); // typing always re-arms the menu
+      setSlashIndex(0);
+    },
+    [],
   );
 
   const handlePaste = useCallback(
@@ -228,7 +310,8 @@ export const PartnerComposer = memo(function PartnerComposer({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const canSend = (!!input.trim() || attachments.length > 0) && !disabled;
+  const canSend =
+    (!!input.trim() || attachments.length > 0) && !disabled && !streaming;
 
   return (
     <div
@@ -267,10 +350,44 @@ export const PartnerComposer = memo(function PartnerComposer({
         tabIndex={-1}
       />
 
+      {slashOpen && (
+        <div className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-sm overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-lg">
+          {slashMatches.map((command, index) => (
+            <button
+              key={command.command}
+              type="button"
+              // onMouseDown (not onClick) so the textarea doesn't blur first.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                acceptCommand(command);
+              }}
+              onMouseEnter={() => setSlashIndex(index)}
+              className={`flex w-full items-baseline gap-2 px-3 py-2 text-left transition-colors ${
+                index === boundedSlashIndex
+                  ? "bg-[var(--muted)]"
+                  : "hover:bg-[var(--muted)]/60"
+              }`}
+            >
+              <span className="font-mono text-[12.5px] text-[var(--foreground)]">
+                {command.command}
+              </span>
+              {command.arg_hint && (
+                <span className="font-mono text-[11px] text-[var(--muted-foreground)]">
+                  {command.arg_hint}
+                </span>
+              )}
+              <span className="ml-auto truncate pl-3 text-[11.5px] text-[var(--muted-foreground)]">
+                {command.description}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <textarea
         ref={textareaRef}
         value={input}
-        onChange={(e) => setInput(e.target.value)}
+        onChange={handleInputChange}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         onCompositionStart={() => {
@@ -284,7 +401,7 @@ export const PartnerComposer = memo(function PartnerComposer({
         placeholder={placeholder ?? t("Type a message...")}
         rows={1}
         maxLength={32000}
-        disabled={disabled}
+        disabled={disabled || streaming}
         className="block w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[14px] leading-relaxed text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] disabled:opacity-50"
       />
 
@@ -363,25 +480,69 @@ export const PartnerComposer = memo(function PartnerComposer({
       )}
 
       <div className="flex items-center justify-between px-2 pb-2">
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled}
-          aria-label={t("Attach files")}
-          title={t("Attach files")}
-          className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-30"
-        >
-          <Paperclip className="h-4 w-4" strokeWidth={1.9} />
-        </button>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!canSend}
-          aria-label={t("Send")}
-          className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:opacity-30"
-        >
-          <ArrowUp className="h-4 w-4" strokeWidth={2.2} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || streaming}
+            aria-label={t("Attach files")}
+            title={t("Attach files")}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)] disabled:opacity-30"
+          >
+            <Paperclip className="h-4 w-4" strokeWidth={1.9} />
+          </button>
+          <div
+            className="relative flex items-center"
+            onMouseEnter={() => setShowHelp(true)}
+            onMouseLeave={() => setShowHelp(false)}
+          >
+            <button
+              type="button"
+              aria-label={t("Tips")}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+            >
+              <Info className="h-4 w-4" strokeWidth={1.9} />
+            </button>
+            {showHelp && (
+              <div className="absolute bottom-full left-0 z-20 mb-2 w-64 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-[11.5px] leading-relaxed text-[var(--muted-foreground)] shadow-lg">
+                <p className="mb-1 font-medium text-[var(--foreground)]">
+                  {t("Tips")}
+                </p>
+                <p>
+                  {t(
+                    "Type / to see commands — start a new conversation, view history, toggle tools, and more.",
+                  )}
+                </p>
+                <p className="mt-1.5">
+                  {t(
+                    "Attach images or documents with the clip, or just drag them in.",
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+        {streaming ? (
+          <button
+            type="button"
+            onClick={onStop}
+            aria-label={t("Stop")}
+            title={t("Stop")}
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--background)] transition-opacity hover:opacity-90"
+          >
+            <Square className="h-3 w-3" strokeWidth={2.2} fill="currentColor" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSend}
+            aria-label={t("Send")}
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:opacity-30"
+          >
+            <ArrowUp className="h-4 w-4" strokeWidth={2.2} />
+          </button>
+        )}
       </div>
     </div>
   );

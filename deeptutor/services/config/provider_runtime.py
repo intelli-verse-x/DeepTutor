@@ -228,6 +228,7 @@ TTS_PROVIDERS: dict[str, VoiceProviderSpec] = {
     "openrouter": VoiceProviderSpec(
         label="OpenRouter",
         default_api_base="https://openrouter.ai/api/v1",
+        adapter="openrouter_tts",
         default_model="openai/gpt-4o-mini-tts",
         default_voice="alloy",
     ),

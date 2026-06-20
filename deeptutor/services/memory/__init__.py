@@ -13,7 +13,7 @@ The v1 two-file `MemoryService` is gone. All callers go through
 """
 
 from .ids import is_entry_id, is_trace_id, new_entry_id, new_trace_id
-from .paths import L3_SLOTS, SURFACES, L3Slot, Surface
+from .paths import L3_SLOTS, SURFACES, L3Slot, Surface, memory_path_service_override
 from .store import (
     DocOverview,
     MemoryStore,
@@ -34,6 +34,7 @@ __all__ = [
     "get_memory_store",
     "is_entry_id",
     "is_trace_id",
+    "memory_path_service_override",
     "migrate_partner_surface_if_needed",
     "migrate_v1_if_needed",
     "new_entry_id",

@@ -144,6 +144,8 @@ export default function PartnerChannels({
         const err = (await res.json().catch(() => ({}))) as { detail?: string };
         onToast(err.detail ?? t("Save failed"));
       }
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : t("Save failed"));
     } finally {
       setSaving(false);
     }

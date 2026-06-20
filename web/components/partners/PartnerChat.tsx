@@ -16,7 +16,15 @@ import { useTranslation } from "react-i18next";
 import dynamic from "next/dynamic";
 import { Paperclip } from "lucide-react";
 import { wsUrl } from "@/lib/api";
-import { getPartnerHistory } from "@/lib/partners-api";
+import {
+  archivePartnerSession,
+  branchPartnerSession,
+  deletePartnerSession,
+  getPartnerHistory,
+  getPartnerSessions,
+  resumePartnerSession,
+} from "@/lib/partners-api";
+import { freshPartnerSessionKey } from "@/lib/partner-session";
 import type { ExportableMessage } from "@/lib/chat-export";
 import type { StreamEvent } from "@/lib/unified-ws";
 import { docIconFor, formatBytes, isSvgFilename } from "@/lib/doc-attachments";
@@ -54,9 +62,32 @@ interface PartnerMessageAttachment {
   previewUrl?: string;
 }
 
-function resetsVisibleConversation(content: string) {
-  const command = content.trim().split(/\s+/, 1)[0]?.toLowerCase();
-  return command === "/new" || command === "/clear";
+// Commands the web client handles itself (they change client state — the
+// active session, or the in-flight turn — which a server text reply can't do).
+const CLIENT_COMMANDS = new Set([
+  "/new",
+  "/clear",
+  "/branch",
+  "/resume",
+  "/delete",
+  "/sessions",
+  "/stop",
+]);
+
+function parseClientCommand(
+  content: string,
+): { command: string; arg: string } | null {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith("/")) return null;
+  const [head, ...rest] = trimmed.split(/\s+/);
+  const command = head.toLowerCase();
+  if (!CLIENT_COMMANDS.has(command)) return null;
+  return { command, arg: rest.join(" ").trim() };
+}
+
+function normalizeHistoryEvents(value: unknown): StreamEvent[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  return value as StreamEvent[];
 }
 
 function normalizeHistoryAttachments(
@@ -159,6 +190,9 @@ export default function PartnerChat({
   color,
   avatar,
   running,
+  sessionKey,
+  onSessionKeyChange,
+  onToast,
   onMessagesChange,
 }: {
   partnerId: string;
@@ -167,6 +201,12 @@ export default function PartnerChat({
   color?: string;
   avatar?: string;
   running: boolean;
+  /** The active web session key (canonical id), owned by the page so the
+   *  Archive tab can switch which conversation the Chat tab is on. */
+  sessionKey: string;
+  /** Rotate to a different session (new / branch / resume / delete-current). */
+  onSessionKeyChange: (key: string) => void;
+  onToast?: (message: string) => void;
   /** Lifts the settled conversation up so the page header can export it.
    *  Fires only on discrete message events (send / turn done / clear), not
    *  per streamed token — the live `draft` is intentionally excluded. */
@@ -185,12 +225,24 @@ export default function PartnerChat({
   } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const sessionIdRef = useRef<string>("");
+  // Mirror the active session into a ref so the socket's onopen (which closes
+  // over the effect's first render) attaches to the CURRENT session.
+  const sessionKeyRef = useRef(sessionKey);
+  sessionKeyRef.current = sessionKey;
+  // Attach to an in-flight turn only AFTER history has loaded, so the replay's
+  // echoed question + answer aren't clobbered by the history replace. Attach
+  // once per socket connection.
+  const historyReadyRef = useRef(false);
+  const attachedRef = useRef(false);
 
-  useEffect(() => {
-    if (!sessionIdRef.current) {
-      sessionIdRef.current = `web-${Math.random().toString(36).slice(2, 10)}`;
-    }
+  const tryAttach = useCallback(() => {
+    if (attachedRef.current) return;
+    if (!historyReadyRef.current || !sessionKeyRef.current) return;
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+    attachedRef.current = true;
+    wsRef.current.send(
+      JSON.stringify({ action: "attach", session_key: sessionKeyRef.current }),
+    );
   }, []);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
@@ -202,10 +254,18 @@ export default function PartnerChat({
     });
   }, []);
 
-  // Restore recent history (all sessions merged → the partner's memory feel).
+  // Restore the active session's history (scoped to it — the cross-channel
+  // "memory feel" is served by the read_memory tool now, not by merging raw
+  // transcripts). Re-runs when the page switches the active session (resume /
+  // branch). Persisted turn events rehydrate the collapsible "Done" activity.
   useEffect(() => {
+    if (!sessionKey) return;
     let cancelled = false;
-    void getPartnerHistory(partnerId, { limit: 60 })
+    historyReadyRef.current = false;
+    void getPartnerHistory(partnerId, {
+      sessionKey,
+      limit: 60,
+    })
       .then((history) => {
         if (cancelled) return;
         setMessages(
@@ -217,15 +277,23 @@ export default function PartnerChat({
               attachments: normalizeHistoryAttachments(
                 (m as Record<string, unknown>).attachments,
               ),
+              events: normalizeHistoryEvents(
+                (m as Record<string, unknown>).events,
+              ),
             })),
         );
+        historyReadyRef.current = true;
+        tryAttach();
         requestAnimationFrame(() => scrollToBottom("instant"));
       })
-      .catch(() => {});
+      .catch(() => {
+        historyReadyRef.current = true;
+        tryAttach();
+      });
     return () => {
       cancelled = true;
     };
-  }, [partnerId, scrollToBottom]);
+  }, [partnerId, sessionKey, scrollToBottom, tryAttach]);
 
   useEffect(() => {
     if (!running) {
@@ -237,9 +305,17 @@ export default function PartnerChat({
       return;
     }
 
+    attachedRef.current = false;
     const ws = new WebSocket(wsUrl(`/api/v1/partners/${partnerId}/ws`));
     wsRef.current = ws;
-    ws.onopen = () => setConnected(true);
+    ws.onopen = () => {
+      setConnected(true);
+      // Reattach to an in-flight turn (survives a page refresh): the server
+      // replays its buffered stream, so a mid-answer reload keeps streaming.
+      // Sequenced after history load via tryAttach so the replay isn't
+      // clobbered by the history replace.
+      tryAttach();
+    };
 
     // Authoritative live-turn accumulator. Lives in the effect scope so
     // socket handlers can mutate it cheaply; renders see snapshots only.
@@ -256,6 +332,22 @@ export default function PartnerChat({
         content?: string;
         event?: StreamEvent;
       };
+      if (data.type === "resuming") {
+        // Server is about to replay an in-flight turn (after a refresh).
+        live = { events: [], content: "" };
+        setStreaming(true);
+        publish();
+        return;
+      }
+      if (data.type === "user_echo") {
+        // The question that opened the replayed turn (not yet persisted).
+        setMessages((msgs) => [
+          ...msgs,
+          { role: "user", content: data.content ?? "" },
+        ]);
+        scrollToBottom();
+        return;
+      }
       if (data.type === "stream_event" && data.event) {
         const event = data.event;
         live ??= { events: [], content: "" };
@@ -288,6 +380,23 @@ export default function PartnerChat({
         setStreaming(false);
         live = null;
         publish();
+      } else if (data.type === "stopped") {
+        // Server cancelled the turn (/stop or the stop button). Keep any
+        // partial answer the user already saw; drop the live draft.
+        const finished = live;
+        live = null;
+        if (finished && (finished.content || finished.events.length)) {
+          setMessages((msgs) => [
+            ...msgs,
+            {
+              role: "assistant",
+              content: finished.content,
+              events: finished.events.length ? finished.events : undefined,
+            },
+          ]);
+        }
+        setStreaming(false);
+        publish();
       } else if (data.type === "proactive") {
         setMessages((msgs) => [
           ...msgs,
@@ -314,7 +423,7 @@ export default function PartnerChat({
       ws.close();
       wsRef.current = null;
     };
-  }, [partnerId, running, scrollToBottom]);
+  }, [partnerId, running, scrollToBottom, tryAttach]);
 
   // Report the settled transcript to the parent for header export controls.
   useEffect(() => {
@@ -331,15 +440,128 @@ export default function PartnerChat({
     );
   }, [messages, onMessagesChange]);
 
+  const sendStop = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({ action: "stop", session_key: sessionKey }),
+      );
+    }
+  }, [sessionKey]);
+
+  // Session-management commands run client-side: they switch the active
+  // session or stop the turn — things a server text reply can't do. Returns
+  // true when handled (so the caller skips the normal send).
+  const runClientCommand = useCallback(
+    async (command: string, arg: string): Promise<void> => {
+      switch (command) {
+        case "/new":
+        case "/clear": {
+          await archivePartnerSession(partnerId, sessionKey).catch(() => {});
+          setMessages([]);
+          onSessionKeyChange(freshPartnerSessionKey());
+          break;
+        }
+        case "/branch": {
+          const next = freshPartnerSessionKey();
+          try {
+            await branchPartnerSession(partnerId, sessionKey, next);
+            onToast?.(
+              t("Branched — the original is archived as {{id}}", {
+                id: sessionKey,
+              }),
+            );
+            onSessionKeyChange(next); // history reload picks up the copy
+          } catch {
+            onToast?.(t("Nothing to branch yet."));
+          }
+          break;
+        }
+        case "/resume": {
+          if (!arg) {
+            onToast?.(t("Usage: /resume <session ID>"));
+            break;
+          }
+          try {
+            await resumePartnerSession(partnerId, arg);
+            onSessionKeyChange(arg);
+          } catch {
+            onToast?.(t("Session not found"));
+          }
+          break;
+        }
+        case "/delete": {
+          if (!arg) {
+            onToast?.(t("Usage: /delete <session ID>"));
+            break;
+          }
+          try {
+            await deletePartnerSession(partnerId, arg);
+            onToast?.(t("Conversation deleted"));
+            if (arg === sessionKey) {
+              setMessages([]);
+              onSessionKeyChange(freshPartnerSessionKey());
+            }
+          } catch {
+            onToast?.(t("Session not found"));
+          }
+          break;
+        }
+        case "/sessions": {
+          try {
+            const sessions = await getPartnerSessions(partnerId);
+            const lines = sessions
+              .slice(0, 30)
+              .map(
+                (s) =>
+                  `- \`${s.session_key}\`${s.archived ? ` (${t("Archived")})` : ""} — ${
+                    s.title || t("New conversation")
+                  } · ${s.message_count}`,
+              )
+              .join("\n");
+            setMessages((msgs) => [
+              ...msgs,
+              {
+                role: "assistant",
+                content: `${t("Conversations:")}\n${lines}\n\n${t(
+                  "Use /resume <session ID> or /delete <session ID>.",
+                )}`,
+              },
+            ]);
+            scrollToBottom();
+          } catch {
+            onToast?.(t("Load failed"));
+          }
+          break;
+        }
+        case "/stop": {
+          sendStop();
+          break;
+        }
+      }
+    },
+    [
+      partnerId,
+      sessionKey,
+      onSessionKeyChange,
+      onToast,
+      scrollToBottom,
+      sendStop,
+      t,
+    ],
+  );
+
   const handleSend = useCallback(
     (content: string, attachments: PartnerPendingAttachment[]) => {
-      if (
-        streaming ||
-        !running ||
-        !wsRef.current ||
-        wsRef.current.readyState !== WebSocket.OPEN
-      )
+      if (streaming || !running) return;
+
+      const command =
+        attachments.length === 0 ? parseClientCommand(content) : null;
+      if (command) {
+        void runClientCommand(command.command, command.arg);
         return;
+      }
+
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
       const visibleContent =
         content ||
         (attachments.every((item) => item.type === "image")
@@ -348,7 +570,7 @@ export default function PartnerChat({
       wsRef.current.send(
         JSON.stringify({
           content: visibleContent,
-          session_id: sessionIdRef.current,
+          session_key: sessionKey,
           attachments: attachments.map((item) => ({
             type: item.type,
             filename: item.filename,
@@ -357,23 +579,19 @@ export default function PartnerChat({
           })),
         }),
       );
-      if (resetsVisibleConversation(visibleContent)) {
-        setMessages([]);
-      } else {
-        setMessages((msgs) => [
-          ...msgs,
-          {
-            role: "user",
-            content: visibleContent,
-            attachments: sentAttachmentsForMessage(attachments),
-          },
-        ]);
-      }
+      setMessages((msgs) => [
+        ...msgs,
+        {
+          role: "user",
+          content: visibleContent,
+          attachments: sentAttachmentsForMessage(attachments),
+        },
+      ]);
       setDraft({ events: [], content: "" });
       setStreaming(true);
       scrollToBottom();
     },
-    [running, streaming, scrollToBottom, t],
+    [sessionKey, running, streaming, scrollToBottom, runClientCommand, t],
   );
 
   return (
@@ -485,7 +703,9 @@ export default function PartnerChat({
         ) : null}
         <PartnerComposer
           onSend={handleSend}
-          disabled={streaming || !connected || !running}
+          onStop={sendStop}
+          streaming={streaming}
+          disabled={!connected || !running}
         />
       </div>
     </div>

@@ -4,6 +4,7 @@ labels:
   exploring: "探索"
   tool_call: "调用工具"
   retrieve: "检索"
+  consult_subagent: "咨询智能体"
   final_response: "生成回答"
 
 general: |-

@@ -61,6 +61,8 @@ import ContextReferenceTree, {
   type ContextTreeItem,
 } from "./ContextReferenceTree";
 import { AssistantActivity } from "./TracePanels";
+import { agentGlyph } from "@/components/agents/agent-icons";
+import { useConnectedAgentKinds } from "@/hooks/useConnectedAgentKinds";
 
 const MathAnimatorViewer = dynamic(
   () => import("@/components/math-animator/MathAnimatorViewer"),
@@ -874,6 +876,10 @@ const UserMessage = memo(function UserMessage({
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(msg.content);
+  // Connected subagents ride in knowledge_bases (same selection path) but are
+  // agents, not KBs — this maps a selected name to its backend kind so the
+  // reference chip can badge it with the agent's brand icon.
+  const agentKinds = useConnectedAgentKinds();
   if (msg.content.startsWith("[Quiz Performance]")) return null;
   // ``msg.id`` can be a negative client-side sentinel for optimistic
   // (just-sent, not yet reconciled with the server) rows. We still allow
@@ -920,14 +926,25 @@ const UserMessage = memo(function UserMessage({
         onClick: onPreviewAttachment ? () => onPreviewAttachment(a) : undefined,
       };
     }),
-    ...(snap?.knowledgeBases ?? []).map(
-      (name): ContextTreeItem => ({
+    ...(snap?.knowledgeBases ?? []).map((name): ContextTreeItem => {
+      const agentKind = agentKinds[name];
+      if (agentKind) {
+        return {
+          key: `agent-${name}`,
+          // Brand SVG marks share the lucide call signature (size/strokeWidth/
+          // className); cast bridges the structural-variance gap.
+          icon: (agentGlyph(agentKind) ?? Bot) as unknown as LucideIcon,
+          kind: t("Agent"),
+          label: name,
+        };
+      }
+      return {
         key: `kb-${name}`,
         icon: Database,
         kind: t("Knowledge"),
         label: name,
-      }),
-    ),
+      };
+    }),
     ...(snap?.bookReferences ?? []).map(
       (ref): ContextTreeItem => ({
         key: `book-${ref.book_id}`,

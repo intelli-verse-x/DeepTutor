@@ -2,6 +2,7 @@
 
 import {
   AudioLines,
+  Bot,
   Boxes,
   Brain,
   BrainCircuit,
@@ -21,6 +22,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { ClaudeGlyph, CodexGlyph } from "@/components/agents/agent-icons";
 import type { ServiceName } from "@/components/settings/SettingsContext";
 
 /**
@@ -186,6 +188,34 @@ const CHAT_CHILDREN: SettingsLeaf[] = [
   },
 ];
 
+const AGENT_CHILDREN: SettingsLeaf[] = [
+  {
+    key: "agent-claude-code",
+    href: "/settings/agents/claude-code",
+    label: { zh: "Claude Code", en: "Claude Code" },
+    blurb: {
+      zh: "DeepTutor 调用本机 Claude Code 时的模型、推理强度与运行参数。",
+      en: "Model, reasoning effort, and run params for the local Claude Code.",
+    },
+    // Brand glyph shares the lucide call signature (size/className).
+    icon: ClaudeGlyph as unknown as LucideIcon,
+    tile: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+    adminOnly: true,
+  },
+  {
+    key: "agent-codex",
+    href: "/settings/agents/codex",
+    label: { zh: "Codex", en: "Codex" },
+    blurb: {
+      zh: "DeepTutor 调用本机 Codex 时的模型、推理强度与运行参数。",
+      en: "Model, reasoning effort, and run params for the local Codex.",
+    },
+    icon: CodexGlyph as unknown as LucideIcon,
+    tile: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    adminOnly: true,
+  },
+];
+
 export const SETTINGS_CATEGORIES: SettingsCategory[] = [
   {
     key: "appearance",
@@ -234,6 +264,17 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
     children: CHAT_CHILDREN,
   },
   {
+    key: "agents",
+    label: { zh: "伙伴和智能体", en: "Partners & Agents" },
+    blurb: {
+      zh: "配置可在对话中调用的子智能体",
+      en: "Configure the subagents you can call on in chat",
+    },
+    icon: Bot,
+    href: "/settings/agents",
+    children: AGENT_CHILDREN,
+  },
+  {
     key: "memory",
     label: { zh: "记忆", en: "Memory" },
     blurb: {
@@ -276,6 +317,8 @@ const STORAGE_PATHS: Record<string, string> = {
   "/settings/mcp": "data/user/settings/mcp.json",
   "/settings/capabilities": "data/user/settings/main.yaml · agents.yaml",
   "/settings/memory": "data/user/settings/main.yaml",
+  "/settings/agents/claude-code": "data/user/settings/subagent.json",
+  "/settings/agents/codex": "data/user/settings/subagent.json",
 };
 
 export function storagePathFor(pathname: string): string | null {

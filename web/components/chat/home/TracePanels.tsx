@@ -58,6 +58,15 @@ type TraceMetadata = {
   section_index?: number | string;
   section_count?: number | string;
   section_title?: string;
+  // Set on each native event streamed from a connected subagent
+  // (trace_kind="subagent_event"): the channel it came from and which consult.
+  subagent_channel?: string;
+  subagent_kind?: string;
+  subagent_name?: string;
+  consult_index?: number;
+  // Correlates a fill-in tool's start/finish events (e.g. a web search) so the
+  // transcript collapses them into one evolving row.
+  subagent_merge_id?: string;
 };
 
 type ResearchStageId = "understand" | "decompose" | "evidence" | "result";
@@ -905,6 +914,12 @@ function TraceRowBody({
   const renderableBodyBlocks = bodyBlocks.filter(
     (text): text is string => Boolean(text) && text.trim().length > 0,
   );
+  // A connected subagent's native run streams in as ``subagent_event`` progress
+  // lines, but those are shown in the side viewer's per-agent tab — keep the
+  // inline trace compact (the question + the agent's final reply).
+  const plainSummaryEvents = summaryProgressEvents.filter(
+    (event) => getTraceMeta(event).trace_kind !== "subagent_event",
+  );
   const inlineSources = callEvents.flatMap(
     (event) => getTraceMeta(event).sources ?? [],
   );
@@ -971,9 +986,9 @@ function TraceRowBody({
         </div>
       ) : (
         <div className="space-y-1">
-          {summaryProgressEvents.length > 0 && (
+          {plainSummaryEvents.length > 0 && (
             <div className="space-y-0.5">
-              {summaryProgressEvents.map((event, idx) => (
+              {plainSummaryEvents.map((event, idx) => (
                 <div key={`${callId}-progress-${idx}`} className="opacity-70">
                   {event.content}
                 </div>
@@ -1232,6 +1247,17 @@ function TraceRowItem({
     chip = descriptor.chip
       ? { text: descriptor.chip, mono: descriptor.mono }
       : null;
+    // Name the consult after the agent it targets (e.g. "Consult Subagent
+    // test-cc"); the name rides on the streamed subagent events in the group.
+    if (toolName === "consult_subagent") {
+      const agentName = String(
+        callEvents.map((e) => getTraceMeta(e).subagent_name).find(Boolean) ||
+          "",
+      );
+      headline = agentName
+        ? `${t("Consult Subagent")} ${agentName}`
+        : t("Consult Subagent");
+    }
   } else if (isRetrieve) {
     resolvedIcon = KnowledgeMark;
     headline = header;

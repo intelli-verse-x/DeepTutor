@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import SessionList from "@/components/SessionList";
+import { agentGlyph } from "@/components/agents/agent-icons";
 import SpaceSectionHeader from "@/components/space/SpaceSectionHeader";
 import ImportWizard from "@/components/space/ImportWizard";
 import ScopeEditorModal from "@/components/space/ScopeEditorModal";
@@ -271,7 +272,7 @@ export default function MyAgentsSection() {
     <div className="space-y-6">
       <SpaceSectionHeader
         icon={Bot}
-        title={t("My Agents")}
+        title={t("Imported conversations")}
         description={t(
           "Your Claude Code and Codex conversations as named agents — open one to keep chatting, edit what each imports, or refresh to pull in new conversations.",
         )}
@@ -414,6 +415,9 @@ function AgentCard({
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  // Member-expression render (``glyph.Icon``) — a bare local capitalized
+  // component trips react-hooks/static-components; this doesn't.
+  const glyph = { Icon: agentGlyph(agent.source) ?? Bot };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -445,7 +449,7 @@ function AgentCard({
       }`}
     >
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--border)]/60 bg-[var(--background)] text-[var(--foreground)]">
-        <Bot size={18} strokeWidth={1.6} />
+        <glyph.Icon size={20} strokeWidth={1.6} />
       </span>
       <div className="min-w-0 flex-1">
         {renaming ? (
@@ -615,6 +619,7 @@ function UngroupedCard({
   onReadd: () => void;
 }) {
   const { t } = useTranslation();
+  const glyph = { Icon: agentGlyph(source) ?? Bot };
   return (
     <div
       role="button"
@@ -633,7 +638,7 @@ function UngroupedCard({
       }`}
     >
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--border)]/60 bg-[var(--background)] text-[var(--muted-foreground)]">
-        <Bot size={18} strokeWidth={1.6} />
+        <glyph.Icon size={20} strokeWidth={1.6} />
       </span>
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13.5px] font-semibold tracking-tight text-[var(--foreground)]">

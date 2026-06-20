@@ -33,6 +33,10 @@ import {
   downloadChatMarkdown,
   type ExportableMessage,
 } from "@/lib/chat-export";
+import {
+  loadPartnerSessionKey,
+  persistPartnerSessionKey,
+} from "@/lib/partner-session";
 import PartnerAvatar from "@/components/partners/PartnerAvatar";
 import PartnerChat from "@/components/partners/PartnerChat";
 import PartnerChannels from "@/components/partners/PartnerChannels";
@@ -69,6 +73,19 @@ function PartnerDetail() {
     [],
   );
   const [showSaveModal, setShowSaveModal] = useState(false);
+  // The active web session key lives here so the Archive tab's Resume can
+  // point the (always-mounted) Chat tab at a different conversation.
+  const [sessionKey, setSessionKey] = useState("");
+  useEffect(() => {
+    setSessionKey(loadPartnerSessionKey(partnerId));
+  }, [partnerId]);
+  const changeSessionKey = useCallback(
+    (key: string) => {
+      persistPartnerSessionKey(partnerId, key);
+      setSessionKey(key);
+    },
+    [partnerId],
+  );
 
   useEffect(() => {
     if (!toast) return;
@@ -314,9 +331,10 @@ function PartnerDetail() {
         </button>
       </div>
 
-      {/* Body */}
+      {/* Body. Chat stays mounted (hidden off-tab) so an in-progress turn —
+          its WebSocket and live trace — survives switching to another tab. */}
       <div className="min-h-0 flex-1">
-        {tab === "chat" ? (
+        <div className={tab === "chat" ? "h-full" : "hidden"}>
           <div className="mx-auto h-full max-w-3xl px-5">
             <PartnerChat
               partnerId={partnerId}
@@ -325,30 +343,38 @@ function PartnerDetail() {
               color={partner.color}
               avatar={partner.avatar}
               running={partner.running}
+              sessionKey={sessionKey}
+              onSessionKeyChange={changeSessionKey}
+              onToast={setToast}
               onMessagesChange={setChatMessages}
             />
           </div>
-        ) : tab === "archive" ? (
+        </div>
+        {tab === "archive" ? (
           <div className="mx-auto h-full max-w-5xl overflow-hidden px-5 py-5">
             <PartnerArchives
               partnerId={partnerId}
               onToast={setToast}
               onMessagesChange={setArchiveMessages}
+              onResume={(key) => {
+                changeSessionKey(key);
+                setTab("chat");
+              }}
             />
           </div>
-        ) : (
+        ) : tab === "configure" ? (
           <div className="mx-auto h-full max-w-3xl overflow-y-auto px-5 py-5">
-            {tab === "configure" ? (
-              <PartnerConfigure
-                partner={partner}
-                onToast={setToast}
-                onUpdated={() => void load()}
-              />
-            ) : (
-              <PartnerChannels partnerId={partnerId} onToast={setToast} />
-            )}
+            <PartnerConfigure
+              partner={partner}
+              onToast={setToast}
+              onUpdated={() => void load()}
+            />
           </div>
-        )}
+        ) : tab === "channels" ? (
+          <div className="mx-auto h-full max-w-3xl overflow-y-auto px-5 py-5">
+            <PartnerChannels partnerId={partnerId} onToast={setToast} />
+          </div>
+        ) : null}
       </div>
 
       <SaveToNotebookModal

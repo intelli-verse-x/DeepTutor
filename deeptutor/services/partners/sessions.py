@@ -40,6 +40,86 @@ class PartnerSessionStore:
     def is_archived_key(session_key: str) -> bool:
         return safe_filename(session_key).startswith(_ARCHIVE_PREFIX)
 
+    # ── session metadata (archived flag) ──────────────────────────
+    #
+    # The web app drives session lifecycle by key (resume / delete / branch),
+    # so a web session is archived with a soft flag in this sidecar rather than
+    # renamed — the file keeps its key and stays resumable. IM still uses the
+    # rename-based ``archive()`` to free a chat's fixed key for a fresh start.
+
+    @property
+    def _index_path(self) -> Path:
+        return self._dir / "_index.json"
+
+    def _load_index(self) -> dict[str, Any]:
+        path = self._index_path
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _save_index(self, index: dict[str, Any]) -> None:
+        with self._write_lock:
+            self._index_path.write_text(
+                json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+    def _stem(self, session_key: str) -> str:
+        return safe_filename(session_key) or "default"
+
+    def is_archived(self, session_key: str) -> bool:
+        """Archived = soft flag in the index OR a legacy ``_archived_`` file."""
+        stem = self._stem(session_key)
+        if bool(self._load_index().get(stem, {}).get("archived")):
+            return True
+        return self.is_archived_key(session_key)
+
+    def set_archived(self, session_key: str, archived: bool) -> None:
+        stem = self._stem(session_key)
+        index = self._load_index()
+        entry = index.get(stem, {})
+        if archived:
+            entry["archived"] = True
+        else:
+            entry.pop("archived", None)
+        if entry:
+            index[stem] = entry
+        else:
+            index.pop(stem, None)
+        self._save_index(index)
+
+    def delete_session(self, session_key: str) -> bool:
+        """Remove a session's file and its index entry. Returns whether it existed."""
+        path = self._path(session_key)
+        existed = path.exists()
+        with self._write_lock:
+            path.unlink(missing_ok=True)
+        index = self._load_index()
+        if index.pop(self._stem(session_key), None) is not None:
+            self._save_index(index)
+        return existed
+
+    def branch(self, source_key: str, new_key: str) -> dict[str, Any] | None:
+        """Copy *source_key*'s full history into *new_key* and archive the source.
+
+        Returns the new session's summary, or ``None`` if the source is empty.
+        The new key keeps the conversation going with the same context while the
+        original is preserved (archived) and still resumable.
+        """
+        records = self._read_records(source_key)
+        if not records:
+            return None
+        dest = self._path(new_key)
+        with self._write_lock:
+            with open(dest, "a", encoding="utf-8") as f:
+                for record in records:
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        self.set_archived(source_key, True)
+        return self._session_summary(dest)
+
     # ── write ─────────────────────────────────────────────────────
 
     def append(
@@ -52,6 +132,7 @@ class PartnerSessionStore:
         sender_id: str = "",
         metadata: dict[str, Any] | None = None,
         attachments: list[dict[str, Any]] | None = None,
+        events: list[dict[str, Any]] | None = None,
     ) -> None:
         record: dict[str, Any] = {
             "role": role,
@@ -66,6 +147,11 @@ class PartnerSessionStore:
             record["metadata"] = metadata
         if attachments:
             record["attachments"] = attachments
+        # The turn's trace (thinking / tool calls / narration) so the web chat
+        # can rehydrate the collapsible "Done" activity after a refresh — the
+        # IM channels never read it back, but it costs only storage there.
+        if events:
+            record["events"] = events
         line = json.dumps(record, ensure_ascii=False)
         with self._write_lock:
             with open(self._path(session_key), "a", encoding="utf-8") as f:
@@ -168,7 +254,7 @@ class PartnerSessionStore:
         merged: list[tuple[str, int, dict[str, Any]]] = []
         sequence = 0
         for path in sorted(self._dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime):
-            if not include_archived and self.is_archived_key(path.stem):
+            if not include_archived and self.is_archived(path.stem):
                 continue
             key = path.stem
             for record in self._read_records(key):
@@ -180,14 +266,33 @@ class PartnerSessionStore:
     def _session_summary(self, path: Path) -> dict[str, Any]:
         records = self._read_records(path.stem)
         last = records[-1] if records else {}
-        archived = self.is_archived_key(path.stem)
+        archived = self.is_archived(path.stem)
         return {
             "session_key": path.stem,
+            "title": self._derive_title(records),
             "message_count": len(records),
             "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
             "last_message": str(last.get("content", ""))[:200],
             "archived": archived,
         }
+
+    @staticmethod
+    def _derive_title(records: list[dict[str, Any]]) -> str:
+        """A short, human label for a session — its opening user message.
+
+        The first user turn is what a conversation is "about"; fall back to the
+        first record of any role. First line only, trimmed to a chip-sized
+        length. Empty for an empty session (the UI shows a generic label).
+        """
+        opener = next(
+            (r for r in records if r.get("role") == "user"),
+            records[0] if records else None,
+        )
+        if not opener:
+            return ""
+        text = str(opener.get("content", "")).strip()
+        first_line = text.splitlines()[0] if text else ""
+        return first_line[:60].strip()
 
     def list_sessions(self) -> list[dict[str, Any]]:
         return [

@@ -7,9 +7,9 @@ import { ChevronRight, Rocket, type LucideIcon } from "lucide-react";
 
 import { apiFetch, apiUrl } from "@/lib/api";
 import {
-  getActiveModel,
-  getActiveProfile,
+  serviceReadiness,
   useSettings,
+  type ServiceReadiness,
 } from "@/components/settings/SettingsContext";
 import SettingsStatusPanel from "@/components/settings/SettingsStatusPanel";
 import {
@@ -37,24 +37,33 @@ export default function SettingsHub() {
   const zh = i18n.language?.toLowerCase().startsWith("zh");
   const tr = useCallback((l: Lang) => (zh ? l.zh : l.en), [zh]);
 
-  const { catalog, catalogEditable, startTour } = useSettings();
+  const { catalog, catalogEditable, diagnosticsResults, startTour } =
+    useSettings();
 
   // Model preview: how many of the model-service leaves are configured.
   const modelStats = useMemo(() => {
     const cat = SETTINGS_CATEGORIES.find((c) => c.key === "models");
     const services = (cat?.children ?? []).filter((l) => l.service);
-    if (catalogEditable !== true) return { total: services.length, done: -1 };
-    let done = 0;
-    for (const leaf of services) {
-      const svc = leaf.service!;
-      const ok =
-        svc === "search"
-          ? Boolean(getActiveProfile(catalog, svc)?.provider)
-          : Boolean(getActiveModel(catalog, svc)?.model);
-      if (ok) done += 1;
+    if (catalogEditable !== true) {
+      return {
+        total: services.length,
+        configured: -1,
+        passed: 0,
+        failed: 0,
+        states: [] as ServiceReadiness[],
+      };
     }
-    return { total: services.length, done };
-  }, [catalog, catalogEditable]);
+    const states = services.map((leaf) =>
+      serviceReadiness(catalog, leaf.service!, diagnosticsResults),
+    );
+    return {
+      total: services.length,
+      configured: states.filter((state) => state !== "not_configured").length,
+      passed: states.filter((state) => state === "passed").length,
+      failed: states.filter((state) => state === "failed").length,
+      states,
+    };
+  }, [catalog, catalogEditable, diagnosticsResults]);
 
   // Network preview: a guarded peek at the effective browser API base. Fails
   // quietly (non-admins get 403) → the block falls back to its blurb.
@@ -128,7 +137,13 @@ function CategoryBlock({
 }: {
   category: SettingsCategory;
   tr: (l: Lang) => string;
-  modelStats?: { total: number; done: number };
+  modelStats?: {
+    total: number;
+    configured: number;
+    passed: number;
+    failed: number;
+    states: ServiceReadiness[];
+  };
   network?: NetworkPreview | null;
 }) {
   const Icon: LucideIcon = category.icon;
@@ -176,12 +191,18 @@ function ModelPreview({
   blurb,
   tr,
 }: {
-  stats: { total: number; done: number };
+  stats: {
+    total: number;
+    configured: number;
+    passed: number;
+    failed: number;
+    states: ServiceReadiness[];
+  };
   blurb: string;
   tr: (l: Lang) => string;
 }) {
   // Restricted deployments (no editable catalog) can't know — show the blurb.
-  if (stats.done < 0) {
+  if (stats.configured < 0) {
     return (
       <p className="text-[12.5px] leading-relaxed text-[var(--muted-foreground)]">
         {blurb}
@@ -191,22 +212,36 @@ function ModelPreview({
   return (
     <div className="flex items-center gap-2.5">
       <div className="flex items-center gap-1">
-        {Array.from({ length: stats.total }).map((_, i) => (
+        {stats.states.map((state, i) => (
           <span
             key={i}
             className={`h-1.5 w-1.5 rounded-full ${
-              i < stats.done
+              state === "passed"
                 ? "bg-emerald-500"
-                : "bg-[var(--muted-foreground)]/25"
+                : state === "failed"
+                  ? "bg-red-500"
+                  : state === "untested"
+                    ? "bg-zinc-400 dark:bg-zinc-500"
+                    : "bg-zinc-300/60 dark:bg-zinc-700"
             }`}
           />
         ))}
       </div>
       <span className="text-[12px] tabular-nums text-[var(--muted-foreground)]">
-        {tr({
-          zh: `${stats.done}/${stats.total} 已配置`,
-          en: `${stats.done}/${stats.total} configured`,
-        })}
+        {stats.failed > 0
+          ? tr({
+              zh: `${stats.configured}/${stats.total} 已配置 · ${stats.failed} 个失败`,
+              en: `${stats.configured}/${stats.total} configured · ${stats.failed} failed`,
+            })
+          : stats.passed > 0
+            ? tr({
+                zh: `${stats.configured}/${stats.total} 已配置 · ${stats.passed} 个通过`,
+                en: `${stats.configured}/${stats.total} configured · ${stats.passed} passed`,
+              })
+            : tr({
+                zh: `${stats.configured}/${stats.total} 已配置`,
+                en: `${stats.configured}/${stats.total} configured`,
+              })}
       </span>
     </div>
   );

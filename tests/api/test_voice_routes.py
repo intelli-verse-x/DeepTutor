@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 from typing import Any
+import wave
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -34,6 +36,28 @@ def test_tts_returns_audio_bytes(client: TestClient, monkeypatch: pytest.MonkeyP
     assert resp.content == b"audio-bytes"
     assert resp.headers["content-type"] == "audio/mpeg"
     assert captured == {"text": "hello", "voice": "nova", "format": None}
+
+
+def test_tts_wraps_pcm_bytes_as_browser_playable_wav(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pcm = b"\x00\x00\x01\x00" * 12
+
+    async def fake_synth(text: str, *, voice=None, response_format=None, **_: Any):
+        return pcm, "audio/pcm;rate=24000;channels=1"
+
+    monkeypatch.setattr(voice_router, "synthesize_speech", fake_synth)
+    resp = client.post("/api/v1/voice/tts", json={"text": "hello"})
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "audio/wav"
+    assert resp.content.startswith(b"RIFF")
+    with wave.open(io.BytesIO(resp.content), "rb") as wav:
+        assert wav.getframerate() == 24000
+        assert wav.getnchannels() == 1
+        assert wav.getsampwidth() == 2
+        assert wav.readframes(wav.getnframes()) == pcm
 
 
 def test_tts_rejects_empty_text(client: TestClient) -> None:

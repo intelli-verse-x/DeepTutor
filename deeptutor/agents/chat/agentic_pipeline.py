@@ -52,8 +52,12 @@ from deeptutor.services.llm import (
 )
 from deeptutor.services.llm.context_window import resolve_effective_context_window
 from deeptutor.services.prompt import get_prompt_manager
+from deeptutor.tools.builtin import PARTNER_BUILTIN_TOOL_NAMES
 
 logger = logging.getLogger(__name__)
+
+# Chat memory tools a partner turn replaces with the partner_* variants.
+_PARTNER_SUPPRESSED_TOOLS: tuple[str, ...] = ("read_memory", "write_memory")
 
 
 CHAT_EXCLUDED_TOOLS: set[str] = set()
@@ -260,6 +264,21 @@ class AgenticChatPipeline:
     def max_rounds(self) -> int:
         return max(1, self._max_rounds)
 
+    def effective_max_rounds(self, context: UnifiedContext) -> int:
+        """Round budget for this turn, lifted to satisfy any capability minimum.
+
+        A capability that needs guaranteed loop headroom — the subagent
+        capability, which must allow its full consult budget plus a finishing
+        round — sets ``context.metadata["_min_loop_rounds"]``; the loop honours
+        the larger of that and the configured budget. A generic seam (like
+        solve's ``solve_max_replans``) so the loop stays capability-agnostic.
+        """
+        try:
+            floor = int(context.metadata.get("_min_loop_rounds") or 0)
+        except (TypeError, ValueError):
+            floor = 0
+        return max(self.max_rounds, floor)
+
     @property
     def exploring_max_tokens(self) -> int:
         return max(128, self._exploring_max_tokens)
@@ -281,7 +300,7 @@ class AgenticChatPipeline:
 
     async def run(self, context: UnifiedContext, stream: StreamBus) -> None:
         await self._prepare_deferred_tools(context)
-        self._exec_enabled = await self._exec_allowed()
+        self._exec_enabled = await self._exec_allowed(context)
         enabled_tools = self._compose_enabled_tools(context)
         use_native_tools = bool(enabled_tools) and self._can_use_native_tool_calling()
         tool_schemas = (
@@ -450,9 +469,15 @@ class AgenticChatPipeline:
             language=self.language,
         )
 
-    async def _exec_allowed(self) -> bool:
+    async def _exec_allowed(self, context: UnifiedContext) -> bool:
         try:
             from deeptutor.services.sandbox import IsolationLevel, get_sandbox_service
+
+            # A partner turn runs as a synthetic non-admin user but IS the admin
+            # owner's extension (partners are anchored to the admin workspace), so
+            # exec follows the owner's authority — not the partner's "user" role.
+            # The owner still gates exec per-partner via the builtin-tool whitelist.
+            is_partner = str((context.metadata or {}).get("source")) == "partner"
 
             level = await get_sandbox_service().isolation_level()
             if level is IsolationLevel.SYSTEM:
@@ -462,6 +487,8 @@ class AgenticChatPipeline:
 
                 return exec_override() is not False
             if level is IsolationLevel.APPLICATION:
+                if is_partner:
+                    return True
                 try:
                     from deeptutor.multi_user.context import get_current_user
 
@@ -476,6 +503,7 @@ class AgenticChatPipeline:
             return False
 
     def _compose_enabled_tools(self, context: UnifiedContext) -> list[str]:
+        is_partner = str((context.metadata or {}).get("source")) == "partner"
         composed = compose_enabled_tools(
             registry=self.registry,
             requested_tools=context.enabled_tools,
@@ -495,6 +523,17 @@ class AgenticChatPipeline:
             ),
             capability_owned=self._capability_owned_tools(context),
             exclusive=self._exclusive_capability_active(context),
+            builtin_whitelist=(
+                set(context.allowed_builtin_tools)
+                if context.allowed_builtin_tools is not None
+                else None
+            ),
+            # Partners get the partner_* memory/history tools force-mounted and
+            # chat's read_memory/write_memory suppressed — the split-memory model
+            # (own workspace writable, owner's memory read-only) lives in those
+            # tools, not in chat's.
+            forced=PARTNER_BUILTIN_TOOL_NAMES if is_partner else (),
+            suppressed=_PARTNER_SUPPRESSED_TOOLS if is_partner else (),
         )
         return _drop_unconfigured_generation_tools(composed)
 
@@ -926,6 +965,17 @@ class AgenticChatPipeline:
                 label=self._t("labels.tool_call", default="Tool call"),
                 call_kind="media_generation",
                 query=str(tool_args.get("prompt", "") or ""),
+            )
+        # consult_subagent drives a live local agent that runs for as long as it
+        # needs: wiring retrieve_meta gives it an event_sink so every native
+        # output/log streams to the sidebar in real time (and keeps the
+        # idle-timeout watchdog fed during a long agent run).
+        if tool_name == "consult_subagent":
+            return derive_trace_metadata(
+                tool_meta,
+                label=self._t("labels.consult_subagent", default="Consult agent"),
+                call_kind="subagent_consult",
+                query=str(tool_args.get("question", "") or ""),
             )
         return None
 

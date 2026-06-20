@@ -418,3 +418,89 @@ def test_serialize_returns_empty_when_no_content() -> None:
     meta = {"session_id": "imported_x"}
     assert serialize_referenced_transcript(meta, [{"role": "user", "content": "  "}]) == ""
     assert serialize_referenced_transcript(meta, []) == ""
+
+
+# ---------------------------------------------------------------------------
+# Partner session references (partner:{pid}:{session_key})
+# ---------------------------------------------------------------------------
+
+
+def test_serialize_partner_transcript_uses_partner_name() -> None:
+    """A partner transcript is framed as a third party under the partner's own
+    name (not the generic 'external AI assistant')."""
+    meta = {"preferences": {"import": {"source": "partner"}}, "partner_name": "Panda Kate"}
+    out = serialize_referenced_transcript(
+        meta, [{"role": "assistant", "content": "hi"}], language="en"
+    )
+    assert "Panda Kate" in out
+    assert "## Panda Kate" in out
+
+
+class _FakePartnerManager:
+    def __init__(self, *, exists=True, messages=None, name="Panda Kate") -> None:
+        self._exists = exists
+        self._messages = messages or []
+        self._name = name
+
+    def partner_exists(self, pid):
+        return self._exists
+
+    def get_history(self, pid, *, session_key, limit=100):
+        return list(self._messages)
+
+    def load_config(self, pid):
+        cfg = type("Cfg", (), {})()
+        cfg.name = self._name
+        return cfg
+
+
+def _patch_partner(monkeypatch, manager, *, is_admin=True):
+    import deeptutor.multi_user.context as ctx
+    import deeptutor.services.partners as partners_pkg
+
+    monkeypatch.setattr(partners_pkg, "get_partner_manager", lambda: manager)
+    user = type("U", (), {"is_admin": is_admin})()
+    monkeypatch.setattr(ctx, "get_current_user", lambda: user)
+
+
+@pytest.mark.asyncio
+async def test_load_history_session_resolves_partner_reference(monkeypatch) -> None:
+    from deeptutor.services.session.source_inventory import _load_history_session
+
+    manager = _FakePartnerManager(
+        messages=[
+            {"role": "user", "content": "我最近做了什么"},
+            {"role": "assistant", "content": "你最近在配置 DeepTutor。"},
+        ]
+    )
+    _patch_partner(monkeypatch, manager, is_admin=True)
+
+    # The session_key itself contains a colon (web:abc) — only the pid is split.
+    text, title = await _load_history_session(
+        FakeStore(), "partner:panda-kate:web:abc", language="zh"
+    )
+    assert "Panda Kate" in text  # framed under the partner's name
+    assert "我最近做了什么" in text
+    assert title == "我最近做了什么"
+
+
+@pytest.mark.asyncio
+async def test_load_history_session_partner_blocked_for_non_admin(monkeypatch) -> None:
+    from deeptutor.services.session.source_inventory import _load_history_session
+
+    manager = _FakePartnerManager(messages=[{"role": "user", "content": "secret"}])
+    _patch_partner(monkeypatch, manager, is_admin=False)
+
+    text, title = await _load_history_session(FakeStore(), "partner:paul:dt-1", language="en")
+    assert text == "" and title == ""  # partner data is admin-scoped
+
+
+@pytest.mark.asyncio
+async def test_load_history_session_partner_missing_returns_empty(monkeypatch) -> None:
+    from deeptutor.services.session.source_inventory import _load_history_session
+
+    manager = _FakePartnerManager(exists=False)
+    _patch_partner(monkeypatch, manager, is_admin=True)
+
+    text, _ = await _load_history_session(FakeStore(), "partner:ghost:dt-1")
+    assert text == ""

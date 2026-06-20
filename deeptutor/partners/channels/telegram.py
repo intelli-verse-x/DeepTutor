@@ -707,8 +707,10 @@ class TelegramChannel(BaseChannel):
             return
 
         user = update.effective_user
+        # No hard-coded brand here — the partner's own identity (its Soul) comes
+        # through in conversation; the greeting just onboards the user.
         await update.message.reply_text(
-            f"👋 Hi {user.first_name}! I'm TutorBot.\n\n"
+            f"👋 Hi {user.first_name}!\n\n"
             "Send me a message and I'll respond!\n"
             "Type /help to see available commands."
         )

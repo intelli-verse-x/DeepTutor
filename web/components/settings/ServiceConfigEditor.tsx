@@ -8,6 +8,7 @@ import {
   EyeOff,
   Info,
   Loader2,
+  Pencil,
   Plus,
   Terminal,
   Trash2,
@@ -25,6 +26,8 @@ import {
   useSettings,
 } from "./SettingsContext";
 import { DimensionField } from "./DimensionField";
+import { nextProfileName } from "./profile-naming";
+import { searchProviderFields } from "./search-providers";
 import {
   activeProfileDetail,
   deprecatedSearchProviders,
@@ -269,12 +272,24 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                           size={13}
                         />
                         <div
-                          className={`min-w-0 truncate text-[13px] leading-tight ${
+                          className={`min-w-0 flex-1 truncate text-[13px] leading-tight ${
                             isActive ? "font-semibold" : "font-medium"
                           }`}
                         >
                           {profile.name}
                         </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startProfileRename(profile);
+                          }}
+                          className="-mr-1 shrink-0 rounded-md p-1 text-[var(--muted-foreground)]/60 transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                          aria-label={t("Rename profile")}
+                          title={t("Rename profile")}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
                       </div>
                     )}
                     <div className="mt-0.5 truncate text-[11px] leading-tight text-[var(--muted-foreground)]/70">
@@ -931,6 +946,15 @@ function ProfileFields({
   const providerValue =
     service === "search" ? profile.provider || "" : profile.binding || "";
 
+  // Only the search service hides fields by provider. LLM/embedding always
+  // expose Base URL and API Key, so default both to shown for them.
+  const fields =
+    service === "search"
+      ? searchProviderFields(profile.provider)
+      : { apiKey: true, baseUrl: true, baseUrlRequired: false };
+  const searxngMissingBaseUrl =
+    fields.baseUrlRequired && !String(profile.base_url || "").trim();
+
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2">
@@ -951,10 +975,20 @@ function ProfileFields({
             onChange={(e) => {
               const val = e.target.value;
               const field = service === "search" ? "provider" : "binding";
+              const options = providers[service] || [];
+              const previousLabel =
+                options.find((p) => p.value === providerValue)?.label ?? "";
+              const match = options.find((p) => p.value === val);
               updateProfileField(service, field, val);
-              const match = (providers[service] || []).find(
-                (p) => p.value === val,
+              // Keep an un-customized profile name tracking its provider.
+              const renamed = nextProfileName(
+                profile.name,
+                previousLabel,
+                match?.label ?? "",
               );
+              if (renamed !== profile.name) {
+                updateProfileField(service, "name", renamed);
+              }
               if (match?.base_url) {
                 updateProfileField(service, "base_url", match.base_url);
               }
@@ -1016,61 +1050,72 @@ function ProfileFields({
           </p>
         )}
       </div>
-      <div className="sm:col-span-2">
-        <div className="mb-1.5 text-[12px] text-[var(--muted-foreground)]">
-          {service === "embedding" ? t("Endpoint URL") : t("Base URL")}
-        </div>
-        <input
-          className={inputClass}
-          value={profile.base_url}
-          onChange={(e) =>
-            updateProfileField(service, "base_url", e.target.value)
-          }
-          placeholder={
-            service === "embedding"
-              ? "https://api.openai.com/v1/embeddings"
-              : "https://api.openai.com/v1"
-          }
-        />
-        {service === "embedding" && (
-          <p className="mt-1.5 text-[11px] text-[var(--muted-foreground)]">
-            {t(
-              "Embedding requests are sent to this URL exactly; DeepTutor does not append /embeddings or /api/embed at request time.",
-            )}
-          </p>
-        )}
-      </div>
-      <div className="sm:col-span-2">
-        <div className="mb-1.5 text-[12px] text-[var(--muted-foreground)]">
-          {t("API Key")}
-        </div>
-        <div className="relative">
+      {fields.baseUrl && (
+        <div className="sm:col-span-2">
+          <div className="mb-1.5 text-[12px] text-[var(--muted-foreground)]">
+            {service === "embedding" ? t("Endpoint URL") : t("Base URL")}
+          </div>
           <input
-            type={showApiKey ? "text" : "password"}
-            autoComplete="new-password"
-            spellCheck={false}
-            className={`${inputClass} pr-10 font-mono`}
-            value={profile.api_key}
+            className={inputClass}
+            value={profile.base_url}
             onChange={(e) =>
-              updateProfileField(service, "api_key", e.target.value)
+              updateProfileField(service, "base_url", e.target.value)
             }
-            placeholder="sk-..."
+            placeholder={
+              service === "embedding"
+                ? "https://api.openai.com/v1/embeddings"
+                : service === "search"
+                  ? "http://localhost:8888"
+                  : "https://api.openai.com/v1"
+            }
           />
-          <button
-            type="button"
-            onClick={() => setShowApiKey((prev) => !prev)}
-            className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
-            aria-label={showApiKey ? t("Hide API key") : t("Show API key")}
-            title={showApiKey ? t("Hide API key") : t("Show API key")}
-          >
-            {showApiKey ? (
-              <EyeOff className="h-4 w-4" />
-            ) : (
-              <Eye className="h-4 w-4" />
-            )}
-          </button>
+          {service === "embedding" && (
+            <p className="mt-1.5 text-[11px] text-[var(--muted-foreground)]">
+              {t(
+                "Embedding requests are sent to this URL exactly; DeepTutor does not append /embeddings or /api/embed at request time.",
+              )}
+            </p>
+          )}
+          {searxngMissingBaseUrl && (
+            <p className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+              {t("Required — without it, search falls back to DuckDuckGo.")}
+            </p>
+          )}
         </div>
-      </div>
+      )}
+      {fields.apiKey && (
+        <div className="sm:col-span-2">
+          <div className="mb-1.5 text-[12px] text-[var(--muted-foreground)]">
+            {t("API Key")}
+          </div>
+          <div className="relative">
+            <input
+              type={showApiKey ? "text" : "password"}
+              autoComplete="new-password"
+              spellCheck={false}
+              className={`${inputClass} pr-10 font-mono`}
+              value={profile.api_key}
+              onChange={(e) =>
+                updateProfileField(service, "api_key", e.target.value)
+              }
+              placeholder="sk-..."
+            />
+            <button
+              type="button"
+              onClick={() => setShowApiKey((prev) => !prev)}
+              className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+              aria-label={showApiKey ? t("Hide API key") : t("Show API key")}
+              title={showApiKey ? t("Hide API key") : t("Show API key")}
+            >
+              {showApiKey ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="sm:col-span-2 rounded-xl border border-[var(--border)]/60 bg-[var(--muted)]/20">
         <button
           type="button"

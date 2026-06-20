@@ -20,6 +20,15 @@ class VoiceProviderError(RuntimeError):
     """Raised when a TTS/STT provider request fails or is misconfigured."""
 
 
+class VoiceProviderHTTPError(VoiceProviderError):
+    """Provider returned a non-2xx HTTP response."""
+
+    def __init__(self, message: str, *, status_code: int, body: str = "") -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.body = body
+
+
 class BaseTTSAdapter(ABC):
     """Abstract text-to-speech adapter."""
 
@@ -126,6 +135,7 @@ def strip_markdown_for_speech(text: str, *, max_chars: int = 0) -> str:
 
 __all__ = [
     "VoiceProviderError",
+    "VoiceProviderHTTPError",
     "BaseTTSAdapter",
     "BaseSTTAdapter",
     "build_auth_headers",

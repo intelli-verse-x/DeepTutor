@@ -10,6 +10,7 @@ import json
 import pytest
 
 from deeptutor.learning.storage import LearningStore
+from deeptutor.services.session.sqlite_store import SQLiteSessionStore
 from deeptutor.tools.mastery_tool import (
     MasteryAssessTool,
     MasteryBuildTool,
@@ -24,6 +25,13 @@ def path_id(tmp_path, monkeypatch):
     """Point the LearningStore at a temp workspace and yield a stable path id."""
     monkeypatch.setattr(LearningStore, "__init__", _store_init_factory(tmp_path))
     return "test_path"
+
+
+@pytest.fixture
+def session_store(tmp_path, monkeypatch):
+    store = SQLiteSessionStore(db_path=tmp_path / "chat.db")
+    monkeypatch.setattr("deeptutor.services.session.get_sqlite_session_store", lambda: store)
+    return store
 
 
 def _store_init_factory(root):
@@ -177,6 +185,44 @@ async def test_wrong_answer_does_not_master(path_id):
     )
     assert result["is_correct"] is False
     assert result["mastered"] is False
+
+
+@pytest.mark.asyncio
+async def test_grade_syncs_mastery_attempt_to_question_bank(path_id, session_store):
+    session = await session_store.create_session(title="Mastery Session")
+    await _build_basic(path_id)
+    status = json.loads((await MasteryStatusTool().execute(_mastery_path_id=path_id)).content)
+    kp_id = status["next"]["knowledge_point_id"]
+    await MasteryQuizTool().execute(
+        _mastery_path_id=path_id,
+        knowledge_point_id=kp_id,
+        question="2+2?",
+        expected_answer="4",
+        question_type="short",
+    )
+
+    result = json.loads(
+        (
+            await MasteryGradeTool().execute(
+                _mastery_path_id=path_id,
+                _session_id=session["id"],
+                _turn_id="turn_mastery_1",
+                answer="5",
+            )
+        ).content
+    )
+
+    assert result["is_correct"] is False
+    wrong_entries = await session_store.list_notebook_entries(is_correct=False)
+    assert wrong_entries["total"] == 1
+    entry = wrong_entries["items"][0]
+    assert entry["session_title"] == "Mastery Session"
+    assert entry["turn_id"] == "turn_mastery_1"
+    assert entry["question"] == "2+2?"
+    assert entry["question_type"] == "short_answer"
+    assert entry["user_answer"] == "5"
+    assert entry["correct_answer"] == "4"
+    assert entry["is_correct"] is False
 
 
 # ── assess: the qualitative gate ─────────────────────────────────────────────
