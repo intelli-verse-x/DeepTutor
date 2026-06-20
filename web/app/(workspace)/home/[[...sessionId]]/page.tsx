@@ -35,6 +35,7 @@ import type { SelectedHistorySession } from "@/components/chat/HistorySessionPic
 import type { SelectedQuestionEntry } from "@/components/chat/QuestionBankPicker";
 import ChatComposer from "@/components/chat/home/ChatComposer";
 import { ChatMessageList } from "@/components/chat/home/ChatMessages";
+import SessionLoadingView from "@/components/chat/home/SessionLoadingView";
 // Imported eagerly so the drawer shell is always mounted off-screen —
 // clicking a chip becomes a single CSS class flip, no chunk fetch + double
 // render. The heavy renderers inside still load lazily.
@@ -515,6 +516,12 @@ export default function ChatPage() {
   const spaceMenuRef = useRef<HTMLDivElement>(null);
   const spaceBtnRef = useRef<HTMLButtonElement>(null);
   const initialLoadRef = useRef(false);
+  // Session-loading overlay: shown while navigating from chat-history →
+  // session detail. Holds an AbortController so the user can cancel.
+  const [sessionLoadingStage, setSessionLoadingStage] = useState<
+    null | "loading" | "complete"
+  >(null);
+  const loadAbortRef = useRef<AbortController | null>(null);
   // Bridge ref: ``ChatComposer`` writes a prefill function into this on
   // mount; ``ChatMessageList`` reads it via ``handlePrefillComposer`` so an
   // ``AskUserOptions`` chip click can drop text into the composer textarea.
@@ -840,32 +847,94 @@ export default function ChatPage() {
     }
   }, []);
   /* ---- URL-driven session loading ---- */
+
+  const navigateToHome = useCallback(() => {
+    router.replace("/home", { scroll: false });
+  }, [router]);
+
+  /** Abort in-flight load + navigates home. */
+  const cancelSessionLoad = useCallback(() => {
+    loadAbortRef.current?.abort();
+    loadAbortRef.current = null;
+    setSessionLoadingStage(null);
+    navigateToHome();
+  }, [navigateToHome]);
+
+  /**
+   * Shared helper: kick off a load. The user can cancel via the ✕ button;
+   * otherwise the loading screen stays until the API responds (no timeout).
+   */
+  const startSessionLoad = useCallback(
+    (sid: string) => {
+      loadAbortRef.current?.abort();
+      const ctrl = new AbortController();
+      loadAbortRef.current = ctrl;
+      setSessionLoadingStage("loading");
+
+      void loadSession(sid, ctrl.signal)
+        .then(() => {
+          if (!ctrl.signal.aborted) {
+            loadAbortRef.current = null;
+            setSessionLoadingStage("complete");
+          }
+        })
+        .catch(() => {
+          if (!ctrl.signal.aborted) {
+            loadAbortRef.current = null;
+            setSessionLoadingStage(null);
+            navigateToHome();
+          }
+        });
+    },
+    [loadSession, navigateToHome],
+  );
+
+  // Initial mount — load the session from the URL.
+  // Uses a ref-based flag so Strict Mode double-mount doesn't break the flow:
+  // when React tears down + re-mounts in dev, we reset initialLoadRef in
+  // cleanup so the second mount restarts the load cleanly. The abort is
+  // deliberately OMITTED from cleanup — cancelSessionLoad / timeout handle
+  // user-initiated cancellation.
   useEffect(() => {
     if (initialLoadRef.current) return;
     initialLoadRef.current = true;
     if (sessionIdParam) {
-      void loadSession(sessionIdParam).catch(() => {
-        router.replace("/home", { scroll: false });
-      });
+      startSessionLoad(sessionIdParam);
     } else {
       newSession();
     }
+    return () => {
+      initialLoadRef.current = false;
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear "complete" after a short fade
+  useEffect(() => {
+    if (sessionLoadingStage === "complete") {
+      const t = setTimeout(() => setSessionLoadingStage(null), 400);
+      return () => clearTimeout(t);
+    }
+  }, [sessionLoadingStage]);
 
   // When URL param changes (sidebar navigation), load the corresponding session
   const prevSessionIdParam = useRef(sessionIdParam);
   useEffect(() => {
     if (sessionIdParam === prevSessionIdParam.current) return;
     prevSessionIdParam.current = sessionIdParam;
+    // Abort any in-flight session load from the previous param
+    loadAbortRef.current?.abort();
+    loadAbortRef.current = null;
     if (sessionIdParam) {
-      if (sessionIdParam === state.sessionId) return;
-      void loadSession(sessionIdParam).catch(() => {
-        router.replace("/home", { scroll: false });
-      });
+      if (sessionIdParam === state.sessionId) {
+        setSessionLoadingStage(null);
+        return;
+      }
+      startSessionLoad(sessionIdParam);
     } else {
       newSession();
+      setSessionLoadingStage(null);
     }
-  }, [sessionIdParam, loadSession, newSession, router, state.sessionId]);
+  }, [sessionIdParam, startSessionLoad, newSession, state.sessionId]);
 
   // When a new session_id is assigned by the server, update the URL
   useEffect(() => {
@@ -1705,7 +1774,12 @@ export default function ChatPage() {
             </div>
           </div>
           <div className="mx-auto flex w-full max-w-[960px] flex-1 min-h-0 flex-col overflow-hidden px-6">
-            {!hasMessages ? (
+            {sessionLoadingStage ? (
+              <SessionLoadingView
+                stage={sessionLoadingStage}
+                onCancel={cancelSessionLoad}
+              />
+            ) : !hasMessages ? (
               <div className="flex flex-1 min-h-0 flex-col items-center justify-end pb-14 animate-fade-in">
                 <div className="flex items-center justify-center gap-4">
                   <img
