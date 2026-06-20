@@ -498,6 +498,20 @@ class RuntimeSettingsService:
             "AUTH_TOKEN_EXPIRE_HOURS": str(auth["token_expire_hours"]),
             "AUTH_COOKIE_SECURE": _bool_env(auth["cookie_secure"]),
             "NEXT_PUBLIC_AUTH_ENABLED": _bool_env(auth["enabled"]),
+            # Consumed server-side by the Next.js middleware (web/proxy.ts) at
+            # request time — NOT inlined into the browser bundle. The proxy
+            # rewrites /api/* and /ws/* to DEEPTUTOR_API_BASE_URL and uses
+            # DEEPTUTOR_AUTH_ENABLED to gate the login redirect. The launcher and
+            # the Docker entrypoint both export these through render_environment,
+            # so the two deployment paths stay in sync. DEEPTUTOR_API_BASE_URL is
+            # the address the frontend *server* uses to reach the backend; the
+            # browser itself only ever talks to the frontend origin.
+            "DEEPTUTOR_API_BASE_URL": (
+                system["next_public_api_base"]
+                or system["next_public_api_base_external"]
+                or f"http://localhost:{system['backend_port']}"
+            ),
+            "DEEPTUTOR_AUTH_ENABLED": _bool_env(auth["enabled"]),
             "POCKETBASE_URL": integrations["pocketbase_url"],
             "POCKETBASE_PORT": str(integrations["pocketbase_port"]),
             "POCKETBASE_EXTERNAL_URL": integrations["pocketbase_external_url"],

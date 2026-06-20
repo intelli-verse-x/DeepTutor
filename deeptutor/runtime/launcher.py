@@ -817,6 +817,13 @@ def start(home: str | Path | None = None) -> None:
     common_env["HOSTNAME"] = "0.0.0.0"
     common_env["NEXT_PUBLIC_API_BASE"] = api_base
     common_env["NEXT_PUBLIC_AUTH_ENABLED"] = "true" if auth_enabled else "false"
+    # The Next.js middleware (web/proxy.ts) runs in the frontend's Node runtime
+    # and reads these at request time to forward /api/* and /ws/* to the backend
+    # and to gate the login redirect. The browser uses relative paths, so the
+    # frontend server reaches the backend on localhost at the resolved port —
+    # use backend_url (not api_base, which may be an external browser URL).
+    common_env["DEEPTUTOR_API_BASE_URL"] = backend_url
+    common_env["DEEPTUTOR_AUTH_ENABLED"] = "true" if auth_enabled else "false"
     common_env["PYTHONUNBUFFERED"] = "1"
     common_env["PYTHONIOENCODING"] = "utf-8:replace"
 

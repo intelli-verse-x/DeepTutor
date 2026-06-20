@@ -255,6 +255,8 @@ One container for the full Web app. Images on GitHub Container Registry:
 - `ghcr.io/hkuds/deeptutor:latest` — stable release
 - `ghcr.io/hkuds/deeptutor:pre` — pre-release, when available
 
+> See [CONTAINERIZATION.md](./CONTAINERIZATION.md) for podman/rootless/read-only-rootfs deployments and the full per-installation guide.
+
 ```bash
 docker run --rm --name deeptutor \
   -p 127.0.0.1:3782:3782 \
