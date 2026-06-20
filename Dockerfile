@@ -303,7 +303,9 @@ for key in \
     POCKETBASE_PORT \
     POCKETBASE_EXTERNAL_URL \
     POCKETBASE_ADMIN_EMAIL \
-    POCKETBASE_ADMIN_PASSWORD; do
+    POCKETBASE_ADMIN_PASSWORD \
+    DEEPTUTOR_API_BASE_URL \
+    DEEPTUTOR_AUTH_ENABLED; do
     unset "$key"
 done
 
@@ -333,36 +335,14 @@ PY
 export BACKEND_PORT=${BACKEND_PORT:-8001}
 export FRONTEND_PORT=${FRONTEND_PORT:-3782}
 
-# Export DEEPTUTOR_API_BASE_URL for proxy.ts (rewrites /api/* and /ws/* to the
-# configured backend at request time). Precedence: in-network
-# `next_public_api_base` first, then `next_public_api_base_external`, then
-# localhost:${BACKEND_PORT} (dev default).
-DEEPTUTOR_API_BASE_URL=$(python - <<'PY'
-import json, os
-from pathlib import Path
-try:
-    s = json.loads(Path("/app/data/user/settings/system.json").read_text(encoding="utf-8"))
-    base = s.get("next_public_api_base") or s.get("next_public_api_base_external") or f"http://localhost:{os.environ.get('BACKEND_PORT', '8001')}"
-    print(base)
-except Exception:
-    print(f"http://localhost:{os.environ.get('BACKEND_PORT', '8001')}")
-PY
-)
-export DEEPTUTOR_API_BASE_URL
-echo "📌 API Base URL (proxy): ${DEEPTUTOR_API_BASE_URL}"
-
-DEEPTUTOR_AUTH_ENABLED=$(python - <<'PY'
-import json
-from pathlib import Path
-try:
-    s = json.loads(Path("/app/data/user/settings/auth.json").read_text(encoding="utf-8"))
-    val = s.get("auth_enabled", False)
-    print("true" if val else "false")
-except Exception:
-    print("false")
-PY
-)
-export DEEPTUTOR_AUTH_ENABLED
+# DEEPTUTOR_API_BASE_URL and DEEPTUTOR_AUTH_ENABLED are exported by the
+# export_runtime_settings_to_env eval above (see render_environment in
+# deeptutor/services/config/runtime_settings.py). web/proxy.ts reads them at
+# request time to rewrite /api/* and /ws/* to the backend and to gate the login
+# redirect. Keeping them in the single JSON-backed exporter means the Docker and
+# `deeptutor start` paths stay in sync.
+echo "📌 API Base URL (proxy): ${DEEPTUTOR_API_BASE_URL:-http://localhost:${BACKEND_PORT}}"
+echo "📌 Auth enabled: ${DEEPTUTOR_AUTH_ENABLED:-false}"
 
 echo "📌 Backend Port: ${BACKEND_PORT}"
 echo "📌 Frontend Port: ${FRONTEND_PORT}"

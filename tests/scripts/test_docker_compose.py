@@ -73,17 +73,32 @@ def test_compose_files_do_not_consume_legacy_env_names() -> None:
         assert "DEEPTUTOR_DOCKER_BACKEND_PORT" in content
 
 
-def test_dockerfile_uses_runtime_auth_placeholder() -> None:
+def test_dockerfile_is_json_driven_without_bundle_sed() -> None:
+    """The image no longer rewrites the built bundle at startup (the runtime
+    ``sed -i`` broke under a read-only rootfs). URL/auth knowledge is JSON-driven:
+    the entrypoint re-exports runtime settings from data/user/settings/*.json
+    (including DEEPTUTOR_API_BASE_URL / DEEPTUTOR_AUTH_ENABLED) and web/proxy.ts
+    forwards /api/* and /ws/* to the backend at request time."""
     root = Path(__file__).resolve().parents[2]
     content = (root / "Dockerfile").read_text(encoding="utf-8")
-    assert "__NEXT_PUBLIC_API_BASE_PLACEHOLDER__" in content
-    assert "__NEXT_PUBLIC_AUTH_ENABLED_PLACEHOLDER__" in content
+    # The build-time placeholder + runtime bundle sed mechanism is gone.
+    assert "__NEXT_PUBLIC_API_BASE_PLACEHOLDER__" not in content
+    assert "__NEXT_PUBLIC_AUTH_ENABLED_PLACEHOLDER__" not in content
+    # Still JSON-driven: stale runtime env names are ignored and re-exported
+    # from the settings JSON on every start.
     assert "DEEPTUTOR_IGNORE_PROCESS_ENV_OVERRIDES=1" in content
     assert 'unset "$key"' in content
+    assert "export_runtime_settings_to_env" in content
 
 
-def test_frontend_placeholder_validation_is_safe_for_runtime_replacement() -> None:
+def test_frontend_api_is_url_agnostic_passthrough() -> None:
+    """web/lib/api.ts no longer carries a build-time API base or a placeholder
+    token; apiUrl/wsUrl are pass-throughs and the Next.js middleware
+    (web/proxy.ts) performs the forwarding at request time."""
     root = Path(__file__).resolve().parents[2]
-    content = (root / "web" / "lib" / "api.ts").read_text(encoding="utf-8")
-    assert 'const API_BASE_PLACEHOLDER = "__NEXT_PUBLIC_API_BASE_PLACEHOLDER__"' not in content
-    assert "NEXT_PUBLIC_API_BASE_PLACEHOLDER" in content
+    api_ts = (root / "web" / "lib" / "api.ts").read_text(encoding="utf-8")
+    assert "NEXT_PUBLIC_API_BASE_PLACEHOLDER" not in api_ts
+    assert "process.env.NEXT_PUBLIC_API_BASE" not in api_ts
+    proxy_ts = (root / "web" / "proxy.ts").read_text(encoding="utf-8")
+    assert "DEEPTUTOR_API_BASE_URL" in proxy_ts
+    assert "NextResponse.rewrite" in proxy_ts
