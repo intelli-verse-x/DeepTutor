@@ -2641,5 +2641,18 @@
   "Delete “{{name}}” and its {{count}} conversations? This removes them from your space and can't be undone.": "Delete “{{name}}” and its {{count}} conversations? This removes them from your space and can't be undone.",
   "Delete “{{name}}”?": "Delete “{{name}}”?",
   "Selected": "Selected",
-  "This conversation has no readable messages.": "This conversation has no readable messages."
+  "This conversation has no readable messages.": "This conversation has no readable messages.",
+  "My profile": "My profile",
+  "View your account and personalize your avatar": "View your account and personalize your avatar",
+  "Administrator": "Administrator",
+  "Joined": "Joined",
+  "Avatar": "Avatar",
+  "Upload a picture or pick an icon": "Upload a picture or pick an icon",
+  "Upload image": "Upload image",
+  "Remove photo": "Remove photo",
+  "Or pick an icon": "Or pick an icon",
+  "Sign out": "Sign out",
+  "End your session on this device": "End your session on this device",
+  "Failed to load profile": "Failed to load profile",
+  "Image is too large": "Image is too large"
 }
