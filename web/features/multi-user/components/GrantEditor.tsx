@@ -74,17 +74,24 @@ function CheckRow({
   );
 }
 
-/** Default-vs-custom switch for a whitelist field (null = default/all). */
+/**
+ * Default-vs-custom switch for a whitelist field. ``null`` selects the
+ * "default" mode; what that resolves to server-side depends on the field —
+ * built-in tools default to *all*, MCP tools default to *none* (deny until
+ * explicitly granted) — so the default-mode label is caller-supplied.
+ */
 function ModeSwitch({
   isCustom,
   disabled,
   onDefault,
   onCustom,
+  defaultLabel = "Default · all",
 }: {
   isCustom: boolean;
   disabled: boolean;
   onDefault: () => void;
   onCustom: () => void;
+  defaultLabel?: string;
 }) {
   const base =
     "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45";
@@ -100,7 +107,7 @@ function ModeSwitch({
             : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
         }`}
       >
-        Default · all
+        {defaultLabel}
       </button>
       <button
         type="button"
@@ -293,8 +300,10 @@ export function GrantEditor({ userId }: { userId: string }) {
     grant.enabled_tools === null
       ? "all tools"
       : `${grant.enabled_tools.length} tools`;
+  // MCP tools deny-by-default for non-admin users: ``null`` grants none until
+  // the admin switches to Custom and picks specific tool names.
   const mcpSummary =
-    grant.mcp_tools === null ? "all MCP" : `${grant.mcp_tools.length} MCP`;
+    grant.mcp_tools === null ? "no MCP" : `${grant.mcp_tools.length} MCP`;
 
   const mcpByServer = useMemo(() => {
     const groups = new Map<string, McpToolOption[]>();
@@ -451,6 +460,7 @@ export function GrantEditor({ userId }: { userId: string }) {
               <ModeSwitch
                 isCustom={grant.mcp_tools !== null}
                 disabled={controlsDisabled}
+                defaultLabel="Default · none"
                 onDefault={() => setToolList("mcp_tools", null)}
                 onCustom={() =>
                   setToolList(
@@ -459,6 +469,12 @@ export function GrantEditor({ userId }: { userId: string }) {
                   )
                 }
               />
+              {grant.mcp_tools === null ? (
+                <p className="px-1 text-[11px] leading-relaxed text-[var(--muted-foreground)]">
+                  MCP tools proxy host-side capabilities, so they stay denied by
+                  default. Switch to Custom to grant specific tools.
+                </p>
+              ) : null}
               {grant.mcp_tools !== null &&
                 (resources?.mcp_tools?.length ? (
                   <div className="space-y-2 text-xs">
