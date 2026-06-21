@@ -262,32 +262,36 @@ One container for the full Web app. Images on GitHub Container Registry:
 ```bash
 docker run --rm --name deeptutor \
   -p 127.0.0.1:3782:3782 \
-  -p 127.0.0.1:8001:8001 \
   -v deeptutor-data:/app/data \
   ghcr.io/hkuds/deeptutor:latest
 ```
 
-> ⚠️ **Map both `3782` and `8001`.** `3782` serves the web UI; `8001` is the FastAPI backend that your browser calls directly — there is no in-container proxy. Skip the `8001` mapping and the page still loads, but **Settings** shows "Backend unreachable" and stays unusable.
+> **Only `3782` needs to be published.** The browser talks exclusively to the frontend origin; the Next.js middleware (`web/proxy.ts`) forwards `/api/*` and `/ws/*` to the FastAPI backend **inside the container**. Publishing `8001` (`-p 127.0.0.1:8001:8001`) is optional — handy only for hitting the API directly with curl or scripts.
 
 Open [http://127.0.0.1:3782](http://127.0.0.1:3782). The container creates `/app/data/user/settings/*.json` on first boot; configure model providers from the Web Settings page. Config, API keys, logs, workspace files, memory, and knowledge bases persist in the `deeptutor-data` volume.
 
 - **Different host ports:** change the left side of each `-p host:container` mapping (e.g. `-p 127.0.0.1:8088:3782`). If you change container-side ports in `/app/data/user/settings/system.json`, restart and update the right side of each mapping to match.
 - **Detached:** add `-d`, then `docker logs -f deeptutor` to follow, `docker stop deeptutor` to stop, `docker rm deeptutor` before reusing the name. The `deeptutor-data` volume keeps your settings and workspace across restarts.
 
-**Remote Docker / reverse proxy:** the Web UI runs in the browser, so the
-browser needs a backend URL it can reach. For remote servers, open
-**Settings -> Network** or edit `data/user/settings/system.json`:
+**Remote Docker / reverse proxy:** the browser only talks to the frontend
+origin (`:3782`); the in-container Next.js middleware forwards `/api/*` and
+`/ws/*` to the backend server-side. For the common single-container case you
+don't configure an API base at all — just point your reverse proxy / TLS
+terminator at `:3782`. You only need an API base for a **split deployment**
+(backend in a separate container/host): set `next_public_api_base` in
+`data/user/settings/system.json` to the in-network address the frontend server
+uses to reach the backend (it's read server-side, never sent to the browser).
 
 ```json
 {
-  "next_public_api_base_external": "https://deeptutor.example.com"
+  "next_public_api_base": "http://backend:8001"
 }
 ```
 
-`public_api_base` is accepted as a compatibility alias and is normalized into
-`next_public_api_base_external` on save. CORS uses frontend **origins**, not API
-URLs. With auth disabled, DeepTutor permits normal HTTP/HTTPS browser origins by
-default. With auth enabled, add exact frontend origins:
+`next_public_api_base_external` (and its alias `public_api_base`) are accepted as
+lower-precedence fallbacks. CORS uses frontend **origins**, not API URLs. With
+auth disabled, DeepTutor permits normal HTTP/HTTPS browser origins by default.
+With auth enabled, add exact frontend origins:
 
 ```json
 {
