@@ -110,8 +110,6 @@ class TestSelectiveAccessLog:
                 client.get("/ok")
 
         ok_records = [
-            r
-            for r in cap.records
-            if r.args and len(r.args) >= 3 and "/ok" in str(r.args[2])
+            r for r in cap.records if r.args and len(r.args) >= 3 and "/ok" in str(r.args[2])
         ]
         assert len(ok_records) == 0

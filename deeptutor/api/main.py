@@ -240,9 +240,7 @@ app = FastAPI(
 # propagate=False keeps them from also printing through root if the global
 # level is ever lowered to INFO/DEBUG.
 _access_logger = logging.getLogger("deeptutor.access")
-if not any(
-    getattr(h, "_deeptutor_access_handler", False) for h in _access_logger.handlers
-):
+if not any(getattr(h, "_deeptutor_access_handler", False) for h in _access_logger.handlers):
     _access_handler = logging.StreamHandler(sys.stdout)
     _access_handler.setLevel(logging.INFO)
     _access_handler.setFormatter(logging.Formatter("%(message)s"))

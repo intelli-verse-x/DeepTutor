@@ -116,7 +116,8 @@ export function UserAvatar({
   let iconName: string;
   let colorName: string;
   if (descriptor.kind === "icon") {
-    iconName = descriptor.icon in AVATAR_ICONS ? descriptor.icon : fallback.icon;
+    iconName =
+      descriptor.icon in AVATAR_ICONS ? descriptor.icon : fallback.icon;
     colorName =
       descriptor.color in AVATAR_COLORS ? descriptor.color : fallback.color;
   } else {
