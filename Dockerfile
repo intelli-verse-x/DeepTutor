@@ -207,10 +207,12 @@ nodaemon=true
 logfile=/dev/null
 logfile_maxbytes=0
 pidfile=/var/run/supervisord.pid
+user=root
 
 [program:backend]
 command=/bin/bash /app/start-backend.sh
 directory=/app
+user=deeptutor
 autostart=true
 autorestart=true
 stdout_logfile=/dev/fd/1
@@ -222,6 +224,7 @@ environment=PYTHONPATH="/app",PYTHONUNBUFFERED="1"
 [program:frontend]
 command=/bin/bash /app/start-frontend.sh
 directory=/app/web
+user=deeptutor
 autostart=true
 autorestart=true
 startsecs=5
@@ -357,10 +360,19 @@ echo "   - data/user/settings/main.yaml"
 echo "   - data/user/settings/agents.yaml"
 echo "============================================"
 
-# Start supervisord as the unprivileged deeptutor user (UID 1000). The
-# supervisord children (backend, frontend) inherit this UID; chown above
-# ensured they can write under /app/data.
-exec gosu deeptutor /usr/bin/supervisord -c /etc/supervisor/conf.d/deeptutor.conf
+# Run supervisord as root so it can open the container's stdout/stderr
+# (/dev/fd/1,2 — root-owned pipes under a rootful daemon like Docker Desktop)
+# and write its pidfile under /var/run. The backend and frontend programs are
+# dropped to the unprivileged deeptutor user (UID 1000) via `user=deeptutor`
+# in the supervisord config, so the app processes stay non-root.
+#
+# Dropping supervisord ITSELF to UID 1000 here (the previous
+# `exec gosu deeptutor ...`) worked under rootless podman — where UID 1000 is
+# the mapped host user that owns those FDs — but under a rootful daemon it
+# could not open /dev/fd/1,2 ("making dispatchers ... EACCES") nor the pidfile,
+# so neither service ever started. Per-program `user=` keeps the children
+# unprivileged in both runtimes without that breakage.
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/deeptutor.conf
 EOF
 
 RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
@@ -403,6 +415,12 @@ COPY --from=frontend-builder /app/web/node_modules ./web/node_modules
 COPY --from=frontend-builder /app/web/package.json ./web/package.json
 COPY --from=frontend-builder /app/web/next.config.js ./web/next.config.js
 
+# `next dev` runs as the unprivileged deeptutor user (via `user=deeptutor` in
+# the supervisord config) and must create/write its build cache under
+# /app/web/.next, so give that user ownership of the web dir and the cache.
+RUN mkdir -p /app/web/.next \
+    && chown deeptutor:deeptutor /app/web /app/web/.next
+
 # Install development tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
@@ -423,10 +441,12 @@ nodaemon=true
 logfile=/dev/null
 logfile_maxbytes=0
 pidfile=/var/run/supervisord.pid
+user=root
 
 [program:backend]
 command=python -m uvicorn deeptutor.api.main:app --host 0.0.0.0 --port %(ENV_BACKEND_PORT)s --reload --no-access-log
 directory=/app
+user=deeptutor
 autostart=true
 autorestart=true
 stdout_logfile=/dev/fd/1
@@ -438,6 +458,7 @@ environment=PYTHONPATH="/app",PYTHONUNBUFFERED="1"
 [program:frontend]
 command=/bin/bash -c "cd /app/web && node node_modules/next/dist/bin/next dev -H 0.0.0.0 -p ${FRONTEND_PORT:-3782}"
 directory=/app/web
+user=deeptutor
 autostart=true
 autorestart=true
 startsecs=5
