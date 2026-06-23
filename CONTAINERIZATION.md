@@ -160,6 +160,13 @@ the `-p` flags. The container shares the host network directly, so open
 <http://127.0.0.1:3782> (or the `frontend_port` in `system.json`), and
 host services can be reached with normal localhost URLs.
 
+In host-network mode the processes bind directly on the host interfaces
+(there is no `-p 127.0.0.1:` prefix to scope them). To keep them off the
+LAN, set `BACKEND_HOST=127.0.0.1` and `FRONTEND_HOST=127.0.0.1` — they
+override uvicorn's `--host` and Next.js's `HOSTNAME` (both default to
+`0.0.0.0`). Only use these with `--network=host`: in bridge mode binding
+to loopback breaks the published `-p` port forward.
+
 ---
 
 ## Podman / rootless / read-only rootfs
