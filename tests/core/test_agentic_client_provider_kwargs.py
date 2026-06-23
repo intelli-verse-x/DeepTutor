@@ -175,6 +175,16 @@ def test_custom_qwen_can_use_native_tool_calling() -> None:
     assert can_use_native_tool_calling(binding="dashscope", model="qwen-plus") is True
 
 
+def test_siliconflow_deepseek_can_use_native_tool_calling() -> None:
+    assert (
+        can_use_native_tool_calling(
+            binding="siliconflow",
+            model="deepseek-ai/DeepSeek-V4-Pro",
+        )
+        is True
+    )
+
+
 @pytest.mark.asyncio
 async def test_anthropic_adapter_streams_openai_style_chunks() -> None:
     captured = {}
