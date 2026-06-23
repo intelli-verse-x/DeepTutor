@@ -61,6 +61,12 @@ def test_moonshot_vision_models() -> None:
 def test_minimax_openai_compat_supports_tools_without_response_format() -> None:
     """MiniMax M-series models support OpenAI-compatible tool calls, but
     the provider still should not receive json_object response_format."""
+    # M3 is the current default model (512K context, image input support).
+    assert supports_tools("minimax", "MiniMax-M3") is True
+    assert supports_response_format("minimax", "MiniMax-M3") is False
+    # M2.7 and M2.7-highspeed remain as alternatives.
+    assert supports_tools("minimax", "MiniMax-M2.7") is True
+    assert supports_response_format("minimax", "MiniMax-M2.7") is False
     assert supports_tools("minimax", "MiniMax-M2.7-highspeed") is True
     assert supports_response_format("minimax", "MiniMax-M2.7-highspeed") is False
 

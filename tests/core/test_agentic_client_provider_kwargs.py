@@ -167,7 +167,7 @@ def test_build_openai_client_routes_github_copilot_backend_through_adapter(monke
 
 def test_anthropic_backend_can_use_native_tool_calling() -> None:
     assert can_use_native_tool_calling(binding="custom_anthropic", model="claude-test") is True
-    assert can_use_native_tool_calling(binding="minimax_anthropic", model="MiniMax-M2") is True
+    assert can_use_native_tool_calling(binding="minimax_anthropic", model="MiniMax-M3") is True
 
 
 def test_custom_qwen_can_use_native_tool_calling() -> None:
