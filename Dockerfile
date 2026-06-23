@@ -126,13 +126,8 @@ WORKDIR /app
 
 # Install system dependencies
 # Note: libgl1 and libglib2.0-0 are required for OpenCV (used by mineru)
-# libcap2-bin provides `setcap`, used below to grant gosu the
-# capabilities it needs to setuid/setgid inside rootless podman user
-# namespaces (where the parent process doesn't have those caps).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    gosu \
-    libcap2-bin \
     ca-certificates \
     bash \
     supervisor \
@@ -186,16 +181,14 @@ RUN mkdir -p \
     data/user/logs \
     data/knowledge_bases
 
-# Bake a non-root user for `gosu deeptutor supervisord` (entrypoint drops privs
-# after chown'ing /app/data). UID 1000 matches the host user under rootless
-# podman's `userns_mode: keep-id` with a bind mount on ./data.
-# `setcap` grants gosu CAP_SETUID+CAP_SETGID so it can drop privileges
-# inside rootless podman user namespaces (where the parent process
-# doesn't have those caps by default).
+# Bake a non-root user for the supervisord programs. supervisord runs as
+# root (PID 1) and drops each child to this user via the per-program
+# `user=deeptutor` directive, so the backend/frontend processes stay
+# non-root. UID 1000 matches the host user under rootless podman's
+# `userns_mode: keep-id` with a bind mount on ./data.
 RUN groupadd --system --gid 1000 deeptutor \
     && useradd --system --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin deeptutor \
-    && chown -R deeptutor:deeptutor /app/data /app/web/.next \
-    && setcap cap_setuid,cap_setgid+ep /usr/sbin/gosu
+    && chown -R deeptutor:deeptutor /app/data /app/web/.next
 
 # Create supervisord configuration for running both services
 # Log output goes to stdout/stderr so docker logs can capture them

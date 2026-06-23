@@ -43,10 +43,11 @@ no longer lives in the frontend bundle. Concretely:
   `data/user/settings/system.json`.
 - `start-frontend.sh` is now 12 lines: it sets `PORT`/`HOSTNAME` and
   `exec`s `node /app/web/server.js`. No mutations of the bundle.
-- The entrypoint `gosu`s down to a non-root `deeptutor` user (UID 1000)
-  before launching `supervisord`. With `userns_mode: keep-id` on the host
-  that maps to your host UID; with a regular `docker run` it's a normal
-  unprivileged user inside the container.
+- `supervisord` runs as root (PID 1) and drops each program (backend,
+  frontend) to a non-root `deeptutor` user (UID 1000) via its per-program
+  `user=` directive, so the app processes stay non-root. With
+  `userns_mode: keep-id` on the host that UID maps to your host UID; with a
+  regular `docker run` it's a normal unprivileged user inside the container.
 
 The full per-installation guide follows.
 
@@ -166,8 +167,8 @@ host services can be reached with normal localhost URLs.
 For users who want the strongest default posture — rootless, with a
 read-only root filesystem — `compose.yaml` is the supported starting
 point. It pulls the same `ghcr.io/hkuds/deeptutor:latest` image and
-relies on the entrypoint chown + `gosu` privilege drop, the URL-forwarding
-`proxy.ts`, and host-side bind mounts to make it all work.
+relies on the entrypoint chown + supervisord's per-program privilege drop,
+the URL-forwarding `proxy.ts`, and host-side bind mounts to make it all work.
 
 ```bash
 cp .env.example .env       # then edit if needed
@@ -230,9 +231,10 @@ podman run --rm -d --name deeptutor \
   ghcr.io/hkuds/deeptutor:latest
 ```
 
-After the container is up, `podman exec deeptutor id` should report
-`uid=1000(deeptutor)` — the entrypoint's `gosu deeptutor supervisord`
-privilege drop took effect.
+After the container is up, the backend and frontend run as the non-root
+`deeptutor` user — `podman exec deeptutor ps -o user,pid,comm` shows
+`supervisord` as root (PID 1) with its `uvicorn`/`node` children as
+`deeptutor` (UID 1000).
 
 ### Known minor follow-up
 
