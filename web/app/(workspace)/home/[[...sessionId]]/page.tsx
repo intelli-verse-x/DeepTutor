@@ -525,9 +525,7 @@ export default function ChatPage() {
   const initialLoadRef = useRef(false);
   // Session-loading overlay: shown while navigating from chat-history →
   // session detail. Holds an AbortController so the user can cancel.
-  const [sessionLoadingStage, setSessionLoadingStage] = useState<
-    null | "loading" | "complete"
-  >(null);
+  const [sessionLoading, setSessionLoading] = useState(false);
   const loadAbortRef = useRef<AbortController | null>(null);
   // Bridge ref: ``ChatComposer`` writes a prefill function into this on
   // mount; ``ChatMessageList`` reads it via ``handlePrefillComposer`` so an
@@ -859,36 +857,36 @@ export default function ChatPage() {
     router.replace("/home", { scroll: false });
   }, [router]);
 
-  /** Abort in-flight load + navigates home. */
+  /** Abort in-flight load + navigate home. */
   const cancelSessionLoad = useCallback(() => {
     loadAbortRef.current?.abort();
     loadAbortRef.current = null;
-    setSessionLoadingStage(null);
+    setSessionLoading(false);
     navigateToHome();
   }, [navigateToHome]);
 
   /**
    * Shared helper: kick off a load. The user can cancel via the ✕ button;
-   * otherwise the loading screen stays until the API responds (no timeout).
+   * otherwise the loading overlay stays until the API responds (no timeout).
    */
   const startSessionLoad = useCallback(
     (sid: string) => {
       loadAbortRef.current?.abort();
       const ctrl = new AbortController();
       loadAbortRef.current = ctrl;
-      setSessionLoadingStage("loading");
+      setSessionLoading(true);
 
       void loadSession(sid, ctrl.signal)
         .then(() => {
           if (!ctrl.signal.aborted) {
             loadAbortRef.current = null;
-            setSessionLoadingStage("complete");
+            setSessionLoading(false);
           }
         })
         .catch(() => {
           if (!ctrl.signal.aborted) {
             loadAbortRef.current = null;
-            setSessionLoadingStage(null);
+            setSessionLoading(false);
             navigateToHome();
           }
         });
@@ -900,7 +898,7 @@ export default function ChatPage() {
   // Uses a ref-based flag so Strict Mode double-mount doesn't break the flow:
   // when React tears down + re-mounts in dev, we reset initialLoadRef in
   // cleanup so the second mount restarts the load cleanly. The abort is
-  // deliberately OMITTED from cleanup — cancelSessionLoad / timeout handle
+  // deliberately OMITTED from cleanup — cancelSessionLoad handles
   // user-initiated cancellation.
   useEffect(() => {
     if (initialLoadRef.current) return;
@@ -915,14 +913,6 @@ export default function ChatPage() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Clear "complete" after a short fade
-  useEffect(() => {
-    if (sessionLoadingStage === "complete") {
-      const t = setTimeout(() => setSessionLoadingStage(null), 400);
-      return () => clearTimeout(t);
-    }
-  }, [sessionLoadingStage]);
-
   // When URL param changes (sidebar navigation), load the corresponding session
   const prevSessionIdParam = useRef(sessionIdParam);
   useEffect(() => {
@@ -933,13 +923,13 @@ export default function ChatPage() {
     loadAbortRef.current = null;
     if (sessionIdParam) {
       if (sessionIdParam === state.sessionId) {
-        setSessionLoadingStage(null);
+        setSessionLoading(false);
         return;
       }
       startSessionLoad(sessionIdParam);
     } else {
       newSession();
-      setSessionLoadingStage(null);
+      setSessionLoading(false);
     }
   }, [sessionIdParam, startSessionLoad, newSession, state.sessionId]);
 
@@ -1841,11 +1831,8 @@ export default function ChatPage() {
             </div>
           </div>
           <div className="mx-auto flex w-full max-w-[960px] flex-1 min-h-0 flex-col overflow-hidden px-6">
-            {sessionLoadingStage ? (
-              <SessionLoadingView
-                stage={sessionLoadingStage}
-                onCancel={cancelSessionLoad}
-              />
+            {sessionLoading ? (
+              <SessionLoadingView onCancel={cancelSessionLoad} />
             ) : !hasMessages ? (
               <div className="flex flex-1 min-h-0 flex-col items-center justify-end pb-14 animate-fade-in">
                 <div className="flex items-center justify-center gap-4">
