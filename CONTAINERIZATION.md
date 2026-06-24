@@ -243,14 +243,18 @@ After the container is up, the backend and frontend run as the non-root
 `supervisord` as root (PID 1) with its `uvicorn`/`node` children as
 `deeptutor` (UID 1000).
 
-### Known minor follow-up
+### Supervisord pidfile
 
-`supervisord` emits
-`CRIT could not write pidfile /var/run/supervisord.pid` on startup
-because `/var/run` tmpfs is `mode=0755` (owned by root) and the
-now-unprivileged PID 1 can't write there. Children still spawn fine and
-reach RUNNING state. The fix is `mode=1777` on `/var/run` (matching
-`/tmp`); deferred to keep this PR focused.
+`supervisord` (PID 1) runs as **root**, which owns the `/var/run` tmpfs, so
+it writes `/var/run/supervisord.pid` cleanly even at `mode=0755`. An earlier
+build dropped PID 1 *itself* to the unprivileged `deeptutor` user (via
+`gosu`); that PID 1 couldn't write the root-owned `/var/run` and logged a
+cosmetic `CRIT could not write pidfile /var/run/supervisord.pid` on every
+start under rootless podman. Running supervisord as root and dropping only
+its child programs to `deeptutor` (the `user=` directives above) resolved
+both that CRIT and the fatal `/dev/fd/1,2` EACCES seen under rootful Docker.
+If you ever revert PID 1 to a non-root user, set `/var/run` to `mode=1777`
+(matching `/tmp`) so the pidfile stays writable.
 
 ---
 
