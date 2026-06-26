@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { SidebarShell } from "@/components/sidebar/SidebarShell";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { AdminLink } from "@/components/auth/AdminLink";
+import { ProfileLink } from "@/components/auth/ProfileLink";
 import { useAppShell } from "@/context/AppShellContext";
 import {
   deleteSession,
@@ -43,7 +44,7 @@ export default function UtilitySidebar() {
   const handleSelectSession = useCallback(
     async (sessionId: string) => {
       setActiveSessionId(sessionId);
-      router.push(`/chat/${sessionId}`);
+      router.push(`/home/${sessionId}`);
     },
     [router, setActiveSessionId],
   );
@@ -90,12 +91,13 @@ export default function UtilitySidebar() {
       onSelectSession={handleSelectSession}
       onRenameSession={handleRenameSession}
       onDeleteSession={handleDeleteSession}
-      footerSlot={
+      footerSlot={(collapsed) => (
         <>
-          <AdminLink />
-          <LogoutButton />
+          <ProfileLink collapsed={collapsed} />
+          <AdminLink collapsed={collapsed} />
+          <LogoutButton collapsed={collapsed} />
         </>
-      }
+      )}
     />
   );
 }

@@ -276,10 +276,13 @@ def get_agent_params(module_name: str) -> dict:
 # responding/answer_now output budgets are capped so prompt + output fit the
 # default 8192-token vLLM context window (see DEFAULT_AGENTS_SETTINGS note).
 DEFAULT_CHAT_PARAMS: dict[str, Any] = {
-    "temperature": 0.5,
-    "max_iterations": 20,
+    "temperature": 0.2,
+    # Exploring-loop budget: max LLM rounds in one turn's loop (a round
+    # without tool calls ends the loop early — the normal exit).
+    "max_rounds": 8,
+    "exploring": {"max_tokens": 1600},
+    # Capped (was 8000 upstream) so prompt + output fit the 8192-token vLLM ctx.
     "responding": {"max_tokens": 3072},
-    "answer_now": {"max_tokens": 3072},
 }
 
 
@@ -288,9 +291,10 @@ def get_chat_params() -> dict[str, Any]:
     Read ``capabilities.chat`` from agents.yaml with deep-merged defaults.
 
     Unlike :func:`get_agent_params`, the chat capability has per-stage
-    sub-sections (``responding``, ``answer_now``), each with its own
-    ``max_tokens``. A single ``temperature`` and ``max_iterations`` value
-    are shared across the chat loop.
+    sub-sections (``exploring``, ``responding``), each with its own
+    ``max_tokens``. A single ``temperature`` and round budget are shared
+    across the chat loop. Legacy keys from the targeting-era schema
+    (``max_iterations``, ``max_explore_rounds``, …) are filtered out.
 
     Returns:
         dict: Deep-merged chat configuration. Always contains every stage key
@@ -302,7 +306,9 @@ def get_chat_params() -> dict[str, Any]:
         with open(path, encoding="utf-8") as f:
             agents_config = yaml.safe_load(f) or {}
         cfg = (agents_config.get("capabilities", {}) or {}).get("chat", {}) or {}
-    return _deep_merge(DEFAULT_CHAT_PARAMS, cfg)
+    known_keys = set(DEFAULT_CHAT_PARAMS)
+    filtered_cfg = {key: value for key, value in cfg.items() if key in known_keys}
+    return _deep_merge(DEFAULT_CHAT_PARAMS, filtered_cfg)
 
 
 __all__ = [

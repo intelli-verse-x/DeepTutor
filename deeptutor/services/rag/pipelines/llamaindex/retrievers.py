@@ -11,7 +11,12 @@ from llama_index.core.llms.mock import MockLLM
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.core.retrievers.fusion_retriever import FUSION_MODES
 
-from .config import HYBRID_PROFILE, VECTOR_PROFILE, RetrievalConfig, retrieval_config_from_env
+from .config import (
+    HYBRID_PROFILE,
+    VECTOR_PROFILE,
+    RetrievalConfig,
+    retrieval_config_from_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +109,7 @@ def build_retriever(
 ) -> Any:
     """Compose the retrieval stack from official LlamaIndex retrievers."""
     top_k = max(1, int(top_k))
-    retrieval_config = config or retrieval_config_from_env()
+    retrieval_config = config or retrieval_config_from_settings()
     if retrieval_config.profile == VECTOR_PROFILE:
         return index.as_retriever(similarity_top_k=top_k)
 

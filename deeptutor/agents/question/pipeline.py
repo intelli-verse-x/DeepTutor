@@ -33,6 +33,7 @@ import logging
 import re
 from typing import Any
 
+from deeptutor.agents._shared.capability_result import emit_capability_result
 from deeptutor.agents._shared.tool_composition import (
     ToolMountFlags,
     compose_enabled_tools,
@@ -40,7 +41,6 @@ from deeptutor.agents._shared.tool_composition import (
     user_has_memory,
     user_has_notebooks,
 )
-from deeptutor.capabilities._shared import emit_capability_result
 from deeptutor.core.agentic import (
     DispatchOutcome,
     LabeledStepResult,
@@ -70,6 +70,7 @@ from deeptutor.services.llm import get_llm_config, prepare_multimodal_messages
 from deeptutor.services.path_service import get_path_service
 from deeptutor.services.prompt import get_prompt_manager
 from deeptutor.services.prompt.language import append_language_directive
+from deeptutor.services.sandbox import exec_capability_available
 from deeptutor.utils.json_parser import parse_json_response
 
 logger = logging.getLogger(__name__)
@@ -1485,6 +1486,7 @@ class QuestionPipeline:
             has_sources=bool(self._source_index(context)),
             has_memory=user_has_memory(),
             has_notebooks=user_has_notebooks(),
+            has_code=exec_capability_available(),
         )
 
     def _resolved_tools(self, context: UnifiedContext) -> list[str]:
@@ -1547,13 +1549,15 @@ class QuestionPipeline:
             if self.kb_name:
                 kwargs.setdefault("kb_name", self.kb_name)
         elif tool_name == "code_execution":
-            kwargs.setdefault("intent", context.user_message)
-            kwargs.setdefault("timeout", 30)
-            kwargs.setdefault("feature", FEATURE)
-            kwargs.setdefault("session_id", context.session_id)
-            kwargs.setdefault("turn_id", turn_id)
+            from deeptutor.services.sandbox import Mount
+
             if task_dir is not None:
-                kwargs.setdefault("workspace_dir", str(task_dir / "code_runs"))
+                code_dir = task_dir / "code_runs"
+                code_dir.mkdir(parents=True, exist_ok=True)
+                kwargs["_sandbox_workdir"] = str(code_dir)
+                kwargs["_sandbox_mounts"] = (
+                    Mount(host_path=str(code_dir), sandbox_path=str(code_dir), read_only=False),
+                )
         elif tool_name in {"reason", "brainstorm"}:
             kwargs.setdefault("context", context.user_message)
         elif tool_name == "web_search":

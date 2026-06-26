@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from fastapi.testclient import TestClient
+
 from deeptutor.api import main as api_main
 
 
@@ -51,3 +53,23 @@ def test_cors_normalizes_common_origin_input_mistakes(monkeypatch) -> None:
     assert "http://172.26.0.10:3782" in settings["allow_origins"]
     assert "https://learn.example.com" in settings["allow_origins"]
     assert "http://api.example.com" in settings["allow_origins"]
+
+
+def test_cors_preflight_allows_partner_patch_save() -> None:
+    client = TestClient(api_main.app)
+
+    response = client.options(
+        "/api/v1/partners/partner",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "PATCH",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    allowed_methods = {
+        method.strip() for method in response.headers["access-control-allow-methods"].split(",")
+    }
+    assert "PATCH" in allowed_methods
