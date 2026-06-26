@@ -292,3 +292,7 @@ celerybeat.pid
 *.ogg
 !demo/*.mp4
 config.bat
+.venv-fork/
+.firecrawl/
+.env.fork.local
+.secrets.local

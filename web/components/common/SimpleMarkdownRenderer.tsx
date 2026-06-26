@@ -5,8 +5,15 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   citationAnchorIdFor,
+  markdownUrlTransform,
   normalizeMarkdownForDisplay,
 } from "@/lib/markdown-display";
+import {
+  InlineFileCard,
+  makeFileLinkRemarkPlugin,
+  parseAttachmentHref,
+  useInlineFileCardContext,
+} from "@/components/common/InlineFileCard";
 import type { MarkdownRendererProps } from "./MarkdownRenderer";
 
 function extractText(children: React.ReactNode): string {
@@ -340,6 +347,10 @@ export default function SimpleMarkdownRenderer({
       );
     },
     a: ({ node, href, children, title, ...props }: any) => {
+      const attachmentName = parseAttachmentHref(href);
+      if (attachmentName) {
+        return <InlineFileCard name={attachmentName} fallback={children} />;
+      }
       const isCitation = title === "citation";
       const isHashLink = href?.startsWith("#");
       const external =
@@ -378,7 +389,7 @@ export default function SimpleMarkdownRenderer({
                 prefix && prefixMatch ? id.slice(prefixMatch[0].length) : id;
               const citationAnchor = citationAnchorIdFor(id);
               return (
-                <React.Fragment key={id}>
+                <React.Fragment key={`${id}-${idx}`}>
                   {idx > 0 && ", "}
                   <a
                     href={citationAnchor ? `#${citationAnchor}` : href}
@@ -485,7 +496,17 @@ export default function SimpleMarkdownRenderer({
     [isTrace, variant],
   );
 
-  const remarkPlugins = useMemo(() => [remarkGfm], []);
+  // Linkify exact generated-filename mentions in the assistant's prose into
+  // clickable file links (no-op outside a chat message — fileCtx is null).
+  const fileCtx = useInlineFileCardContext();
+  const fileLinkPlugin = useMemo(
+    () => makeFileLinkRemarkPlugin(fileCtx?.files ?? []),
+    [fileCtx?.files],
+  );
+  const remarkPlugins = useMemo(
+    () => (fileLinkPlugin ? [remarkGfm, fileLinkPlugin] : [remarkGfm]),
+    [fileLinkPlugin],
+  );
 
   const rootClasses = isTrace
     ? "md-renderer max-w-none font-sans text-[11px] leading-[1.55] text-[var(--muted-foreground)]"
@@ -495,7 +516,11 @@ export default function SimpleMarkdownRenderer({
 
   return (
     <div className={`${rootClasses} ${className}`}>
-      <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        components={components}
+        urlTransform={markdownUrlTransform}
+      >
         {normalizedContent}
       </ReactMarkdown>
     </div>

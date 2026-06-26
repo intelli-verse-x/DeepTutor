@@ -6,12 +6,23 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import "katex/dist/katex.min.css";
-import { processMarkdownContent } from "@/lib/latex";
+import {
+  convertFlowFenceToMermaid,
+  convertSequenceFenceToMermaid,
+  processMarkdownContent,
+} from "@/lib/latex";
 import {
   citationAnchorIdFor,
   escapeUnknownHtmlTagsForDisplay,
+  markdownUrlTransform,
   normalizeMarkdownForDisplay,
 } from "@/lib/markdown-display";
+import {
+  InlineFileCard,
+  makeFileLinkRemarkPlugin,
+  parseAttachmentHref,
+  useInlineFileCardContext,
+} from "@/components/common/InlineFileCard";
 import type { MarkdownRendererProps } from "./MarkdownRenderer";
 
 function MermaidLoading() {
@@ -472,6 +483,26 @@ export default function RichMarkdownRenderer({
         );
       }
 
+      // editor.md style fences. With `trackSourceLines` the preprocess
+      // pipeline is bypassed (it would shift line numbers), so the raw
+      // fence reaches us here and we convert at render time instead.
+      if (
+        (lang === "flow" || lang === "seq" || lang === "sequence") &&
+        enableMermaid
+      ) {
+        const converted =
+          lang === "flow"
+            ? convertFlowFenceToMermaid(raw)
+            : convertSequenceFenceToMermaid(raw);
+        if (converted) {
+          return (
+            <div {...lineProps}>
+              <LazyMermaid chart={converted} className={gap} />
+            </div>
+          );
+        }
+      }
+
       if (lang === "ggbscript" && enableCode) {
         // Backend emits ```ggbscript[page_id;title]. We don't render the
         // applet inline anymore — the chat answer stays text-only and we
@@ -535,6 +566,10 @@ export default function RichMarkdownRenderer({
       );
     },
     a: ({ node, href, children, title, ...props }: any) => {
+      const attachmentName = parseAttachmentHref(href);
+      if (attachmentName) {
+        return <InlineFileCard name={attachmentName} fallback={children} />;
+      }
       const isCitation = title === "citation";
       const isHashLink = href?.startsWith("#");
       const external =
@@ -573,7 +608,7 @@ export default function RichMarkdownRenderer({
                 prefix && prefixMatch ? id.slice(prefixMatch[0].length) : id;
               const citationAnchor = citationAnchorIdFor(id);
               return (
-                <React.Fragment key={id}>
+                <React.Fragment key={`${id}-${idx}`}>
                   {idx > 0 && ", "}
                   <a
                     href={citationAnchor ? `#${citationAnchor}` : href}
@@ -692,11 +727,19 @@ export default function RichMarkdownRenderer({
       ? "md-renderer prose max-w-none font-serif"
       : "md-renderer prose prose-sm max-w-none font-serif";
 
+  // Linkify exact generated-filename mentions in the assistant's prose into
+  // clickable file links (no-op outside a chat message — fileCtx is null).
+  const fileCtx = useInlineFileCardContext();
+  const fileLinkPlugin = useMemo(
+    () => makeFileLinkRemarkPlugin(fileCtx?.files ?? []),
+    [fileCtx?.files],
+  );
   const remarkPlugins = useMemo(() => {
     const p: Array<any> = [remarkGfm];
     if (plugins.remarkMath) p.push(plugins.remarkMath as never);
+    if (fileLinkPlugin) p.push(fileLinkPlugin as never);
     return p;
-  }, [plugins.remarkMath]);
+  }, [plugins.remarkMath, fileLinkPlugin]);
 
   const rehypePlugins = useMemo(() => {
     const p: Array<any> = [];
@@ -711,6 +754,7 @@ export default function RichMarkdownRenderer({
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
         components={components}
+        urlTransform={markdownUrlTransform}
       >
         {processedContent}
       </ReactMarkdown>

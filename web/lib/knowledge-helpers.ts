@@ -54,6 +54,14 @@ export interface KnowledgeBase {
     embedding_model?: string;
     embedding_dim?: number;
     embedding_mismatch?: boolean;
+    /** Connected-source kind (e.g. "obsidian", "subagent"); absent for ordinary indexed KBs. */
+    type?: string;
+    /** Absolute path of a connected Obsidian vault (when type === "obsidian"). */
+    vault_path?: string;
+    /** Backend of a connected subagent (when type === "subagent"): "claude_code" | "codex" | "partner". */
+    agent_kind?: string;
+    /** Bound partner id when agent_kind === "partner". */
+    partner_id?: string;
   };
   progress?: ProgressInfo;
   statistics?: {
@@ -129,6 +137,24 @@ const parseKnowledgeTimestamp = (value?: string): Date | null => {
 export const formatKnowledgeTimestamp = (value?: string): string | null => {
   const parsed = parseKnowledgeTimestamp(value);
   return parsed ? parsed.toLocaleString() : value || null;
+};
+
+/** The retrieval engine a KB is bound to. Connected vaults badge by source. */
+export const kbProvider = (kb: KnowledgeBase): string => {
+  if (kb.metadata?.type === "obsidian") return "obsidian";
+  return (
+    (kb.statistics?.rag_provider as string | undefined) ||
+    (kb.metadata?.rag_provider as string | undefined) ||
+    "llamaindex"
+  );
+};
+
+/** Source-document count for a KB, or null when unknown. */
+export const kbDocCount = (kb: KnowledgeBase): number | null => {
+  const raw = kb.statistics?.raw_documents;
+  if (typeof raw === "number") return raw;
+  const indexed = kb.metadata?.last_indexed_count;
+  return typeof indexed === "number" ? indexed : null;
 };
 
 export const resolveKbStatus = (kb: KnowledgeBase): string =>

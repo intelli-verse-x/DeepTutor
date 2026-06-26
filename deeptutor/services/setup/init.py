@@ -16,7 +16,8 @@ from deeptutor.services.path_service import get_path_service
 _setup_logger = None
 
 DEFAULT_INTERFACE_SETTINGS = {
-    "theme": "light",
+    # "snow" is the pure-white neutral theme, shown as "Default" in the UI.
+    "theme": "snow",
     "language": "en",
     "sidebar_description": "✨ Data Intelligence Lab @ HKU",
     "sidebar_nav_order": {
@@ -44,7 +45,7 @@ DEFAULT_MAIN_SETTINGS = {
     },
     "capabilities": {
         "solve": {
-            "max_iterations_per_step": 7,
+            "max_rounds": 12,
             "max_replans": 2,
         },
         "research": {
@@ -86,7 +87,6 @@ DEFAULT_AGENTS_SETTINGS = {
         "chat": {
             "temperature": 0.2,
             "responding": {"max_tokens": _VLLM_8K_SAFE_TOKENS},
-            "answer_now": {"max_tokens": _VLLM_8K_SAFE_TOKENS},
         },
     },
     "tools": {

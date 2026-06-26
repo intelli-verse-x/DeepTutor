@@ -35,7 +35,18 @@ class CodeGeneratorAgent(BaseAgent):
         history_context: str,
         analysis: VisualizationAnalysis,
     ) -> str:
-        system_prompt = self.get_prompt("system")
+        # Structured prompt assembly: every render type loads the shared
+        # base + general rules, plus exactly one format-specific rule block.
+        # This keeps the per-call prompt dense with the rules that matter for
+        # *this* format without ever paying for the union of all four.
+        # render_type here is always one of svg/chartjs/mermaid/html — manim
+        # is dispatched away in the capability layer before code generation.
+        system_parts = (
+            self.get_prompt("system_base"),
+            self.get_prompt("rules_general"),
+            self.get_prompt(f"rules_{analysis.render_type}"),
+        )
+        system_prompt = "\n\n".join(part.strip() for part in system_parts if part and part.strip())
         user_template = self.get_prompt("user_template")
         if not system_prompt or not user_template:
             raise ValueError("CodeGeneratorAgent prompts are not configured.")
