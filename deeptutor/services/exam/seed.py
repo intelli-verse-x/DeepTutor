@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import unicodedata
 import uuid
 
 from sqlalchemy import func, select
@@ -16,6 +18,38 @@ from deeptutor.services.exam.db import get_session, init_pg
 from deeptutor.services.exam.models import ExamPack, ExamSubject
 
 logger = logging.getLogger("exam.seed")
+
+
+def stable_exam_slug(name: str) -> str | None:
+    """A clean ASCII slug for exam packs whose name is non-Latin-led.
+
+    The web SPA derives a pack slug from the name by stripping non-``[a-z0-9_]``
+    chars. That works for Latin names ("JEE Main" → ``jee_main``) but collapses
+    CJK/Arabic/Cyrillic names ("高考 (Gaokao)" → ``_gaokao``, "اختبار القدرات
+    (Qudurat)" → ``__qudurat``), so geo→exam preferences like ``gaokao`` /
+    ``qudurat`` never match. For those packs we publish an explicit
+    ``metadata.slug`` (preferred by ``examSlugFromPack``).
+
+    Returns ``None`` for Latin-led names so the SPA keeps its existing
+    derivation (no behavior change / no regression for GATE (CS), SAT, …).
+    """
+    name = name or ""
+    before_paren = name.split("(")[0]
+    if re.search(r"[A-Za-z]", before_paren):
+        return None  # Latin-led → SPA derivation already correct
+
+    # Non-Latin name: prefer ASCII inside parentheses, e.g. "高考 (Gaokao)".
+    match = re.search(r"\(([^)]*)\)", name)
+    source = match.group(1) if match else name
+    source = (
+        unicodedata.normalize("NFKD", source)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+    )
+    source = source.split("/")[0]  # "CSAT / Suneung" → "csat"
+    slug = re.sub(r"[^a-z0-9_]", "", re.sub(r"[\s\-]+", "_", source.strip())).strip("_")
+    return slug or None
 
 EXAM_PACKS: list[dict] = [
     # India
@@ -828,18 +862,29 @@ EXAM_METADATA: dict[str, dict] = {
 
 
 async def seed_exam_packs() -> int:
-    """Insert all exam packs if the table is empty.  Returns count inserted."""
+    """Insert all exam packs if the table is empty.  Returns count inserted.
+
+    Always reconciles ``metadata.slug`` afterwards (via
+    :func:`backfill_exam_pack_slugs`) so the deploy path fixes already-seeded
+    environments too — on a fresh seed the rows already carry the slug, so the
+    backfill is a no-op.
+    """
     created = 0
     async for session in get_session():
         count = (await session.execute(select(func.count()).select_from(ExamPack))).scalar()
         if count and count > 0:
-            logger.info("Exam packs already seeded (%d rows) — skipping", count)
-            return 0
+            logger.info("Exam packs already seeded (%d rows) — skipping insert", count)
+            break
 
         for ep_data in EXAM_PACKS:
             subjects = ep_data.pop("subjects")
             is_coming_soon = ep_data.pop("is_coming_soon", False)
-            meta = EXAM_METADATA.get(ep_data.get("name"), {})
+            meta = dict(EXAM_METADATA.get(ep_data.get("name"), {}))
+            # Publish a clean ASCII slug for non-Latin-named packs so the web
+            # SPA's geo→exam preferences (gaokao, qudurat, …) resolve correctly.
+            slug = stable_exam_slug(ep_data.get("name", ""))
+            if slug and not meta.get("slug"):
+                meta["slug"] = slug
             ep = ExamPack(is_coming_soon=is_coming_soon, metadata_=meta, **ep_data)
             session.add(ep)
             await session.flush()
@@ -851,7 +896,42 @@ async def seed_exam_packs() -> int:
 
         await session.commit()
         logger.info("Seeded %d exam packs", created)
+
+    # Reconcile slugs on every startup: fresh seed → no-op; pre-fix deploys get
+    # metadata.slug stamped so geo→exam prefs (gaokao/qudurat/…) resolve.
+    await backfill_exam_pack_slugs()
     return created
+
+
+async def backfill_exam_pack_slugs() -> int:
+    """Idempotently add ``metadata.slug`` to already-seeded non-Latin exam packs.
+
+    ``seed_exam_packs()`` only writes the slug on a *fresh* seed (empty table), so
+    environments seeded before the slug fix would never publish ``gaokao`` /
+    ``qudurat`` / … and the web SPA's geo→exam preferences keep falling back to
+    SAT. This updates existing rows in place and is safe to run on every startup:
+    Latin-named packs return ``None`` (untouched) and rows already carrying the
+    correct slug are skipped, so a steady-state deploy is a no-op.
+
+    Returns the number of rows updated.
+    """
+    updated = 0
+    async for session in get_session():
+        rows = (await session.execute(select(ExamPack))).scalars().all()
+        for ep in rows:
+            slug = stable_exam_slug(ep.name or "")
+            if not slug:
+                continue  # Latin-led name → SPA derivation already correct
+            meta = dict(ep.metadata_ or {})
+            if meta.get("slug") == slug:
+                continue  # already backfilled
+            meta["slug"] = slug
+            ep.metadata_ = meta  # reassign so SQLAlchemy flags the JSONB dirty
+            updated += 1
+        if updated:
+            await session.commit()
+            logger.info("Backfilled metadata.slug on %d exam pack(s)", updated)
+    return updated
 
 
 async def _main():
@@ -860,7 +940,8 @@ async def _main():
         print("PG_HOST not set — cannot seed")
         return
     n = await seed_exam_packs()
-    print(f"Seeded {n} exam packs")
+    b = await backfill_exam_pack_slugs()
+    print(f"Seeded {n} exam packs; backfilled slug on {b}")
 
 
 if __name__ == "__main__":
