@@ -430,8 +430,11 @@ async def diagnostic_answer(
     subj_index = (answer_count + 1) % len(exam_subjects)
     next_subj = exam_subjects[subj_index]
 
+    # Pass the trajectory so difficulty fallback degrades in the adaptive
+    # direction (correct → bias harder, wrong → bias easier) on a tie.
     next_q = await _pick_diagnostic_question_relaxed(
-        session, ds.exam_type, ds.current_difficulty, next_subj, answered_ids
+        session, ds.exam_type, ds.current_difficulty, next_subj, answered_ids,
+        prefer_harder=is_correct,
     )
     if not next_q:
         ds.status = "completed"
@@ -526,6 +529,41 @@ async def diagnostic_results(
     )
 
 
+def _difficulty_fallback_order(
+    target: str, prefer_harder: Optional[bool] = None
+) -> list[str]:
+    """Difficulties to try when ``target`` is unavailable, *nearest-first*.
+
+    The diagnostic claims to adapt difficulty per answer. A sparse question bank
+    used to silently break that promise: the old fallback walked
+    ``["easy", "medium", "hard"]`` in fixed order, so a learner who answered a
+    MEDIUM question correctly (target → ``hard``) would receive an EASY question
+    whenever no HARD row existed — the opposite of adaptation.
+
+    Degrading to the closest difficulty preserves the step. The only tie is
+    ``target="medium"`` (easy and hard are equidistant); we break it with the
+    learner's trajectory — ascending learners (last answer correct) get the
+    harder side, descending learners the easier side.
+    """
+    if target not in DIFFICULTY_LEVELS:
+        return list(DIFFICULTY_LEVELS)
+    t = DIFFICULTY_LEVELS.index(target)
+    others = [d for d in DIFFICULTY_LEVELS if d != target]
+
+    def sort_key(d: str) -> tuple[int, int]:
+        i = DIFFICULTY_LEVELS.index(d)
+        dist = abs(i - t)
+        if prefer_harder is True:
+            tie = -i  # prefer the harder side on a tie
+        elif prefer_harder is False:
+            tie = i  # prefer the easier side on a tie
+        else:
+            tie = i
+        return (dist, tie)
+
+    return sorted(others, key=sort_key)
+
+
 async def _pick_diagnostic_question(
     session: AsyncSession,
     exam_type: str,
@@ -553,6 +591,7 @@ async def _pick_diagnostic_question_relaxed(
     difficulty: str,
     subject: Optional[str],
     exclude_ids: set,
+    prefer_harder: Optional[bool] = None,
 ) -> ExamQuestion | None:
     """BUG-002 fix: progressive fallback wrapper.
 
@@ -570,18 +609,14 @@ async def _pick_diagnostic_question_relaxed(
     q = await _pick_diagnostic_question(session, exam_type, difficulty, None, exclude_ids)
     if q:
         return q
-    # 3. relax difficulty — same subject, any difficulty
-    if subject:
-        for d in DIFFICULTY_LEVELS:
-            if d == difficulty:
-                continue
+    # 3 & 4. relax difficulty — but degrade to the *nearest* difficulty first so
+    # adaptation is never masked (target=hard falls back to medium, not easy).
+    # Within each difficulty, keep the requested subject before dropping it.
+    for d in _difficulty_fallback_order(difficulty, prefer_harder):
+        if subject:
             q = await _pick_diagnostic_question(session, exam_type, d, subject, exclude_ids)
             if q:
                 return q
-    # 4. relax both — any subject, any difficulty
-    for d in DIFFICULTY_LEVELS:
-        if d == difficulty:
-            continue
         q = await _pick_diagnostic_question(session, exam_type, d, None, exclude_ids)
         if q:
             return q
@@ -596,7 +631,7 @@ async def _pick_diagnostic_question_relaxed(
         q = await _pick_diagnostic_question(session, exam_type, difficulty, None, exclude_ids)
         if q:
             return q
-        for d in DIFFICULTY_LEVELS:
+        for d in _difficulty_fallback_order(difficulty, prefer_harder):
             q = await _pick_diagnostic_question(session, exam_type, d, None, exclude_ids)
             if q:
                 return q
