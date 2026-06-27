@@ -440,11 +440,7 @@ async def diagnostic_answer(
     answered_ids = set((await session.execute(answered_ids_stmt)).scalars().all())
     answered_ids.add(q.id)
 
-    if is_correct:
-        idx = min(DIFFICULTY_LEVELS.index(ds.current_difficulty) + 1, 2)
-    else:
-        idx = max(DIFFICULTY_LEVELS.index(ds.current_difficulty) - 1, 0)
-    ds.current_difficulty = DIFFICULTY_LEVELS[idx]
+    ds.current_difficulty = _next_difficulty(ds.current_difficulty, is_correct)
 
     pool_subject = _subject_pool_target(ds.exam_type)
     if pool_subject:
@@ -495,7 +491,9 @@ async def _compute_diagnostic_results(
     diff_progression: list[str] = []
     correct_total = 0
     for a in answers:
-        s = a.subject or "Unknown"
+        # Canonicalize + merge so a leaked localized label (영어 / 국어 / 수학) or a
+        # duplicate ("Math" vs "수학") can't surface as a garbled subject row.
+        s = _canon_subject(a.subject)
         if s not in subj_scores:
             subj_scores[s] = {"correct": 0, "total": 0}
         subj_scores[s]["total"] += 1
@@ -553,6 +551,65 @@ async def diagnostic_results(
         subject_scores=res["subject_scores"],
         difficulty_progression=res["difficulty_progression"],
     )
+
+
+def _next_difficulty(current: str, is_correct: bool) -> str:
+    """Adaptive ladder step for the diagnostic.
+
+    Correct answer → one level *harder*; wrong answer → one level *easier*,
+    clamped to the easy↔hard bounds. This is the single source of truth for the
+    per-answer difficulty trajectory (kept pure so the ladder direction is unit
+    testable without a database). An unexpected stored value defaults to medium.
+    """
+    try:
+        idx = DIFFICULTY_LEVELS.index(current)
+    except ValueError:
+        idx = DIFFICULTY_LEVELS.index("medium")
+    if is_correct:
+        idx = min(idx + 1, len(DIFFICULTY_LEVELS) - 1)
+    else:
+        idx = max(idx - 1, 0)
+    return DIFFICULTY_LEVELS[idx]
+
+
+def _score_pct(correct: int, total: int) -> float:
+    """Diagnostic accuracy as a 0–100 percentage (one decimal); 0 when no answers."""
+    return round((correct / total) * 100, 1) if total else 0
+
+
+# Localized / variant subject labels → canonical English. The diagnostic bank can
+# leak Hangul/Arabic subject names onto an English exam; mapping them keeps the
+# results breakdown honest and de-duplicated (mirrors the SPA-side canonicalizer).
+_SUBJECT_CANON = {
+    "수학": "Mathematics", "math": "Mathematics", "maths": "Mathematics",
+    "mathematics": "Mathematics", "mathematik": "Mathematics",
+    "数学": "Mathematics", "गणित": "Mathematics", "الرياضيات": "Mathematics",
+    "영어": "English", "english": "English", "englisch": "English",
+    "英语": "English",
+    "국어": "Reading", "reading": "Reading", "읽기": "Reading",
+    "verbal": "Reading", "ebrw": "Reading", "reading & writing": "Reading",
+    "writing": "Writing", "쓰기": "Writing",
+    "물리": "Physics", "physics": "Physics",
+    "화학": "Chemistry", "chemistry": "Chemistry",
+    "생물": "Biology", "biology": "Biology",
+    "science": "Science", "reasoning": "Reasoning", "추론": "Reasoning",
+}
+
+
+def _canon_subject(label: str | None) -> str:
+    """Map a (possibly localized) subject label to a clean English name."""
+    s = (label or "").strip()
+    if not s:
+        return "General"
+    if s in _SUBJECT_CANON:
+        return _SUBJECT_CANON[s]
+    low = s.lower()
+    if low in _SUBJECT_CANON:
+        return _SUBJECT_CANON[low]
+    # No ASCII letters → a leaked foreign-script label; collapse to neutral.
+    if not any("a" <= c <= "z" for c in low):
+        return "General"
+    return s[0].upper() + s[1:]
 
 
 def _difficulty_fallback_order(
@@ -794,7 +851,7 @@ async def generate_study_plan(
             answers = (await session.execute(answers_stmt)).scalars().all()
             subj_scores: dict[str, dict[str, int]] = {}
             for a in answers:
-                s = a.subject or "Unknown"
+                s = _canon_subject(a.subject)
                 if s not in subj_scores:
                     subj_scores[s] = {"correct": 0, "total": 0}
                 subj_scores[s]["total"] += 1
@@ -1001,16 +1058,29 @@ async def predict_score(
     )
     total_candidates = int(scoring.get("total_candidates", 1_000_000))
 
-    num_subjects = len(subj_rows) or 1
+    # Canonicalize + merge subjects before scoring so a leaked localized label or
+    # a duplicate doesn't inflate the subject count (and shrink each subject_max).
+    merged: dict[str, dict[str, int]] = {}
+    for subj, total, correct in subj_rows:
+        name = _canon_subject(subj)
+        m = merged.setdefault(name, {"total": 0, "correct": 0})
+        m["total"] += int(total or 0)
+        m["correct"] += int(correct or 0)
+
+    num_subjects = len(merged) or 1
     subject_max = max_score / num_subjects
 
     subj_breakdown: dict[str, Any] = {}
     weighted_score = 0.0
-    for subj, total, correct in subj_rows:
+    for name, m in merged.items():
+        total, correct = m["total"], m["correct"]
         pct = (correct / total) * 100 if total else 0
         predicted = round(pct * subject_max / 100, 1)
-        subj_breakdown[subj] = {"predicted": predicted, "max": subject_max, "accuracy_pct": round(pct, 1)}
+        subj_breakdown[name] = {"predicted": predicted, "max": round(subject_max, 1), "accuracy_pct": round(pct, 1)}
         weighted_score += predicted
+
+    # Standardized scores are whole numbers (no 916.7) — round the headline score.
+    weighted_score = float(round(weighted_score))
 
     percentile = min(99.9, max(1.0, _score_to_percentile(weighted_score, max_score)))
     rank = max(1, int(total_candidates * (1 - percentile / 100)))
