@@ -13,6 +13,7 @@ import unicodedata
 import uuid
 
 from sqlalchemy import func, select
+from sqlalchemy.orm.attributes import flag_modified
 
 from deeptutor.services.exam.db import get_session, init_pg
 from deeptutor.services.exam.models import ExamPack, ExamSubject
@@ -926,7 +927,12 @@ async def backfill_exam_pack_slugs() -> int:
             if meta.get("slug") == slug:
                 continue  # already backfilled
             meta["slug"] = slug
-            ep.metadata_ = meta  # reassign so SQLAlchemy flags the JSONB dirty
+            ep.metadata_ = meta
+            # Belt-and-suspenders for JSONB: reassigning a new dict already fires
+            # the attribute 'set' event, and flag_modified makes the dirty mark
+            # explicit regardless of MutableDict config — so the UPDATE always
+            # flushes (no reliance on watching deploy logs to confirm).
+            flag_modified(ep, "metadata_")
             updated += 1
         if updated:
             await session.commit()
