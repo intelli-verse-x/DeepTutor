@@ -109,10 +109,23 @@ class _FakeSession:
 
 
 def _patch_session(monkeypatch, session):
+    """Stub the async session generator AND ``flag_modified``.
+
+    ``flag_modified`` expects a real SQLAlchemy-instrumented instance, so against
+    the plain ``_FakeRow`` stubs we record the calls instead — which doubles as an
+    assertion that the JSONB dirty-mark fires once per updated row.
+
+    Returns the recorded ``(obj, attr)`` calls.
+    """
     async def _gen():
         yield session
 
     monkeypatch.setattr(seed, "get_session", _gen)
+    flag_calls: list[tuple[object, str]] = []
+    monkeypatch.setattr(
+        seed, "flag_modified", lambda obj, attr: flag_calls.append((obj, attr))
+    )
+    return flag_calls
 
 
 class TestBackfillExamPackSlugs:
@@ -124,7 +137,7 @@ class TestBackfillExamPackSlugs:
             _FakeRow("اختبار القدرات (Qudurat)", {"x": 2}),  # → qudurat, keep x
         ]
         session = _FakeSession(rows)
-        _patch_session(monkeypatch, session)
+        flag_calls = _patch_session(monkeypatch, session)
 
         updated = asyncio.run(seed.backfill_exam_pack_slugs())
 
@@ -135,6 +148,8 @@ class TestBackfillExamPackSlugs:
         assert rows[3].metadata_["slug"] == "qudurat"
         assert rows[3].metadata_["x"] == 2  # existing key preserved
         assert session.commits == 1
+        # JSONB dirty-mark fired exactly for the two updated rows.
+        assert flag_calls == [(rows[2], "metadata_"), (rows[3], "metadata_")]
 
     def test_idempotent_second_run_is_noop(self, monkeypatch):
         rows = [
@@ -142,22 +157,26 @@ class TestBackfillExamPackSlugs:
             _FakeRow("اختبار القدرات (Qudurat)", {}),
         ]
         session = _FakeSession(rows)
-        _patch_session(monkeypatch, session)
+        flag_calls = _patch_session(monkeypatch, session)
 
         first = asyncio.run(seed.backfill_exam_pack_slugs())
         assert first == 2
+        assert len(flag_calls) == 2
 
-        # Second pass over the now-stamped rows must not update or commit again.
+        # Second pass over the now-stamped rows must not update, commit, or re-mark.
         session.commits = 0
+        flag_calls.clear()
         second = asyncio.run(seed.backfill_exam_pack_slugs())
         assert second == 0
         assert session.commits == 0
+        assert flag_calls == []
 
     def test_existing_correct_slug_skipped(self, monkeypatch):
         rows = [_FakeRow("高考 (Gaokao)", {"slug": "gaokao", "k": 1})]
         session = _FakeSession(rows)
-        _patch_session(monkeypatch, session)
+        flag_calls = _patch_session(monkeypatch, session)
 
         assert asyncio.run(seed.backfill_exam_pack_slugs()) == 0
         assert session.commits == 0
+        assert flag_calls == []
         assert rows[0].metadata_ == {"slug": "gaokao", "k": 1}
