@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -294,6 +295,22 @@ DIFFICULTY_LEVELS = ["easy", "medium", "hard"]
 DIAG_TOTAL_QUESTIONS = 13
 DIAG_SUBJECTS = ["Physics", "Chemistry", "Mathematics", "Biology", "English", "Reasoning"]
 
+# Sentinel ``exam_type`` prefix for a *subject-only* diagnostic. A learner who
+# isn't preparing for a named exam (e.g. "I just want to practise Calculus")
+# has no dedicated ExamPack, so the pack-scoped picker would find nothing and
+# 404. ``subject:<Name>`` pools real, already-ingested questions for that
+# subject across *every* pack instead — an adaptive practice path for subject
+# learners with zero fabricated content. All existing exam_type values are
+# unaffected (the helper returns None for them).
+SUBJECT_POOL_PREFIX = "subject:"
+
+
+def _subject_pool_target(exam_type: str | None) -> Optional[str]:
+    """Return the subject name if ``exam_type`` is a ``subject:<Name>`` pool, else None."""
+    if exam_type and exam_type.lower().startswith(SUBJECT_POOL_PREFIX):
+        return exam_type.split(":", 1)[1].strip() or None
+    return None
+
 
 @router.post("/diagnostic/start")
 async def diagnostic_start(
@@ -301,8 +318,13 @@ async def diagnostic_start(
     x_user_id: str = Header(),
     session: AsyncSession = Depends(get_session),
 ):
-    metadata = await _get_exam_metadata(session, body.exam_type)
-    exam_subjects = _extract_exam_subjects(metadata) or DIAG_SUBJECTS
+    pool_subject = _subject_pool_target(body.exam_type)
+    if pool_subject:
+        metadata = {}
+        exam_subjects = [pool_subject]
+    else:
+        metadata = await _get_exam_metadata(session, body.exam_type)
+        exam_subjects = _extract_exam_subjects(metadata) or DIAG_SUBJECTS
     total_q = max(DIAG_TOTAL_QUESTIONS, len(exam_subjects) * 2 + 1)
 
     ds = DiagnosticSession(
@@ -418,20 +440,23 @@ async def diagnostic_answer(
     answered_ids = set((await session.execute(answered_ids_stmt)).scalars().all())
     answered_ids.add(q.id)
 
-    if is_correct:
-        idx = min(DIFFICULTY_LEVELS.index(ds.current_difficulty) + 1, 2)
-    else:
-        idx = max(DIFFICULTY_LEVELS.index(ds.current_difficulty) - 1, 0)
-    ds.current_difficulty = DIFFICULTY_LEVELS[idx]
+    ds.current_difficulty = _next_difficulty(ds.current_difficulty, is_correct)
 
-    metadata = await _get_exam_metadata(session, ds.exam_type)
-    exam_subjects = _extract_exam_subjects(metadata) or DIAG_SUBJECTS
+    pool_subject = _subject_pool_target(ds.exam_type)
+    if pool_subject:
+        exam_subjects = [pool_subject]
+    else:
+        metadata = await _get_exam_metadata(session, ds.exam_type)
+        exam_subjects = _extract_exam_subjects(metadata) or DIAG_SUBJECTS
 
     subj_index = (answer_count + 1) % len(exam_subjects)
     next_subj = exam_subjects[subj_index]
 
+    # Pass the trajectory so difficulty fallback degrades in the adaptive
+    # direction (correct → bias harder, wrong → bias easier) on a tie.
     next_q = await _pick_diagnostic_question_relaxed(
-        session, ds.exam_type, ds.current_difficulty, next_subj, answered_ids
+        session, ds.exam_type, ds.current_difficulty, next_subj, answered_ids,
+        prefer_harder=is_correct,
     )
     if not next_q:
         ds.status = "completed"
@@ -466,7 +491,9 @@ async def _compute_diagnostic_results(
     diff_progression: list[str] = []
     correct_total = 0
     for a in answers:
-        s = a.subject or "Unknown"
+        # Canonicalize + merge so a leaked localized label (영어 / 국어 / 수학) or a
+        # duplicate ("Math" vs "수학") can't surface as a garbled subject row.
+        s = _canon_subject(a.subject)
         if s not in subj_scores:
             subj_scores[s] = {"correct": 0, "total": 0}
         subj_scores[s]["total"] += 1
@@ -526,6 +553,100 @@ async def diagnostic_results(
     )
 
 
+def _next_difficulty(current: str, is_correct: bool) -> str:
+    """Adaptive ladder step for the diagnostic.
+
+    Correct answer → one level *harder*; wrong answer → one level *easier*,
+    clamped to the easy↔hard bounds. This is the single source of truth for the
+    per-answer difficulty trajectory (kept pure so the ladder direction is unit
+    testable without a database). An unexpected stored value defaults to medium.
+    """
+    try:
+        idx = DIFFICULTY_LEVELS.index(current)
+    except ValueError:
+        idx = DIFFICULTY_LEVELS.index("medium")
+    if is_correct:
+        idx = min(idx + 1, len(DIFFICULTY_LEVELS) - 1)
+    else:
+        idx = max(idx - 1, 0)
+    return DIFFICULTY_LEVELS[idx]
+
+
+def _score_pct(correct: int, total: int) -> float:
+    """Diagnostic accuracy as a 0–100 percentage (one decimal); 0 when no answers."""
+    return round((correct / total) * 100, 1) if total else 0
+
+
+# Localized / variant subject labels → canonical English. The diagnostic bank can
+# leak Hangul/Arabic subject names onto an English exam; mapping them keeps the
+# results breakdown honest and de-duplicated (mirrors the SPA-side canonicalizer).
+_SUBJECT_CANON = {
+    "수학": "Mathematics", "math": "Mathematics", "maths": "Mathematics",
+    "mathematics": "Mathematics", "mathematik": "Mathematics",
+    "数学": "Mathematics", "गणित": "Mathematics", "الرياضيات": "Mathematics",
+    "영어": "English", "english": "English", "englisch": "English",
+    "英语": "English",
+    "국어": "Reading", "reading": "Reading", "읽기": "Reading",
+    "verbal": "Reading", "ebrw": "Reading", "reading & writing": "Reading",
+    "writing": "Writing", "쓰기": "Writing",
+    "물리": "Physics", "physics": "Physics",
+    "화학": "Chemistry", "chemistry": "Chemistry",
+    "생물": "Biology", "biology": "Biology",
+    "science": "Science", "reasoning": "Reasoning", "추론": "Reasoning",
+}
+
+
+def _canon_subject(label: str | None) -> str:
+    """Map a (possibly localized) subject label to a clean English name."""
+    s = (label or "").strip()
+    if not s:
+        return "General"
+    if s in _SUBJECT_CANON:
+        return _SUBJECT_CANON[s]
+    low = s.lower()
+    if low in _SUBJECT_CANON:
+        return _SUBJECT_CANON[low]
+    # No ASCII letters → a leaked foreign-script label; collapse to neutral.
+    if not any("a" <= c <= "z" for c in low):
+        return "General"
+    return s[0].upper() + s[1:]
+
+
+def _difficulty_fallback_order(
+    target: str, prefer_harder: Optional[bool] = None
+) -> list[str]:
+    """Difficulties to try when ``target`` is unavailable, *nearest-first*.
+
+    The diagnostic claims to adapt difficulty per answer. A sparse question bank
+    used to silently break that promise: the old fallback walked
+    ``["easy", "medium", "hard"]`` in fixed order, so a learner who answered a
+    MEDIUM question correctly (target → ``hard``) would receive an EASY question
+    whenever no HARD row existed — the opposite of adaptation.
+
+    Degrading to the closest difficulty preserves the step. The only tie is
+    ``target="medium"`` (easy and hard are equidistant); we break it with the
+    learner's trajectory — ascending learners (last answer correct) get the
+    harder side, descending learners the easier side.
+    """
+    if target not in DIFFICULTY_LEVELS:
+        return list(DIFFICULTY_LEVELS)
+    t = DIFFICULTY_LEVELS.index(target)
+    others = [d for d in DIFFICULTY_LEVELS if d != target]
+
+    def sort_key(d: str) -> tuple[int, int]:
+        i = DIFFICULTY_LEVELS.index(d)
+        dist = abs(i - t)
+        if prefer_harder is True:
+            tie = -i  # prefer the harder side on a tie
+        elif prefer_harder is False:
+            tie = i  # prefer the easier side on a tie
+        else:
+            tie = i
+        return (dist, tie)
+
+    return sorted(others, key=sort_key)
+
+
 async def _pick_diagnostic_question(
     session: AsyncSession,
     exam_type: str,
@@ -533,14 +654,25 @@ async def _pick_diagnostic_question(
     subject: Optional[str],
     exclude_ids: set,
 ) -> ExamQuestion | None:
-    stmt = (
-        select(ExamQuestion)
-        .join(ExamPack)
-        .where(ExamQuestion.difficulty == difficulty)
-        .where(ExamPack.name.ilike(f"%{exam_type}%"))
-    )
-    if subject:
-        stmt = stmt.where(ExamQuestion.subject == subject)
+    pool_subject = _subject_pool_target(exam_type)
+    if pool_subject:
+        # Subject-only diagnostic: pool real questions for this subject across
+        # every pack (no pack-name filter). The rotating ``subject`` arg is
+        # ignored here — the pool is the subject itself.
+        stmt = (
+            select(ExamQuestion)
+            .where(ExamQuestion.difficulty == difficulty)
+            .where(ExamQuestion.subject.ilike(f"%{pool_subject}%"))
+        )
+    else:
+        stmt = (
+            select(ExamQuestion)
+            .join(ExamPack)
+            .where(ExamQuestion.difficulty == difficulty)
+            .where(ExamPack.name.ilike(f"%{exam_type}%"))
+        )
+        if subject:
+            stmt = stmt.where(ExamQuestion.subject == subject)
     if exclude_ids:
         stmt = stmt.where(ExamQuestion.id.notin_(exclude_ids))
     stmt = stmt.order_by(func.random()).limit(1)
@@ -553,6 +685,7 @@ async def _pick_diagnostic_question_relaxed(
     difficulty: str,
     subject: Optional[str],
     exclude_ids: set,
+    prefer_harder: Optional[bool] = None,
 ) -> ExamQuestion | None:
     """BUG-002 fix: progressive fallback wrapper.
 
@@ -570,18 +703,14 @@ async def _pick_diagnostic_question_relaxed(
     q = await _pick_diagnostic_question(session, exam_type, difficulty, None, exclude_ids)
     if q:
         return q
-    # 3. relax difficulty — same subject, any difficulty
-    if subject:
-        for d in DIFFICULTY_LEVELS:
-            if d == difficulty:
-                continue
+    # 3 & 4. relax difficulty — but degrade to the *nearest* difficulty first so
+    # adaptation is never masked (target=hard falls back to medium, not easy).
+    # Within each difficulty, keep the requested subject before dropping it.
+    for d in _difficulty_fallback_order(difficulty, prefer_harder):
+        if subject:
             q = await _pick_diagnostic_question(session, exam_type, d, subject, exclude_ids)
             if q:
                 return q
-    # 4. relax both — any subject, any difficulty
-    for d in DIFFICULTY_LEVELS:
-        if d == difficulty:
-            continue
         q = await _pick_diagnostic_question(session, exam_type, d, None, exclude_ids)
         if q:
             return q
@@ -596,7 +725,7 @@ async def _pick_diagnostic_question_relaxed(
         q = await _pick_diagnostic_question(session, exam_type, difficulty, None, exclude_ids)
         if q:
             return q
-        for d in DIFFICULTY_LEVELS:
+        for d in _difficulty_fallback_order(difficulty, prefer_harder):
             q = await _pick_diagnostic_question(session, exam_type, d, None, exclude_ids)
             if q:
                 return q
@@ -722,7 +851,7 @@ async def generate_study_plan(
             answers = (await session.execute(answers_stmt)).scalars().all()
             subj_scores: dict[str, dict[str, int]] = {}
             for a in answers:
-                s = a.subject or "Unknown"
+                s = _canon_subject(a.subject)
                 if s not in subj_scores:
                     subj_scores[s] = {"correct": 0, "total": 0}
                 subj_scores[s]["total"] += 1
@@ -929,16 +1058,29 @@ async def predict_score(
     )
     total_candidates = int(scoring.get("total_candidates", 1_000_000))
 
-    num_subjects = len(subj_rows) or 1
+    # Canonicalize + merge subjects before scoring so a leaked localized label or
+    # a duplicate doesn't inflate the subject count (and shrink each subject_max).
+    merged: dict[str, dict[str, int]] = {}
+    for subj, total, correct in subj_rows:
+        name = _canon_subject(subj)
+        m = merged.setdefault(name, {"total": 0, "correct": 0})
+        m["total"] += int(total or 0)
+        m["correct"] += int(correct or 0)
+
+    num_subjects = len(merged) or 1
     subject_max = max_score / num_subjects
 
     subj_breakdown: dict[str, Any] = {}
     weighted_score = 0.0
-    for subj, total, correct in subj_rows:
+    for name, m in merged.items():
+        total, correct = m["total"], m["correct"]
         pct = (correct / total) * 100 if total else 0
         predicted = round(pct * subject_max / 100, 1)
-        subj_breakdown[subj] = {"predicted": predicted, "max": subject_max, "accuracy_pct": round(pct, 1)}
+        subj_breakdown[name] = {"predicted": predicted, "max": round(subject_max, 1), "accuracy_pct": round(pct, 1)}
         weighted_score += predicted
+
+    # Standardized scores are whole numbers (no 916.7) — round the headline score.
+    weighted_score = float(round(weighted_score))
 
     percentile = min(99.9, max(1.0, _score_to_percentile(weighted_score, max_score)))
     rank = max(1, int(total_candidates * (1 - percentile / 100)))
@@ -1072,6 +1214,91 @@ async def kb_bulk_ingest(
         "skipped": skipped,
         "enrichment_log_id": str(log_entry.id),
     }
+
+
+class DiagBankIngestRequest(BaseModel):
+    # Keyed by ExamPack.name, e.g. {"JEE Main": [{"subject": ..., "difficulty": ...}]}
+    content: dict[str, list[dict]]
+    replace: bool = False
+
+
+def _require_diag_secret(
+    x_qv_diag_secret: str | None = Header(default=None, alias="x-qv-diag-secret"),
+) -> None:
+    """Static-secret gate for the diagnostic-bank routes.
+
+    These routes live on ``bank_router``, which is intentionally NOT mounted
+    behind the exams router's JWT dependency, so non-interactive automation
+    (an n8n monitor / refresher) can authenticate with a single shared header.
+    Because the JWT no longer protects them, the secret is MANDATORY: when
+    ``DIAG_BANK_INGEST_SECRET`` is unset the routes fail closed (503) rather
+    than silently becoming public.
+    """
+    expected = os.environ.get("DIAG_BANK_INGEST_SECRET")
+    if not expected:
+        raise HTTPException(
+            503,
+            "diagnostic bank endpoints are disabled: set DIAG_BANK_INGEST_SECRET",
+        )
+    if x_qv_diag_secret != expected:
+        raise HTTPException(401, "invalid or missing x-qv-diag-secret")
+
+
+# Secret-gated, JWT-free sub-router for automation (n8n). Mounted at the same
+# ``/api/v1/exams`` prefix in api/main.py, but WITHOUT the require_auth
+# dependency the rest of the exams router carries.
+bank_router = APIRouter()
+
+
+@bank_router.post(
+    "/diagnostic/bank/ingest", dependencies=[Depends(_require_diag_secret)]
+)
+async def diagnostic_bank_ingest(
+    body: DiagBankIngestRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Refresh the *diagnostic* bank (ExamQuestion) from curated content.
+
+    Intended to be driven by an n8n workflow — on a schedule or when a curated
+    content source changes — so the adaptive diagnostic stays up to date. This
+    is DISTINCT from ``/kb/ingest`` (which feeds the KBQuestion enrichment
+    table, not the diagnostic picker's ExamQuestion bank).
+
+    Validation + insert run through the shared seeding harness (same code path
+    as the ``seed_harness`` CLI), and the response includes post-ingest
+    coverage so the caller can alert when any pack is still not adaptive-ready.
+
+    Auth: a mandatory shared secret (``x-qv-diag-secret`` matching
+    ``DIAG_BANK_INGEST_SECRET``), enforced by ``_require_diag_secret``.
+    """
+    from deeptutor.services.exam.seed_harness import (
+        coverage_for_session,
+        ingest_into_session,
+    )
+
+    summary = await ingest_into_session(session, body.content, replace=body.replace)
+    await session.commit()
+    coverage = await coverage_for_session(session)
+    not_ready = [p["pack"] for p in coverage["packs"] if not p["adaptive_ready"]]
+    return {"status": "ok", "ingest": summary, "packs_not_adaptive_ready": not_ready}
+
+
+@bank_router.get(
+    "/diagnostic/bank/coverage", dependencies=[Depends(_require_diag_secret)]
+)
+async def diagnostic_bank_coverage(
+    min_per_cell: int = 2,
+    session: AsyncSession = Depends(get_session),
+):
+    """Subject×difficulty coverage matrix for the diagnostic bank.
+
+    An n8n monitor polls this on a schedule and alerts when packs are not
+    ``adaptive_ready`` — sparse cells are exactly what mask difficulty stepping
+    in the adaptive diagnostic. Secret-gated (see ``_require_diag_secret``).
+    """
+    from deeptutor.services.exam.seed_harness import coverage_for_session
+
+    return await coverage_for_session(session, min_per_cell=min_per_cell)
 
 
 @router.post("/kb/embeddings/generate")
