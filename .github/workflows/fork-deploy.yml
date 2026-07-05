@@ -38,14 +38,25 @@ jobs:
           echo "tag=$SHA" >> "$GITHUB_OUTPUT"
           echo "Image tag: $SHA"
 
-      - name: Build & push Docker image
+      # The EKS deployment pins kubernetes.io/arch=arm64 (Graviton). A plain
+      # `docker build` on the amd64 runner produces an amd64-only image and
+      # every pod crash-loops with `exec format error` (incident 2026-07-05).
+      # Build multi-arch via buildx/QEMU so both node types can run it.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push Docker image (multi-arch)
         run: |
-          docker build \
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
             --target production \
             -t $ECR_REGISTRY/$ECR_REPO:latest \
             -t $ECR_REGISTRY/$ECR_REPO:${{ steps.tag.outputs.tag }} \
+            --push \
             .
-          docker push $ECR_REGISTRY/$ECR_REPO --all-tags
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v3
