@@ -14,9 +14,16 @@ class GroqTranscriptionProvider:
     Groq offers extremely fast transcription with a generous free tier.
     """
 
+    # 2026-07-08 GATEWAY-CENTRALIZATION: base URL is env-overridable so this
+    # partner path can be pointed at a gateway later. The LiteLLM gateway has
+    # no Groq passthrough route today, so the default stays direct-to-Groq
+    # (documented exception). Rollback: unset GROQ_API_BASE.
+    DEFAULT_API_BASE = "https://api.groq.com"
+
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.environ.get("GROQ_API_KEY")
-        self.api_url = "https://api.groq.com/openai/v1/audio/transcriptions"
+        api_base = (os.environ.get("GROQ_API_BASE") or self.DEFAULT_API_BASE).rstrip("/")
+        self.api_url = f"{api_base}/openai/v1/audio/transcriptions"
 
     async def transcribe(self, file_path: str | Path) -> str:
         """
