@@ -1,0 +1,37 @@
+number,target,url,tactic,contact,anchor,status,sent_at,landed_url,notes
+1,Product Hunt,producthunt.com,Directory,Self-submit,DeepTutor — AI Learning Companion,prospect,TBD,TBD,Prep gallery assets first
+2,There's An AI For That,theresanaiforthat.com,Directory,Submit form,AI tutor for personalized learning,prospect,TBD,TBD,Education category
+3,Futurepedia,futurepedia.io,Directory,Submit form,DeepTutor AI tutoring platform,prospect,TBD,TBD,Education category
+4,AI Tools Directory,aitoolsdirectory.com,Directory,Contact form,Intelligent learning companion,prospect,TBD,TBD,
+5,EdSurge,edsurge.com/product-reviews,Directory,Vendor profile,DeepTutor by IntelliVerse,prospect,TBD,TBD,Full profile required
+6,Class Central,classcentral.com,Directory,Submit platform,AI-powered tutoring platform,prospect,TBD,TBD,
+7,Capterra,capterra.com,Directory,Vendor signup,DeepTutor,prospect,TBD,TBD,3h profile setup
+8,G2,g2.com,Directory,Claim listing,DeepTutor,prospect,TBD,TBD,
+9,AlternativeTo,alternativeto.net,Directory,Submit software,DeepTutor,prospect,TBD,TBD,List as alt to Khan Academy
+10,Slant,slant.co,Directory,Community submit,DeepTutor AI tutor,prospect,TBD,TBD,"Best AI tutors" list
+11,awesome-edtech,github.com/hkalant/EducationalToolsResources,Awesome-list,PR,DeepTutor — Agent-native learning companion,prospect,TBD,TBD,AI Tutoring section
+12,awesome-ai-tools,github.com/mahseema/awesome-ai-tools,Awesome-list,PR,DeepTutor — AI tutoring platform,prospect,TBD,TBD,Education section
+13,awesome-educational-resources,github.com/EbookFoundation/free-programming-books,Awesome-list,PR,DeepTutor — personalized AI tutor,prospect,TBD,TBD,Interactive Learning
+14,awesome-learn-anything,github.com/learn-anything/learn-anything,Awesome-list,PR,DeepTutor by IntelliVerse,prospect,TBD,TBD,AI Learning Tools
+15,awesome-online-learning,github.com/aliyr/Online-Learning-resources,Awesome-list,PR,DeepTutor — adaptive learning,prospect,TBD,TBD,AI Tutoring subsection
+16,Show HN,news.ycombinator.com,Community,Self-post,Link in post,prospect,TBD,TBD,Week 3-4 after PH
+17,/r/learnprogramming,reddit.com/r/learnprogramming,Community,Weekly thread,DeepTutor AI tutor,prospect,TBD,TBD,Share Your Project Saturday
+18,/r/educationaltechnology,reddit.com/r/educationaltechnology,Community,Post,Contextual mention,prospect,TBD,TBD,Educator feedback angle
+19,/r/teaching,reddit.com/r/teaching,Community,Weekly thread,Natural mention,prospect,TBD,TBD,Tools thread
+20,Indie Hackers,indiehackers.com,Community,Show IH,DeepTutor,prospect,TBD,TBD,Education community
+21,Dev.to,dev.to,Editorial,Article,Link in byline + body,prospect,TBD,TBD,"Building an AI Tutor" article
+22,EdTech Magazine,edtechmagazine.com,Editorial,Pitch,DeepTutor platform,prospect,TBD,TBD,AI in education angle
+23,eSchool News,eschoolnews.com,Editorial,Pitch,Natural in article,prospect,TBD,TBD,Agent-native tutoring angle
+24,Chronicle of Higher Ed,chronicle.com,Editorial,Pitch,Mention in roundup,prospect,TBD,TBD,Higher ed focus
+25,Campus Technology,campustechnology.com,Editorial,Pitch,DeepTutor platform,prospect,TBD,TBD,Case study angle
+26,Best AI Tutors 2026 (Blog 1),TBD (search target),Link-insert,Email outreach,DeepTutor AI tutor,prospect,TBD,TBD,Find via search
+27,Best AI Tutors 2026 (Blog 2),TBD (search target),Link-insert,Email outreach,DeepTutor platform,prospect,TBD,TBD,Find via search
+28,Best AI Tutors 2026 (Blog 3),TBD (search target),Link-insert,Email outreach,DeepTutor learning companion,prospect,TBD,TBD,Find via search
+29,EdTech Influencer List 1,TBD (Twitter/LinkedIn),Link-insert,DM,Natural in list,prospect,TBD,TBD,Resource page outreach
+30,EdTech Influencer List 2,TBD (Twitter/LinkedIn),Link-insert,DM,Natural in list,prospect,TBD,TBD,Resource page outreach
+31,intelli-verse-x.ai (apex),intelli-verse-x.ai,Internal cross-link,Direct edit,DeepTutor,prospect,TBD,TBD,Products section
+32,platform.intelli-verse-x.ai,platform.intelli-verse-x.ai,Internal cross-link,Direct edit,DeepTutor AI,prospect,TBD,TBD,Dashboard widget
+33,quests.intelli-verse-x.ai,quests.intelli-verse-x.ai,Internal cross-link,Direct edit,DeepTutor,prospect,TBD,TBD,Quest completion page
+34,quiz.intelli-verse-x.ai,quiz.intelli-verse-x.ai,Internal cross-link,Direct edit,DeepTutor,prospect,TBD,TBD,Quiz results page
+35,blogs.intelli-verse-x.ai,blogs.intelli-verse-x.ai,Internal cross-link,Direct edit,DeepTutor / intelligent learning companion,prospect,TBD,TBD,Inline in 5+ posts
+36,products.intelli-verse-x.ai,products.intelli-verse-x.ai,Internal cross-link,Direct edit,DeepTutor,prospect,TBD,TBD,Product catalog
