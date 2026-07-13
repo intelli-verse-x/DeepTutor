@@ -36,5 +36,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git merge upstream/main --no-edit
+          git merge upstream/main --no-edit || {
+            git merge --abort
+            echo "::warning::Upstream sync skipped due to merge conflicts. Manual resolution required."
+            exit 0
+          }
           git push origin main
