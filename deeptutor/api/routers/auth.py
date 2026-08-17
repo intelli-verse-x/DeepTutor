@@ -213,20 +213,28 @@ def _install_current_user(payload: TokenPayload | None) -> _CtxToken:
     return set_current_user(user)
 
 
-def _install_noauth_user(x_user_id: str) -> _CtxToken:
-    """Install the current user from the ``x-user-id`` header when AUTH is off.
+def _install_noauth_user(subject: str) -> _CtxToken:
+    """Install the current user from a **verified** token subject when AUTH is off.
 
-    The fork drives multi-tenancy from ``x-user-id`` instead of upstream's login.
-    When ``AUTH_ENABLED=false`` we must still give each tenant its OWN per-user
-    scope, otherwise every request resolves to the local-admin workspace and all
-    users silently share one global store (cross-user leak across memory /
-    knowledge / books). An empty / missing id keeps the legacy single-user
-    behaviour (admin workspace), so CLI usage is unchanged.
+    The fork drives multi-tenancy from the anonymous-token subject instead of
+    upstream's login. When ``AUTH_ENABLED=false`` we must still give each tenant
+    its OWN per-user scope, otherwise every request resolves to the local-admin
+    workspace and all users silently share one global store (cross-user leak
+    across memory / knowledge / books).
+
+    ``subject`` must already be signature-verified — it used to be the raw
+    ``x-user-id`` request header, which let any caller name themselves as any
+    learner. The only caller is now
+    ``deeptutor.api.middleware.tenant.subject_from_authorization``.
+
+    An empty subject means "no verifiable identity". In an HTTP deployment that
+    is a 401 raised by the resolvers; here it keeps the legacy single-user
+    behaviour (admin workspace) so CLI usage is unchanged.
     """
     from deeptutor.multi_user.models import LOCAL_ADMIN_ID, CurrentUser
     from deeptutor.multi_user.paths import scope_for_user
 
-    uid = (x_user_id or "").strip()
+    uid = (subject or "").strip()
     if not uid or uid == LOCAL_ADMIN_ID:
         return set_current_user(local_admin_user())
     user = CurrentUser(
@@ -241,7 +249,6 @@ def _install_noauth_user(x_user_id: str) -> _CtxToken:
 async def require_auth(
     authorization: str | None = Header(default=None, alias="Authorization"),
     dt_token: str | None = Cookie(default=None),
-    x_user_id: str = Header(default="", alias="x-user-id"),
 ) -> TokenPayload | None:
     """
     FastAPI dependency that enforces authentication when AUTH_ENABLED=true.
@@ -266,7 +273,22 @@ async def require_auth(
     of #481.
     """
     if not AUTH_ENABLED:
-        _install_noauth_user(x_user_id)
+        from deeptutor.api.middleware.tenant import (
+            require_identity_enforced,
+            subject_from_authorization,
+        )
+
+        subject = subject_from_authorization(authorization) or ""
+        if not subject and require_identity_enforced():
+            # An identity-less request would otherwise resolve to the local
+            # admin workspace, which is right for a single-user install and
+            # wrong for a shared one. Refuse rather than guess.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        _install_noauth_user(subject)
         return None
 
     token = _extract_token(authorization, dt_token)
@@ -318,16 +340,28 @@ async def ws_require_auth(ws: WebSocket) -> _CtxToken | _WsAuthFailed:
             reset_current_user(user_token)
     """
     if not AUTH_ENABLED:
-        # Browsers cannot set custom headers on WebSocket upgrades, so the SPA
-        # passes the tenant as a query param (?user_id=). Fall back to the
-        # x-user-id header for non-browser clients.
-        uid = (
-            ws.query_params.get("user_id")
-            or ws.query_params.get("x_user_id")
-            or ws.headers.get("x-user-id")
-            or ""
+        # Browsers cannot set custom headers on a WebSocket upgrade, so the
+        # token travels as ``?token=``. It is signature-verified exactly like
+        # the HTTP bearer — only the transport differs.
+        #
+        # This used to read ``?user_id=`` / ``?x_user_id=`` / ``x-user-id``,
+        # i.e. an unauthenticated identity in a URL, so a crafted stream URL
+        # authenticated the opener as any named learner. Refuse instead: an
+        # unverifiable upgrade is closed, not guessed.
+        from deeptutor.api.middleware.tenant import (
+            require_identity_enforced,
+            subject_from_authorization,
         )
-        return _install_noauth_user(uid)
+
+        token = ws.query_params.get("token") or ""
+        subject = subject_from_authorization(f"Bearer {token}") if token else None
+        if not subject and require_identity_enforced():
+            await ws.close(code=4001)
+            return ws_auth_failed
+        # Flag off (single-user localhost install): keep upstream's behaviour of
+        # resolving to the admin workspace. The caller still cannot *name* a
+        # tenant — that is what made the old query-param path exploitable.
+        return _install_noauth_user(subject or "")
 
     token = ws.query_params.get("token") or ws.cookies.get("dt_token")
     payload = decode_token(token) if token else None
@@ -350,8 +384,24 @@ async def require_admin(
     ``async def`` mirrors ``require_auth`` so the dependency chain stays on
     the event loop and the user ContextVar set by ``require_auth`` is visible
     to the endpoint.
+
+    On a shared deployment (``DEEPTUTOR_REQUIRE_IDENTITY=true``) with auth
+    disabled there is no role to check — the anonymous tokens carry a subject
+    and nothing else — so admin routes refuse instead of treating every caller
+    as admin. Granting admin to whoever asks is only safe for the single-user
+    localhost install this branch was written for.
     """
     if not AUTH_ENABLED:
+        from deeptutor.api.middleware.tenant import require_identity_enforced
+
+        if require_identity_enforced():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Admin access requires AUTH_ENABLED=true on a shared "
+                    "deployment; anonymous tokens carry no role."
+                ),
+            )
         return _local_admin_token_payload()
 
     if payload is None or payload.role != "admin":
@@ -886,7 +936,7 @@ import time
 import uuid
 from typing import Optional
 
-from deeptutor.api.middleware.tenant import get_current_user_id
+from deeptutor.api.middleware.tenant import get_current_user_id_or_none
 
 DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
@@ -997,12 +1047,6 @@ def decode_and_verify(token: str) -> dict:
 # Pydantic request / response models.
 # ---------------------------------------------------------------------------
 
-class AnonymousAuthRequest(BaseModel):
-    # Optional client hint (e.g. existing localStorage user_id) — accepted only
-    # when it is a v4 UUID. Otherwise we mint a fresh one.
-    preferred_user_id: Optional[str] = None
-
-
 class TokenResponse(BaseModel):
     user_id: str
     token: str
@@ -1016,14 +1060,8 @@ class RefreshRequest(BaseModel):
 
 
 class WhoAmIResponse(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     authenticated: bool
-
-
-_UUID_V4_RE = __import__("re").compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-    __import__("re").IGNORECASE,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -1031,20 +1069,28 @@ _UUID_V4_RE = __import__("re").compile(
 # ---------------------------------------------------------------------------
 
 @router.post("/anonymous", response_model=TokenResponse)
-async def anonymous(body: Optional[AnonymousAuthRequest] = None) -> TokenResponse:
-    """Mint a JWT for an anonymous browser session.
+async def anonymous() -> TokenResponse:
+    """Mint a JWT for an anonymous browser session. **No PII is recorded.**
 
-    If ``preferred_user_id`` is supplied AND looks like a UUID v4, we re-use
-    it (so a returning client preserves its identity across token rotations).
-    Otherwise a fresh UUID is minted server-side. **No PII is recorded.**
+    The subject is always generated server-side.
+
+    This endpoint used to honour a caller-supplied ``preferred_user_id``: any
+    UUID v4 in the request body became the token's subject. That made it an
+    impersonation oracle — a caller who knew or guessed a learner's id could
+    exchange it for a correctly signed token for that learner, so enforcing
+    bearer tokens on the data routes would have moved the hole rather than
+    closed it. A subject the caller can choose is not an identity.
+
+    Consequence, deliberately not papered over: a client cannot re-attach to an
+    existing tenant here. Existing tenant ids were only ever asserted via the
+    unauthenticated ``x-user-id`` header, so nothing on the server can tell the
+    owner of one from anybody else. Re-attaching them requires binding each id
+    to a credential (see the migration note in the PR description) — it is not
+    something this endpoint can decide safely.
+
+    Clients that still send a body are unaffected: the field is ignored.
     """
-    sub: Optional[str] = None
-    if body and body.preferred_user_id:
-        candidate = body.preferred_user_id.strip()
-        if _UUID_V4_RE.match(candidate):
-            sub = candidate
-    if not sub:
-        sub = str(uuid.uuid4())
+    sub = str(uuid.uuid4())
     issued = encode_token(sub)
     return TokenResponse(
         user_id=sub,
@@ -1076,8 +1122,11 @@ async def refresh(body: RefreshRequest) -> TokenResponse:
 async def whoami(authorization: Optional[str] = Header(default=None)) -> WhoAmIResponse:
     """Cheap echo endpoint for debugging the auth path.
 
-    Returns the resolved user id from the request context. ``authenticated``
-    is ``True`` only when a valid bearer token is also present.
+    Returns the resolved user id from the request context, or ``null`` when the
+    request carried no verifiable identity. ``authenticated`` is ``True`` only
+    when a valid bearer token is present — the two now always agree, whereas
+    before this could report a header-supplied ``user_id`` alongside
+    ``authenticated: false``.
     """
     authenticated = False
     if authorization and authorization.lower().startswith("bearer "):
@@ -1088,6 +1137,6 @@ async def whoami(authorization: Optional[str] = Header(default=None)) -> WhoAmIR
         except HTTPException:
             authenticated = False
     return WhoAmIResponse(
-        user_id=get_current_user_id(),
+        user_id=get_current_user_id_or_none(),
         authenticated=authenticated,
     )
