@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Integer, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from deeptutor.api.middleware.tenant import require_user_id
 from deeptutor.services.exam.db import get_session
 from deeptutor.services.exam.models import (
     DiagnosticAnswer,
@@ -315,7 +316,7 @@ def _subject_pool_target(exam_type: str | None) -> Optional[str]:
 @router.post("/diagnostic/start")
 async def diagnostic_start(
     body: DiagStartRequest,
-    x_user_id: str = Header(),
+    x_user_id: str = Depends(require_user_id),
     session: AsyncSession = Depends(get_session),
 ):
     pool_subject = _subject_pool_target(body.exam_type)
@@ -368,7 +369,7 @@ async def diagnostic_start(
 @router.post("/diagnostic/answer")
 async def diagnostic_answer(
     body: DiagAnswerRequest,
-    x_user_id: str = Header(),
+    x_user_id: str = Depends(require_user_id),
     session: AsyncSession = Depends(get_session),
 ):
     ds = await session.get(DiagnosticSession, _as_uuid(body.session_id, "session_id"))
@@ -477,7 +478,7 @@ async def diagnostic_answer(
 @router.get("/diagnostic/{session_id}/results", response_model=DiagResultOut)
 async def diagnostic_results(
     session_id: str,
-    x_user_id: str = Header(),
+    x_user_id: str = Depends(require_user_id),
     session: AsyncSession = Depends(get_session),
 ):
     ds = await session.get(DiagnosticSession, _as_uuid(session_id, "session_id"))
@@ -799,7 +800,7 @@ def _extract_exam_subjects(metadata: dict[str, Any]) -> list[str]:
 async def generate_study_plan(
     exam_type: str = "jee_main",
     diagnostic_session_id: Optional[str] = None,
-    x_user_id: str = Header(),
+    x_user_id: str = Depends(require_user_id),
     session: AsyncSession = Depends(get_session),
 ):
     exam_metadata = await _get_exam_metadata(session, exam_type)
@@ -856,7 +857,7 @@ async def generate_study_plan(
 @router.get("/study-plan/{plan_id}")
 async def get_study_plan(
     plan_id: str,
-    x_user_id: str = Header(),
+    x_user_id: str = Depends(require_user_id),
     session: AsyncSession = Depends(get_session),
 ):
     plan = await session.get(StudyPlan, _as_uuid(plan_id, "plan_id"))
@@ -881,7 +882,7 @@ async def get_study_plan(
 @router.post("/study-plan/complete-task")
 async def complete_task(
     body: TaskCompleteRequest,
-    x_user_id: str = Header(),
+    x_user_id: str = Depends(require_user_id),
     session: AsyncSession = Depends(get_session),
 ):
     task = await session.get(StudyPlanTask, _as_uuid(body.task_id, "task_id"))
@@ -985,7 +986,7 @@ def _build_study_plan_days(
 async def predict_score(
     body: ScorePredictRequest,
     session: AsyncSession = Depends(get_session),
-    x_user_id: str = Header(),
+    x_user_id: str = Depends(require_user_id),
 ):
     total_answered = (await session.execute(
         select(func.count())
