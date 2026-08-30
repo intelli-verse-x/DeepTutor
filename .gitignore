@@ -291,4 +291,3 @@ celerybeat.pid
 *.wav
 *.ogg
 !demo/*.mp4
-config.bat
