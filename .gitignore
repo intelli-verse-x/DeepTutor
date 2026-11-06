@@ -55,7 +55,6 @@ wheels/
 MANIFEST
 
 # Virtual Environments
-.env
 *.env
 *.env.local
 !.env.example
@@ -114,8 +113,6 @@ cache/
 # IDE and Editors
 # ============================================
 # VSCode
-.vscode/
-.vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
