@@ -13,6 +13,8 @@ from typing import Callable
 from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from deeptutor.api.middleware.tenant import subject_from_authorization
+
 import logging
 
 logger = logging.getLogger("RateLimiter")
@@ -86,10 +88,25 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         }
 
     def _get_client_id(self, request: Request) -> str:
-        """Get unique client identifier from IP and user ID."""
+        """Get unique client identifier from IP and verified user id.
+
+        The user component must not be caller-chosen. This used to read the
+        ``x-user-id`` header, so a client got a brand-new token bucket simply by
+        varying that header — the per-minute caps on the chat / vision routes
+        (which reach paid models) were bypassable from a single IP.
+
+        The verified subject is resolved from the bearer token here rather than
+        read off the tenant ContextVar because this middleware is installed
+        after ``TenantMiddleware`` and therefore runs *outside* it (Starlette
+        applies middleware in reverse registration order), so the ContextVar is
+        not yet set. Verification is an HMAC compare — cheap enough per request.
+
+        Unverified callers share one bucket per IP, which is the correct
+        conservative default: it cannot be widened by anything the caller sends.
+        """
         ip = request.client.host if request.client else "unknown"
-        user_id = request.headers.get("x-user-id", "anonymous")
-        return f"{ip}:{user_id}"
+        subject = subject_from_authorization(request.headers.get("authorization"))
+        return f"{ip}:{subject or 'anonymous'}"
 
     def _get_endpoint_category(self, path: str) -> str:
         """Determine endpoint category for rate limiting."""

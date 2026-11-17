@@ -11,6 +11,15 @@ import pytest
 FastAPI = pytest.importorskip("fastapi").FastAPI
 TestClient = pytest.importorskip("fastapi.testclient").TestClient
 
+# Imported at module scope, i.e. before ``_load_question_router_module`` swaps a
+# stub into ``sys.modules`` for ``deeptutor.services.config``. The websocket
+# handler resolves its identity through ``routers.auth``, which reads real auth
+# settings at import time, so importing it here keeps that off the stubbed path.
+from deeptutor.api.routers.auth import encode_token  # noqa: E402
+
+# 32+ chars — ``_get_secret()`` rejects anything shorter as a misconfiguration.
+_TEST_JWT_SECRET = "test-secret-for-question-router-0123456789"
+
 
 @pytest.fixture(autouse=True)
 def _cleanup_question_router_module():
@@ -113,8 +122,16 @@ def test_mimic_websocket_accepts_config_and_returns_messages(
         question_router_module, "_mimic_output_dir", lambda: tmp_path / "mimic_papers"
     )
 
+    # The stream is tenant-scoped, so the upgrade must carry a verified token.
+    # Browsers cannot set headers on a WebSocket upgrade, hence ``?token=``.
+    # An upgrade without one is closed (4001) rather than run as a default user.
+    monkeypatch.setenv("DEEPTUTOR_JWT_SECRET", _TEST_JWT_SECRET)
+    token = encode_token("11111111-1111-4111-8111-111111111111")["token"]
+
     with TestClient(_build_app(question_router_module)) as client:
-        with client.websocket_connect("/api/v1/question/mimic") as websocket:
+        with client.websocket_connect(
+            f"/api/v1/question/mimic?token={token}"
+        ) as websocket:
             websocket.send_json(
                 {
                     "mode": "parsed",
